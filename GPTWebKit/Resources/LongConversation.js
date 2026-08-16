@@ -27,7 +27,6 @@
   const conversationIdFromPath = (pathname = location.pathname) => pathname.match(/\/c\/([^/?#]+)/)?.[1] || '';
   const historyKey = (id) => `gptwebkit.tail.history.${id}`;
   const rebaseKey = (id) => `gptwebkit.tail.rebase.${id}`;
-
   const readHistoryLimit = (id) => {
     if (!id) return settings.initialVisible;
     try {
@@ -35,7 +34,6 @@
       return value >= settings.initialVisible ? clampEven(value, settings.initialVisible, 100) : settings.initialVisible;
     } catch (_) { return settings.initialVisible; }
   };
-
   const writeHistoryLimit = (id, value) => {
     if (!id) return;
     try {
@@ -44,29 +42,24 @@
       else sessionStorage.setItem(historyKey(id), String(limit));
     } catch (_) {}
   };
-
   const clearHistoryLimit = (id) => { if (id) { try { sessionStorage.removeItem(historyKey(id)); } catch (_) {} } };
   const currentLimit = () => readHistoryLimit(conversationIdFromPath());
   const historyMode = () => currentLimit() > settings.initialVisible;
 
   const TailProxy = (() => {
     if (window.GPTWebKitTailProxy) return window.GPTWebKitTailProxy;
-
     const nativeFetch = window.fetch.bind(window);
     const requestURLs = new Map();
     const state = { lastConversationId: '', lastOriginalCurrentNode: '', lastTrimmedVisible: 0, lastTotalVisible: 0, lastProxyAt: 0, lastBypassedReason: '' };
-
-    const isVisibleNode = (node) => {
+    const visibleRole = (node) => {
       const role = node?.message?.author?.role;
-      return role === 'user' || role === 'assistant';
+      return role === 'user' || role === 'assistant' ? role : '';
     };
-
     const containerOf = (data) => {
       if (data?.mapping && typeof data.mapping === 'object') return data;
       if (data?.conversation?.mapping && typeof data.conversation.mapping === 'object') return data.conversation;
       return null;
     };
-
     const walkCurrentPath = (mapping, currentNode) => {
       const reversed = [];
       const visited = new Set();
@@ -79,25 +72,33 @@
       reversed.reverse();
       return reversed;
     };
-
+    const turnStartsForPath = (path, mapping) => {
+      const starts = [];
+      let lastRole = '';
+      for (let i = 0; i < path.length; i++) {
+        const role = visibleRole(mapping[path[i]]);
+        if (!role) continue;
+        if (role !== lastRole) starts.push(i);
+        lastRole = role;
+      }
+      return starts;
+    };
+    const countTurns = (path, mapping) => turnStartsForPath(path, mapping).length;
     const trimConversation = (data, limit) => {
       const container = containerOf(data);
       const mapping = container?.mapping;
       const currentNode = container?.current_node;
       if (!container || !mapping || !currentNode || !mapping[currentNode]) return { data, trimmed: false, reason: 'unrecognized' };
-
       const path = walkCurrentPath(mapping, currentNode);
       if (!path.length) return { data, trimmed: false, reason: 'empty-path' };
-      const visibleIndexes = [];
-      for (let i = 0; i < path.length; i++) if (isVisibleNode(mapping[path[i]])) visibleIndexes.push(i);
-      state.lastTotalVisible = visibleIndexes.length;
-      if (visibleIndexes.length <= limit) return { data, trimmed: false, reason: 'small' };
+      const turnStarts = turnStartsForPath(path, mapping);
+      state.lastTotalVisible = turnStarts.length;
+      if (turnStarts.length <= limit) return { data, trimmed: false, reason: 'small' };
 
-      const cutPathIndex = visibleIndexes[Math.max(0, visibleIndexes.length - limit)];
+      const cutPathIndex = turnStarts[Math.max(0, turnStarts.length - limit)];
       const firstKeptId = path[cutPathIndex];
       const firstParentId = mapping[firstKeptId]?.parent;
       if (firstParentId && Array.isArray(mapping[firstParentId]?.children) && mapping[firstParentId].children.length > 1) return { data, trimmed: false, reason: 'recent-branch-parent' };
-
       const keptPath = path.slice(cutPathIndex);
       for (const id of keptPath) {
         const node = mapping[id];
@@ -106,10 +107,7 @@
 
       const originalRootId = container.root && mapping[container.root] ? container.root : path[0];
       const out = {};
-      if (originalRootId && mapping[originalRootId] && originalRootId !== firstKeptId) {
-        out[originalRootId] = { ...mapping[originalRootId], parent: null, children: firstKeptId ? [firstKeptId] : [] };
-      }
-
+      if (originalRootId && mapping[originalRootId] && originalRootId !== firstKeptId) out[originalRootId] = { ...mapping[originalRootId], parent: null, children: firstKeptId ? [firstKeptId] : [] };
       for (let i = 0; i < keptPath.length; i++) {
         const id = keptPath[i];
         const source = mapping[id];
@@ -128,14 +126,13 @@
         copy.conversation = { ...data.conversation, mapping: out, current_node: currentNode };
         if (originalRootId) copy.conversation.root = originalRootId;
       }
-      state.lastTrimmedVisible = keptPath.reduce((count, id) => count + (isVisibleNode(mapping[id]) ? 1 : 0), 0);
+      state.lastTrimmedVisible = countTurns(keptPath, mapping);
       return { data: copy, trimmed: true, reason: '' };
     };
-
     const parseRequest = (input, init) => {
-      let urlString = '';
-      let method = 'GET';
       try {
+        let urlString = '';
+        let method = 'GET';
         if (input instanceof Request) { urlString = input.url; method = String(init?.method || input.method || 'GET').toUpperCase(); }
         else if (input instanceof URL) { urlString = input.href; method = String(init?.method || 'GET').toUpperCase(); }
         else { urlString = String(input || ''); method = String(init?.method || 'GET').toUpperCase(); }
@@ -144,7 +141,6 @@
         return match && method === 'GET' ? { url, id: decodeURIComponent(match[2]), type: match[1] } : null;
       } catch (_) { return null; }
     };
-
     const rebuildResponse = (original, text) => {
       const headers = new Headers(original.headers);
       headers.delete('content-length');
@@ -162,7 +158,6 @@
       const response = await nativeFetch(...args);
       const type = response.headers.get('content-type') || '';
       if (!/json/i.test(type)) return response;
-
       let text = '';
       try {
         text = await response.text();
@@ -171,11 +166,9 @@
         state.lastConversationId = request.id;
         state.lastOriginalCurrentNode = container?.current_node || '';
         state.lastProxyAt = Date.now();
-        const limit = readHistoryLimit(request.id);
-        const result = trimConversation(data, limit);
+        const result = trimConversation(data, readHistoryLimit(request.id));
         state.lastBypassedReason = result.trimmed ? '' : result.reason;
-        if (!result.trimmed) return rebuildResponse(response, text);
-        return rebuildResponse(response, JSON.stringify(result.data));
+        return rebuildResponse(response, result.trimmed ? JSON.stringify(result.data) : text);
       } catch (_) {
         return text ? rebuildResponse(response, text) : response;
       }
@@ -201,10 +194,10 @@
       currentConversationId: () => conversationIdFromPath(),
       currentLimit,
       isHistoryMode: historyMode,
-      expandHistory: (step = 2) => {
+      expandHistory: () => {
         const id = conversationIdFromPath();
         if (!id) return false;
-        writeHistoryLimit(id, currentLimit() + Math.max(2, Number(step) || 2));
+        writeHistoryLimit(id, currentLimit() + 2);
         location.reload();
         return true;
       },
@@ -215,7 +208,7 @@
         location.reload();
         return true;
       },
-      exitHistoryModeWithoutReload: () => { clearHistoryLimit(conversationIdFromPath()); },
+      exitHistoryModeWithoutReload: () => clearHistoryLimit(conversationIdFromPath()),
       clearConversationHistory: clearHistoryLimit,
       fetchFullConversation,
       getStatus: () => ({ ...state, currentLimit: currentLimit(), historyMode: historyMode() })
@@ -231,9 +224,10 @@
     routeId: conversationIdFromPath(),
     lastNodeCount: 0,
     lastMutationAt: Date.now(),
-    pinUntil: Date.now() + 3500,
+    pinUntil: Date.now() + 2600,
     stableBottomTicks: 0,
-    rebasePending: false
+    rebasePending: false,
+    userInteracted: false
   };
 
   const installCSS = () => {
@@ -264,13 +258,26 @@
     if (turns.length) return turns;
     return Array.from(document.querySelectorAll('main [data-message-author-role]')).filter((node) => !node.parentElement?.closest?.('[data-message-author-role]'));
   };
-
-  const roleOf = (node) => node?.getAttribute?.('data-message-author-role') || node?.querySelector?.('[data-message-author-role]')?.getAttribute?.('data-message-author-role') || '';
+  const roleOf = (node) => {
+    const role = node?.getAttribute?.('data-message-author-role') || node?.querySelector?.('[data-message-author-role]')?.getAttribute?.('data-message-author-role') || '';
+    return role === 'user' || role === 'assistant' ? role : '';
+  };
+  const semanticTurnStarts = (nodes) => {
+    const starts = [];
+    let lastRole = '';
+    for (let i = 0; i < nodes.length; i++) {
+      const role = roleOf(nodes[i]);
+      if (!role) continue;
+      if (role !== lastRole) starts.push(i);
+      lastRole = role;
+    }
+    return starts;
+  };
+  const semanticTurnCount = (nodes) => semanticTurnStarts(nodes).length;
   const lastMessageId = (nodes = messageNodes()) => {
     const node = nodes[nodes.length - 1];
     return node?.getAttribute?.('data-message-id') || node?.querySelector?.('[data-message-id]')?.getAttribute?.('data-message-id') || node?.getAttribute?.('data-testid') || '';
   };
-
   const isGenerating = () => !!document.querySelector('[data-testid="stop-button"], button[aria-label*="stop generating" i], button[aria-label*="停止生成" i], button[title*="stop generating" i]');
   const promptNode = () => document.querySelector('#prompt-textarea, textarea, [contenteditable="true"][data-placeholder]');
   const draftText = () => {
@@ -279,14 +286,31 @@
   };
 
   const applyWindow = (nodes) => {
-    const limit = settings.enabled ? TailProxy.currentLimit() : Number.MAX_SAFE_INTEGER;
-    const start = Math.max(0, nodes.length - limit);
-    nodes.forEach((node, index) => node.classList.toggle('gptwebkit-tail-hidden', index < start));
+    if (!settings.enabled) {
+      nodes.forEach((node) => node.classList.remove('gptwebkit-tail-hidden'));
+      return Number.MAX_SAFE_INTEGER;
+    }
+    const limit = TailProxy.currentLimit();
+    const starts = semanticTurnStarts(nodes);
+    if (!starts.length || starts.length <= limit) {
+      nodes.forEach((node) => node.classList.remove('gptwebkit-tail-hidden'));
+      return limit;
+    }
+    let cutIndex = starts[Math.max(0, starts.length - limit)];
+
+    // 生成中的回复可能拆成多个 assistant/reasoning DOM 节点。
+    // 无论内部拆成多少块，都必须保留“本轮用户问题 + 本轮回答”的完整区域。
+    if (isGenerating()) {
+      for (let i = nodes.length - 1; i >= 0; i--) {
+        if (roleOf(nodes[i]) === 'user') { cutIndex = Math.min(cutIndex, i); break; }
+      }
+    }
+    nodes.forEach((node, index) => node.classList.toggle('gptwebkit-tail-hidden', index < cutIndex));
     return limit;
   };
 
   const pinLatest = (nodes) => {
-    if (!nodes.length || Date.now() > state.pinUntil || state.paused) return;
+    if (!nodes.length || Date.now() > state.pinUntil || state.paused || state.userInteracted) return;
     const last = nodes[nodes.length - 1];
     try { last.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' }); } catch (_) {}
     const rect = last.getBoundingClientRect();
@@ -297,13 +321,12 @@
 
   const canRebase = (nodes) => {
     if (state.paused || document.visibilityState !== 'visible' || !settings.enabled || TailProxy.isHistoryMode()) return false;
-    if (nodes.length < settings.rebaseThreshold || isGenerating() || draftText()) return false;
+    if (semanticTurnCount(nodes) < settings.rebaseThreshold || isGenerating() || draftText()) return false;
     if (document.querySelector('[role="dialog"], [data-radix-portal] [role="menu"]')) return false;
     if ((window.getSelection?.()?.toString() || '').trim()) return false;
     if (Date.now() - state.lastMutationAt < 900) return false;
     return true;
   };
-
   const requestRebase = (nodes) => {
     const id = conversationIdFromPath();
     if (!id || state.rebasePending || !canRebase(nodes)) return;
@@ -318,7 +341,6 @@
       location.reload();
     }, 180);
   };
-
   const handleRouteChange = () => {
     const nextId = conversationIdFromPath();
     if (nextId === state.routeId) return;
@@ -326,27 +348,24 @@
     state.routeId = nextId;
     state.lastNodeCount = 0;
     state.rebasePending = false;
-    state.pinUntil = Date.now() + 3500;
+    state.pinUntil = Date.now() + 2600;
     state.stableBottomTicks = 0;
+    state.userInteracted = false;
   };
-
   const update = () => {
     state.scheduled = false;
     if (state.paused) return;
     handleRouteChange();
     const nodes = messageNodes();
     if (!nodes.length) return;
-
     const wasHistory = TailProxy.isHistoryMode();
     const lastRole = roleOf(nodes[nodes.length - 1]);
     if (wasHistory && nodes.length > state.lastNodeCount && lastRole === 'user') TailProxy.exitHistoryModeWithoutReload();
-
     applyWindow(nodes);
     pinLatest(nodes);
     state.lastNodeCount = nodes.length;
     requestRebase(nodes);
   };
-
   const schedule = (delay = 70) => {
     if (state.paused) return;
     if (state.timer) clearTimeout(state.timer);
@@ -368,12 +387,11 @@
       <label><span>启用 Tail Proxy</span><input data-k="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}></label>
       <label><span>初始加载消息数</span><input data-k="initialVisible" type="number" min="2" max="20" step="2" value="${settings.initialVisible}"></label>
       <label><span>减少消息区动效</span><input data-k="reduceMotion" type="checkbox" ${settings.reduceMotion ? 'checked' : ''}></label>
-      <div class="hint">默认只把最近 ${settings.initialVisible} 条可见消息交给 ChatGPT 页面。动态活动窗口保持同样数量；React 累积到 6 条且处于安全状态时自动重置。加载更早消息每次只增加 2 条，切换离开会话后恢复默认。</div>
+      <div class="hint">消息数按 User / Assistant 角色轮次计算。Thinking、Reasoning、Tool 等内部节点不占名额；默认始终保留本轮问题和本轮回答。React 累积到 6 条且安全时自动重置。</div>
       <div class="hint">当前会话可见上限：${limit} 条${TailProxy.isHistoryMode() ? '（历史浏览）' : ''}</div>
       <div class="history"><button data-a="older">加载更早 2 条</button><button data-a="latest">回到最新 ${settings.initialVisible} 条</button></div>
       <div class="actions"><button data-a="reset">恢复默认</button><button data-a="close">完成</button></div>
     </div>`;
-
     let needsReload = false;
     panel.querySelectorAll('[data-k]').forEach((input) => input.addEventListener('change', () => {
       const key = input.dataset.k;
@@ -383,7 +401,7 @@
       installCSS();
       needsReload = true;
     }));
-    panel.querySelector('[data-a="older"]').addEventListener('click', () => TailProxy.expandHistory(2));
+    panel.querySelector('[data-a="older"]').addEventListener('click', () => TailProxy.expandHistory());
     panel.querySelector('[data-a="latest"]').addEventListener('click', () => TailProxy.returnLatest());
     panel.querySelector('[data-a="reset"]').addEventListener('click', () => {
       settings = { ...defaults };
@@ -406,13 +424,13 @@
   const suspend = prepareForBackground;
   const resume = () => {
     state.paused = false;
-    state.pinUntil = Date.now() + 1200;
+    state.userInteracted = false;
+    state.pinUntil = Date.now() + 900;
     schedule(0);
   };
-
   const restoreAll = () => messageNodes().forEach((node) => node.classList.remove('gptwebkit-tail-hidden'));
   const forceLatestVisible = () => pinLatest(messageNodes());
-  const beginPinLatest = () => { state.pinUntil = Date.now() + 3500; state.stableBottomTicks = 0; schedule(0); };
+  const beginPinLatest = () => { state.userInteracted = false; state.pinUntil = Date.now() + 2600; state.stableBottomTicks = 0; schedule(0); };
 
   window.GPTWebKitLongConversation = {
     schedule,
@@ -427,11 +445,11 @@
     suspend,
     resume,
     restoreAll,
-    loadEarlier: () => TailProxy.expandHistory(2),
+    loadEarlier: () => TailProxy.expandHistory(),
     returnLatest: () => TailProxy.returnLatest(),
     getRebaseState: () => {
       const nodes = messageNodes();
-      return { conversationId: conversationIdFromPath(), count: nodes.length, visibleLimit: TailProxy.currentLimit(), historyMode: TailProxy.isHistoryMode(), generating: isGenerating(), draft: draftText(), lastMessageId: lastMessageId(nodes), safe: canRebase(nodes) };
+      return { conversationId: conversationIdFromPath(), count: semanticTurnCount(nodes), visibleLimit: TailProxy.currentLimit(), historyMode: TailProxy.isHistoryMode(), generating: isGenerating(), draft: draftText(), lastMessageId: lastMessageId(nodes), safe: canRebase(nodes) };
     }
   };
 
@@ -449,14 +467,19 @@
     }
     addEventListener('popstate', () => schedule(0));
   };
-
+  const stopAutoPin = () => {
+    state.userInteracted = true;
+    state.pinUntil = 0;
+  };
   const start = () => {
     installCSS();
     patchHistory();
     new MutationObserver(() => { state.lastMutationAt = Date.now(); schedule(); }).observe(document.documentElement, { childList: true, subtree: true });
     addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? resume() : prepareForBackground());
     addEventListener('resize', () => schedule(80), { passive: true });
-    setInterval(() => { if (!state.paused) schedule(0); }, 1000);
+    addEventListener('touchstart', stopAutoPin, { passive: true, capture: true });
+    addEventListener('wheel', stopAutoPin, { passive: true, capture: true });
+    setInterval(() => { if (!state.paused) schedule(0); }, 1200);
     schedule(0);
   };
 
