@@ -1,0 +1,69 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B001 /* AppDelegate.swift */; };
+		A002 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002 /* SceneDelegate.swift */; };
+		A003 /* WebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B003 /* WebViewController.swift */; };
+		A004 /* UploadPanelCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B004 /* UploadPanelCoordinator.swift */; };
+		A005 /* LongConversation.js in Resources */ = {isa = PBXBuildFile; fileRef = B005 /* LongConversation.js */; };
+		A006 /* MarkdownExport.js in Resources */ = {isa = PBXBuildFile; fileRef = B006 /* MarkdownExport.js */; };
+		A007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B007 /* Assets.xcassets */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		B000 /* GPTWebKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = GPTWebKit.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
+		B002 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
+		B003 /* WebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewController.swift; sourceTree = "<group>"; };
+		B004 /* UploadPanelCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadPanelCoordinator.swift; sourceTree = "<group>"; };
+		B005 /* LongConversation.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = LongConversation.js; sourceTree = "<group>"; };
+		B006 /* MarkdownExport.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = MarkdownExport.js; sourceTree = "<group>"; };
+		B007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		C001 = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		D000 = {isa = PBXGroup; children = (D001 /* GPTWebKit */, D002 /* Products */); sourceTree = "<group>"; };
+		D001 /* GPTWebKit */ = {isa = PBXGroup; path = GPTWebKit; sourceTree = "<group>"; children = (B001, B002, B003, B004, B007, D003 /* Resources */); };
+		D002 /* Products */ = {isa = PBXGroup; children = (B000); name = Products; sourceTree = "<group>"; };
+		D003 /* Resources */ = {isa = PBXGroup; path = Resources; sourceTree = "<group>"; children = (B005, B006); };
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		E001 /* GPTWebKit */ = {isa = PBXNativeTarget; buildConfigurationList = F001; buildPhases = (C002, C001, C003); buildRules = (); dependencies = (); name = GPTWebKit; productName = GPTWebKit; productReference = B000; productType = "com.apple.product-type.application"; };
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		P001 /* Project object */ = {isa = PBXProject; attributes = {BuildIndependentTargetsInParallel = 1; LastSwiftUpdateCheck = 1600; LastUpgradeCheck = 1600; TargetAttributes = {E001 = {CreatedOnToolsVersion = 16.0; }; }; }; buildConfigurationList = F000; compatibilityVersion = "Xcode 14.0"; developmentRegion = en; hasScannedForEncodings = 0; knownRegions = (en, Base); mainGroup = D000; productRefGroup = D002; projectDirPath = ""; projectRoot = ""; targets = (E001); };
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A005, A006, A007); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		C002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A001, A002, A003, A004); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		G001 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Debug; };
+		G002 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Release; };
+		G003 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 5; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.1.4; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		G004 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 5; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.1.4; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		F000 = {isa = XCConfigurationList; buildConfigurations = (G001, G002); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		F001 = {isa = XCConfigurationList; buildConfigurations = (G003, G004); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = P001;
+}
