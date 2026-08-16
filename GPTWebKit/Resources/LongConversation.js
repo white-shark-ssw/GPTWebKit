@@ -3,54 +3,64 @@
   if (window.GPTWebKitLongConversation || window.__GPTWebKitTailBootstrap) return;
   window.__GPTWebKitTailBootstrap = true;
 
-  const SETTINGS_KEY = 'gptwebkit.tail.settings.v1';
-  const defaults = { enabled: true, initialVisible: 2, rebaseThreshold: 6, reduceMotion: true };
-  const clampEven = (value, min = 2, max = 20) => {
+  const SETTINGS_KEY = 'gptwebkit.tail.settings.v2';
+  const defaults = { enabled: true, initialRounds: 2, rebaseThreshold: 6, reduceMotion: true, optimizeSidebar: true };
+  const clampRounds = (value, min = 1, max = 10) => {
     let n = Number(value);
     if (!Number.isFinite(n)) n = min;
-    n = Math.max(min, Math.min(max, Math.round(n)));
-    if (n % 2 !== 0) n += 1;
-    return Math.max(min, Math.min(max, n));
+    return Math.max(min, Math.min(max, Math.round(n)));
   };
   let settings = { ...defaults };
   try {
     const stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
-    settings = { ...defaults, ...stored, initialVisible: clampEven(stored.initialVisible ?? defaults.initialVisible), rebaseThreshold: 6 };
+    settings = { ...defaults, ...stored, initialRounds: clampRounds(stored.initialRounds ?? defaults.initialRounds), rebaseThreshold: 6 };
   } catch (_) {}
-
   const saveSettings = () => {
-    settings.initialVisible = clampEven(settings.initialVisible);
+    settings.initialRounds = clampRounds(settings.initialRounds);
     settings.rebaseThreshold = 6;
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch (_) {}
   };
 
   const conversationIdFromPath = (pathname = location.pathname) => pathname.match(/\/c\/([^/?#]+)/)?.[1] || '';
-  const historyKey = (id) => `gptwebkit.tail.history.${id}`;
+  const historyKey = (id) => `gptwebkit.tail.historyRounds.${id}`;
   const rebaseKey = (id) => `gptwebkit.tail.rebase.${id}`;
-  const readHistoryLimit = (id) => {
-    if (!id) return settings.initialVisible;
+  const readHistoryRounds = (id) => {
+    if (!id) return settings.initialRounds;
     try {
       const value = Number(sessionStorage.getItem(historyKey(id)) || 0);
-      return value >= settings.initialVisible ? clampEven(value, settings.initialVisible, 100) : settings.initialVisible;
-    } catch (_) { return settings.initialVisible; }
+      return value >= settings.initialRounds ? clampRounds(value, settings.initialRounds, 50) : settings.initialRounds;
+    } catch (_) { return settings.initialRounds; }
   };
-  const writeHistoryLimit = (id, value) => {
+  const writeHistoryRounds = (id, value) => {
     if (!id) return;
     try {
-      const limit = clampEven(value, settings.initialVisible, 100);
-      if (limit <= settings.initialVisible) sessionStorage.removeItem(historyKey(id));
-      else sessionStorage.setItem(historyKey(id), String(limit));
+      const rounds = clampRounds(value, settings.initialRounds, 50);
+      if (rounds <= settings.initialRounds) sessionStorage.removeItem(historyKey(id));
+      else sessionStorage.setItem(historyKey(id), String(rounds));
     } catch (_) {}
   };
-  const clearHistoryLimit = (id) => { if (id) { try { sessionStorage.removeItem(historyKey(id)); } catch (_) {} } };
-  const currentLimit = () => readHistoryLimit(conversationIdFromPath());
-  const historyMode = () => currentLimit() > settings.initialVisible;
+  const clearHistoryRounds = (id) => { if (id) { try { sessionStorage.removeItem(historyKey(id)); } catch (_) {} } };
+  const currentRounds = () => readHistoryRounds(conversationIdFromPath());
+  const historyMode = () => currentRounds() > settings.initialRounds;
 
   const TailProxy = (() => {
     if (window.GPTWebKitTailProxy) return window.GPTWebKitTailProxy;
+
     const nativeFetch = window.fetch.bind(window);
     const requestURLs = new Map();
-    const state = { lastConversationId: '', lastOriginalCurrentNode: '', lastTrimmedVisible: 0, lastTotalVisible: 0, lastProxyAt: 0, lastBypassedReason: '' };
+    const state = {
+      lastConversationId: '',
+      lastOriginalCurrentNode: '',
+      lastTrimmedRounds: 0,
+      lastTotalRounds: 0,
+      lastProxyAt: 0,
+      lastBypassedReason: '',
+      sidebarCacheAt: 0,
+      sidebarCacheHits: 0
+    };
+    let sidebarCache = null;
+    let sidebarPrewarmBusy = false;
+
     const visibleRole = (node) => {
       const role = node?.message?.author?.role;
       return role === 'user' || role === 'assistant' ? role : '';
@@ -72,30 +82,42 @@
       reversed.reverse();
       return reversed;
     };
-    const turnStartsForPath = (path, mapping) => {
+    const roundStartsForPath = (path, mapping) => {
       const starts = [];
       let lastRole = '';
       for (let i = 0; i < path.length; i++) {
         const role = visibleRole(mapping[path[i]]);
         if (!role) continue;
-        if (role !== lastRole) starts.push(i);
+        if (role === 'user' && lastRole !== 'user') starts.push(i);
         lastRole = role;
       }
       return starts;
     };
-    const countTurns = (path, mapping) => turnStartsForPath(path, mapping).length;
-    const trimConversation = (data, limit) => {
+    const countMessageGroups = (path, mapping) => {
+      let count = 0;
+      let lastRole = '';
+      for (const id of path) {
+        const role = visibleRole(mapping[id]);
+        if (!role) continue;
+        if (role !== lastRole) count++;
+        lastRole = role;
+      }
+      return count;
+    };
+
+    const trimConversation = (data, roundLimit) => {
       const container = containerOf(data);
       const mapping = container?.mapping;
       const currentNode = container?.current_node;
       if (!container || !mapping || !currentNode || !mapping[currentNode]) return { data, trimmed: false, reason: 'unrecognized' };
       const path = walkCurrentPath(mapping, currentNode);
       if (!path.length) return { data, trimmed: false, reason: 'empty-path' };
-      const turnStarts = turnStartsForPath(path, mapping);
-      state.lastTotalVisible = turnStarts.length;
-      if (turnStarts.length <= limit) return { data, trimmed: false, reason: 'small' };
 
-      const cutPathIndex = turnStarts[Math.max(0, turnStarts.length - limit)];
+      const roundStarts = roundStartsForPath(path, mapping);
+      state.lastTotalRounds = roundStarts.length;
+      if (!roundStarts.length || roundStarts.length <= roundLimit) return { data, trimmed: false, reason: 'small' };
+
+      const cutPathIndex = roundStarts[Math.max(0, roundStarts.length - roundLimit)];
       const firstKeptId = path[cutPathIndex];
       const firstParentId = mapping[firstKeptId]?.parent;
       if (firstParentId && Array.isArray(mapping[firstParentId]?.children) && mapping[firstParentId].children.length > 1) return { data, trimmed: false, reason: 'recent-branch-parent' };
@@ -126,9 +148,10 @@
         copy.conversation = { ...data.conversation, mapping: out, current_node: currentNode };
         if (originalRootId) copy.conversation.root = originalRootId;
       }
-      state.lastTrimmedVisible = countTurns(keptPath, mapping);
-      return { data: copy, trimmed: true, reason: '' };
+      state.lastTrimmedRounds = Math.min(roundLimit, roundStarts.length);
+      return { data: copy, trimmed: true, reason: '', messageGroups: countMessageGroups(keptPath, mapping) };
     };
+
     const parseRequest = (input, init) => {
       try {
         let urlString = '';
@@ -137,24 +160,79 @@
         else if (input instanceof URL) { urlString = input.href; method = String(init?.method || 'GET').toUpperCase(); }
         else { urlString = String(input || ''); method = String(init?.method || 'GET').toUpperCase(); }
         const url = new URL(urlString, location.href);
-        const match = url.pathname.match(/^\/backend-api\/(conversation|shared_conversation)\/([^/]+)\/?$/);
-        return match && method === 'GET' ? { url, id: decodeURIComponent(match[2]), type: match[1] } : null;
-      } catch (_) { return null; }
+        const conversation = url.pathname.match(/^\/backend-api\/(conversation|shared_conversation)\/([^/]+)\/?$/);
+        const history = url.pathname === '/backend-api/conversations';
+        return { url, method, conversation: conversation && method === 'GET' ? { id: decodeURIComponent(conversation[2]), type: conversation[1] } : null, history: history && method === 'GET' };
+      } catch (_) { return { url: null, method: 'GET', conversation: null, history: false }; }
     };
     const rebuildResponse = (original, text) => {
       const headers = new Headers(original.headers);
       headers.delete('content-length');
       headers.delete('content-encoding');
-      headers.set('content-type', 'application/json; charset=utf-8');
       const response = new Response(text, { status: original.status, statusText: original.statusText, headers });
       try { if (original.url) Object.defineProperty(response, 'url', { value: original.url }); } catch (_) {}
       return response;
     };
+    const rebuildCachedResponse = (entry) => new Response(entry.text, { status: entry.status, statusText: entry.statusText, headers: new Headers(entry.headers) });
+    const isSidebarFirstPage = (url) => {
+      if (!url || url.pathname !== '/backend-api/conversations') return false;
+      const offset = Number(url.searchParams.get('offset') || 0);
+      const limit = Number(url.searchParams.get('limit') || 28);
+      return offset === 0 && limit > 0 && limit <= 28;
+    };
+    const cacheSidebarResponse = async (url, response) => {
+      if (!isSidebarFirstPage(url) || !response.ok) return;
+      try {
+        const clone = response.clone();
+        const text = await clone.text();
+        if (!text || text.length > 1024 * 1024) return;
+        sidebarCache = {
+          href: url.href,
+          text,
+          status: clone.status,
+          statusText: clone.statusText,
+          headers: Array.from(clone.headers.entries()),
+          at: Date.now()
+        };
+        state.sidebarCacheAt = sidebarCache.at;
+      } catch (_) {}
+    };
+    const prewarmSidebar = async () => {
+      if (!settings.optimizeSidebar || sidebarPrewarmBusy || document.visibilityState !== 'visible') return;
+      if (sidebarCache && Date.now() - sidebarCache.at < 25000) return;
+      sidebarPrewarmBusy = true;
+      try {
+        const url = new URL('/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false', location.origin);
+        const response = await nativeFetch(url.href, { method: 'GET', credentials: 'include' });
+        await cacheSidebarResponse(url, response);
+      } catch (_) {
+      } finally {
+        sidebarPrewarmBusy = false;
+      }
+    };
+    const invalidateSidebar = () => { sidebarCache = null; state.sidebarCacheAt = 0; };
 
     window.fetch = async (...args) => {
-      const request = parseRequest(args[0], args[1]);
-      if (!request || !settings.enabled) return nativeFetch(...args);
-      requestURLs.set(request.id, request.url.href);
+      const parsed = parseRequest(args[0], args[1]);
+
+      if (parsed.method !== 'GET' && parsed.url?.pathname.startsWith('/backend-api/conversation')) {
+        invalidateSidebar();
+        setTimeout(prewarmSidebar, 1800);
+      }
+
+      if (parsed.history && settings.optimizeSidebar && sidebarCache && sidebarCache.href === parsed.url.href && Date.now() - sidebarCache.at < 30000) {
+        state.sidebarCacheHits++;
+        return rebuildCachedResponse(sidebarCache);
+      }
+
+      if (!parsed.conversation || !settings.enabled) {
+        const response = await nativeFetch(...args);
+        if (parsed.history && settings.optimizeSidebar) cacheSidebarResponse(parsed.url, response);
+        return response;
+      }
+
+      const request = parsed.conversation;
+      requestURLs.set(request.id, parsed.url.href);
       const response = await nativeFetch(...args);
       const type = response.headers.get('content-type') || '';
       if (!/json/i.test(type)) return response;
@@ -166,7 +244,7 @@
         state.lastConversationId = request.id;
         state.lastOriginalCurrentNode = container?.current_node || '';
         state.lastProxyAt = Date.now();
-        const result = trimConversation(data, readHistoryLimit(request.id));
+        const result = trimConversation(data, readHistoryRounds(request.id));
         state.lastBypassedReason = result.trimmed ? '' : result.reason;
         return rebuildResponse(response, result.trimmed ? JSON.stringify(result.data) : text);
       } catch (_) {
@@ -187,33 +265,37 @@
     const api = {
       getSettings: () => ({ ...settings }),
       updateSettings: (patch = {}) => {
-        settings = { ...settings, ...patch, initialVisible: clampEven(patch.initialVisible ?? settings.initialVisible), rebaseThreshold: 6 };
+        settings = { ...settings, ...patch, initialRounds: clampRounds(patch.initialRounds ?? settings.initialRounds), rebaseThreshold: 6 };
         saveSettings();
+        if (!settings.optimizeSidebar) invalidateSidebar(); else setTimeout(prewarmSidebar, 0);
         return { ...settings };
       },
       currentConversationId: () => conversationIdFromPath(),
-      currentLimit,
+      currentRounds,
+      currentLimit: () => currentRounds() * 2,
       isHistoryMode: historyMode,
       expandHistory: () => {
         const id = conversationIdFromPath();
         if (!id) return false;
-        writeHistoryLimit(id, currentLimit() + 2);
+        writeHistoryRounds(id, currentRounds() + 1);
         location.reload();
         return true;
       },
       returnLatest: () => {
         const id = conversationIdFromPath();
         if (!id) return false;
-        clearHistoryLimit(id);
+        clearHistoryRounds(id);
         location.reload();
         return true;
       },
-      exitHistoryModeWithoutReload: () => clearHistoryLimit(conversationIdFromPath()),
-      clearConversationHistory: clearHistoryLimit,
+      exitHistoryModeWithoutReload: () => clearHistoryRounds(conversationIdFromPath()),
+      clearConversationHistory: clearHistoryRounds,
       fetchFullConversation,
-      getStatus: () => ({ ...state, currentLimit: currentLimit(), historyMode: historyMode() })
+      prewarmSidebar,
+      getStatus: () => ({ ...state, currentRounds: currentRounds(), historyMode: historyMode() })
     };
     window.GPTWebKitTailProxy = api;
+    setTimeout(prewarmSidebar, 900);
     return api;
   })();
 
@@ -224,10 +306,12 @@
     routeId: conversationIdFromPath(),
     lastNodeCount: 0,
     lastMutationAt: Date.now(),
-    pinUntil: Date.now() + 2600,
+    pinUntil: Date.now() + 2400,
     stableBottomTicks: 0,
     rebasePending: false,
-    userInteracted: false
+    userInteracted: false,
+    observedMain: null,
+    mainObserver: null
   };
 
   const installCSS = () => {
@@ -240,6 +324,7 @@
     style.textContent = `
       .gptwebkit-tail-hidden { display:none !important; }
       ${settings.reduceMotion ? 'main [data-message-author-role] *, main [data-testid^="conversation-turn-"] * { animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important; }' : ''}
+      ${settings.optimizeSidebar ? 'aside, nav[aria-label], [data-testid="history-list"], [data-testid="conversation-history"] { will-change:transform,opacity; } [data-testid="history-list"], [data-testid="conversation-history"] { contain:style paint; }' : ''}
       #gptwebkit-opt-panel { position:fixed; z-index:2147483640; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.28); padding:20px; }
       #gptwebkit-opt-card { width:min(350px,92vw); border-radius:18px; background:Canvas; color:CanvasText; box-shadow:0 12px 50px rgba(0,0,0,.28); padding:18px; font:15px -apple-system,BlinkMacSystemFont,sans-serif; }
       #gptwebkit-opt-card h3 { margin:0 0 12px; font-size:18px; }
@@ -254,26 +339,38 @@
   };
 
   const messageNodes = () => {
-    const turns = Array.from(document.querySelectorAll('main [data-testid^="conversation-turn-"]'));
+    const main = document.querySelector('main');
+    if (!main) return [];
+    const turns = Array.from(main.querySelectorAll('[data-testid^="conversation-turn-"]'));
     if (turns.length) return turns;
-    return Array.from(document.querySelectorAll('main [data-message-author-role]')).filter((node) => !node.parentElement?.closest?.('[data-message-author-role]'));
+    return Array.from(main.querySelectorAll('[data-message-author-role]')).filter((node) => !node.parentElement?.closest?.('[data-message-author-role]'));
   };
   const roleOf = (node) => {
     const role = node?.getAttribute?.('data-message-author-role') || node?.querySelector?.('[data-message-author-role]')?.getAttribute?.('data-message-author-role') || '';
     return role === 'user' || role === 'assistant' ? role : '';
   };
-  const semanticTurnStarts = (nodes) => {
+  const roundStartsForDOM = (nodes) => {
     const starts = [];
     let lastRole = '';
     for (let i = 0; i < nodes.length; i++) {
       const role = roleOf(nodes[i]);
       if (!role) continue;
-      if (role !== lastRole) starts.push(i);
+      if (role === 'user' && lastRole !== 'user') starts.push(i);
       lastRole = role;
     }
     return starts;
   };
-  const semanticTurnCount = (nodes) => semanticTurnStarts(nodes).length;
+  const semanticMessageGroupCount = (nodes) => {
+    let count = 0;
+    let lastRole = '';
+    for (const node of nodes) {
+      const role = roleOf(node);
+      if (!role) continue;
+      if (role !== lastRole) count++;
+      lastRole = role;
+    }
+    return count;
+  };
   const lastMessageId = (nodes = messageNodes()) => {
     const node = nodes[nodes.length - 1];
     return node?.getAttribute?.('data-message-id') || node?.querySelector?.('[data-message-id]')?.getAttribute?.('data-message-id') || node?.getAttribute?.('data-testid') || '';
@@ -290,23 +387,15 @@
       nodes.forEach((node) => node.classList.remove('gptwebkit-tail-hidden'));
       return Number.MAX_SAFE_INTEGER;
     }
-    const limit = TailProxy.currentLimit();
-    const starts = semanticTurnStarts(nodes);
-    if (!starts.length || starts.length <= limit) {
+    const rounds = TailProxy.currentRounds();
+    const starts = roundStartsForDOM(nodes);
+    if (!starts.length || starts.length <= rounds) {
       nodes.forEach((node) => node.classList.remove('gptwebkit-tail-hidden'));
-      return limit;
+      return rounds;
     }
-    let cutIndex = starts[Math.max(0, starts.length - limit)];
-
-    // 生成中的回复可能拆成多个 assistant/reasoning DOM 节点。
-    // 无论内部拆成多少块，都必须保留“本轮用户问题 + 本轮回答”的完整区域。
-    if (isGenerating()) {
-      for (let i = nodes.length - 1; i >= 0; i--) {
-        if (roleOf(nodes[i]) === 'user') { cutIndex = Math.min(cutIndex, i); break; }
-      }
-    }
+    const cutIndex = starts[Math.max(0, starts.length - rounds)];
     nodes.forEach((node, index) => node.classList.toggle('gptwebkit-tail-hidden', index < cutIndex));
-    return limit;
+    return rounds;
   };
 
   const pinLatest = (nodes) => {
@@ -321,7 +410,7 @@
 
   const canRebase = (nodes) => {
     if (state.paused || document.visibilityState !== 'visible' || !settings.enabled || TailProxy.isHistoryMode()) return false;
-    if (semanticTurnCount(nodes) < settings.rebaseThreshold || isGenerating() || draftText()) return false;
+    if (semanticMessageGroupCount(nodes) < settings.rebaseThreshold || isGenerating() || draftText()) return false;
     if (document.querySelector('[role="dialog"], [data-radix-portal] [role="menu"]')) return false;
     if ((window.getSelection?.()?.toString() || '').trim()) return false;
     if (Date.now() - state.lastMutationAt < 900) return false;
@@ -341,6 +430,20 @@
       location.reload();
     }, 180);
   };
+
+  const ensureConversationObserver = () => {
+    const main = document.querySelector('main');
+    if (main === state.observedMain) return;
+    state.mainObserver?.disconnect();
+    state.observedMain = main;
+    if (!main) return;
+    state.mainObserver = new MutationObserver(() => {
+      state.lastMutationAt = Date.now();
+      schedule(isGenerating() ? 180 : 80);
+    });
+    state.mainObserver.observe(main, { childList: true, subtree: true });
+  };
+
   const handleRouteChange = () => {
     const nextId = conversationIdFromPath();
     if (nextId === state.routeId) return;
@@ -348,14 +451,18 @@
     state.routeId = nextId;
     state.lastNodeCount = 0;
     state.rebasePending = false;
-    state.pinUntil = Date.now() + 2600;
+    state.pinUntil = Date.now() + 2400;
     state.stableBottomTicks = 0;
     state.userInteracted = false;
+    ensureConversationObserver();
+    setTimeout(() => TailProxy.prewarmSidebar?.(), 400);
   };
+
   const update = () => {
     state.scheduled = false;
     if (state.paused) return;
     handleRouteChange();
+    ensureConversationObserver();
     const nodes = messageNodes();
     if (!nodes.length) return;
     const wasHistory = TailProxy.isHistoryMode();
@@ -366,7 +473,7 @@
     state.lastNodeCount = nodes.length;
     requestRebase(nodes);
   };
-  const schedule = (delay = 70) => {
+  const schedule = (delay = 80) => {
     if (state.paused) return;
     if (state.timer) clearTimeout(state.timer);
     state.timer = setTimeout(() => {
@@ -381,32 +488,33 @@
     document.getElementById('gptwebkit-opt-panel')?.remove();
     const panel = document.createElement('div');
     panel.id = 'gptwebkit-opt-panel';
-    const limit = TailProxy.currentLimit();
+    const rounds = TailProxy.currentRounds();
     panel.innerHTML = `<div id="gptwebkit-opt-card">
       <h3>长对话性能</h3>
       <label><span>启用 Tail Proxy</span><input data-k="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}></label>
-      <label><span>初始加载消息数</span><input data-k="initialVisible" type="number" min="2" max="20" step="2" value="${settings.initialVisible}"></label>
+      <label><span>最近保留对话轮数</span><input data-k="initialRounds" type="number" min="1" max="10" step="1" value="${settings.initialRounds}"></label>
+      <label><span>优化侧边栏</span><input data-k="optimizeSidebar" type="checkbox" ${settings.optimizeSidebar ? 'checked' : ''}></label>
       <label><span>减少消息区动效</span><input data-k="reduceMotion" type="checkbox" ${settings.reduceMotion ? 'checked' : ''}></label>
-      <div class="hint">消息数按 User / Assistant 角色轮次计算。Thinking、Reasoning、Tool 等内部节点不占名额；默认始终保留本轮问题和本轮回答。React 累积到 6 条且安全时自动重置。</div>
-      <div class="hint">当前会话可见上限：${limit} 条${TailProxy.isHistoryMode() ? '（历史浏览）' : ''}</div>
-      <div class="history"><button data-a="older">加载更早 2 条</button><button data-a="latest">回到最新 ${settings.initialVisible} 条</button></div>
+      <div class="hint">默认保留最近 ${settings.initialRounds} 轮完整对话，即 User + Assistant。Thinking / Reasoning / Tool 内部节点不额外占轮数。React 累积到 6 个 User/Assistant 消息组且安全时自动重置。</div>
+      <div class="hint">当前会话：最近 ${rounds} 轮${TailProxy.isHistoryMode() ? '（历史浏览）' : ''}。加载更早每次只增加 1 轮，也就是通常 2 条消息。</div>
+      <div class="history"><button data-a="older">加载更早 1 轮</button><button data-a="latest">回到最新 ${settings.initialRounds} 轮</button></div>
       <div class="actions"><button data-a="reset">恢复默认</button><button data-a="close">完成</button></div>
     </div>`;
     let needsReload = false;
     panel.querySelectorAll('[data-k]').forEach((input) => input.addEventListener('change', () => {
       const key = input.dataset.k;
-      if (key === 'initialVisible') settings.initialVisible = clampEven(input.value);
+      if (key === 'initialRounds') settings.initialRounds = clampRounds(input.value);
       else settings[key] = input.checked;
       TailProxy.updateSettings(settings);
       installCSS();
-      needsReload = true;
+      needsReload = key === 'initialRounds' || key === 'enabled';
     }));
     panel.querySelector('[data-a="older"]').addEventListener('click', () => TailProxy.expandHistory());
     panel.querySelector('[data-a="latest"]').addEventListener('click', () => TailProxy.returnLatest());
     panel.querySelector('[data-a="reset"]').addEventListener('click', () => {
       settings = { ...defaults };
       TailProxy.updateSettings(settings);
-      clearHistoryLimit(conversationIdFromPath());
+      clearHistoryRounds(conversationIdFromPath());
       location.reload();
     });
     panel.querySelector('[data-a="close"]').addEventListener('click', () => {
@@ -420,17 +528,20 @@
   const prepareForBackground = () => {
     state.paused = true;
     if (state.timer) { clearTimeout(state.timer); state.timer = 0; }
+    state.mainObserver?.disconnect();
   };
   const suspend = prepareForBackground;
   const resume = () => {
     state.paused = false;
     state.userInteracted = false;
-    state.pinUntil = Date.now() + 900;
+    state.pinUntil = Date.now() + 800;
+    ensureConversationObserver();
+    TailProxy.prewarmSidebar?.();
     schedule(0);
   };
   const restoreAll = () => messageNodes().forEach((node) => node.classList.remove('gptwebkit-tail-hidden'));
   const forceLatestVisible = () => pinLatest(messageNodes());
-  const beginPinLatest = () => { state.userInteracted = false; state.pinUntil = Date.now() + 2600; state.stableBottomTicks = 0; schedule(0); };
+  const beginPinLatest = () => { state.userInteracted = false; state.pinUntil = Date.now() + 2400; state.stableBottomTicks = 0; schedule(0); };
 
   window.GPTWebKitLongConversation = {
     schedule,
@@ -449,7 +560,7 @@
     returnLatest: () => TailProxy.returnLatest(),
     getRebaseState: () => {
       const nodes = messageNodes();
-      return { conversationId: conversationIdFromPath(), count: semanticTurnCount(nodes), visibleLimit: TailProxy.currentLimit(), historyMode: TailProxy.isHistoryMode(), generating: isGenerating(), draft: draftText(), lastMessageId: lastMessageId(nodes), safe: canRebase(nodes) };
+      return { conversationId: conversationIdFromPath(), count: semanticMessageGroupCount(nodes), rounds: TailProxy.currentRounds(), historyMode: TailProxy.isHistoryMode(), generating: isGenerating(), draft: draftText(), lastMessageId: lastMessageId(nodes), safe: canRebase(nodes) };
     }
   };
 
@@ -474,12 +585,17 @@
   const start = () => {
     installCSS();
     patchHistory();
-    new MutationObserver(() => { state.lastMutationAt = Date.now(); schedule(); }).observe(document.documentElement, { childList: true, subtree: true });
+    ensureConversationObserver();
     addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? resume() : prepareForBackground());
-    addEventListener('resize', () => schedule(80), { passive: true });
+    addEventListener('resize', () => schedule(100), { passive: true });
     addEventListener('touchstart', stopAutoPin, { passive: true, capture: true });
     addEventListener('wheel', stopAutoPin, { passive: true, capture: true });
-    setInterval(() => { if (!state.paused) schedule(0); }, 1200);
+    setInterval(() => {
+      if (state.paused) return;
+      ensureConversationObserver();
+      schedule(0);
+    }, 1200);
+    setInterval(() => TailProxy.prewarmSidebar?.(), 20000);
     schedule(0);
   };
 
