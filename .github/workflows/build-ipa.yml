@@ -18,38 +18,11 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Generate GPTWebKit app icon
+      - name: Generate requested app icon
         run: |
-          python3 - <<'PY'
-          import math
-          from pathlib import Path
-          size = 1024
-          out = Path('GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.ppm')
-          out.parent.mkdir(parents=True, exist_ok=True)
-          pixels = bytearray([255,255,255]) * (size * size)
-          def setp(x,y,c):
-              if 0 <= x < size and 0 <= y < size:
-                  i=(y*size+x)*3; pixels[i:i+3]=bytes(c)
-          cx=cy=size//2
-          # Distinct GPTWebKit icon: black globe ring with a small web-view window.
-          for y in range(size):
-              for x in range(size):
-                  dx=x-cx; dy=y-cy; r=math.hypot(dx,dy)
-                  if 285 <= r <= 380: setp(x,y,(0,0,0))
-                  if abs(dx) < 42 and r < 350: setp(x,y,(0,0,0))
-                  if abs(dy) < 42 and r < 350: setp(x,y,(0,0,0))
-                  if abs(r-215) < 28: setp(x,y,(0,0,0))
-          # central white rounded-ish window cutout + black top bar
-          for y in range(365,660):
-              for x in range(310,714): setp(x,y,(255,255,255))
-          for y in range(365,410):
-              for x in range(310,714): setp(x,y,(0,0,0))
-          with out.open('wb') as f:
-              f.write(f'P6\n{size} {size}\n255\n'.encode())
-              f.write(pixels)
-          PY
-          sips -s format png GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.ppm --out GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png >/dev/null
-          rm GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.ppm
+          mkdir -p GPTWebKit/Assets.xcassets/AppIcon.appiconset
+          echo 'iVBORw0KGgoAAAANSUhEUgAAADoAAAA6CAIAAABu2d1/AAAB40lEQVR42u2X35HiMAyHN3eFoE4QFVACogM6MKnEKYEO7FRACVYJUIHu4Tfj8ThzL8ce3tnV92QyJPNZ0R/n48NxHMdxHMdxHOcHMH3KU4jodDoxMxHlnNd1XZblf+j+fv0RzHy/34nodrs9Hg8iulwuIvJ8Po/HIzNP06SqX+LtEJGZhRDaKzFGMzOzUkpKCQtmHq8bY0wp1Z8hBMh1GwghlFKIaKQrM5uZiMAJgexE6yKlVEoZlgOQMzM44b1XP2YupZhZjBEXsbcxugiViLS62zBDGrmBLB+QwbCsdVZ1QwjI3TaoNXER7AG6pZQY41YXRSYiIlKD2lZbl9lvoi2vVhd76NpZ28Je7w+//uGenPNut2v7AxbrutaLqorRsCxLSgk7medZVdtdvUNXVaGoqtfrNcb4NwNVnef5cDiICIKac3539+0mGRHVnrXtHl3O1DId0By2lYRSq013q9tNwbfqbsu/nhbQ1DpdLFCmA8ZvG1RmxrrOtk4Xt4yZw+2I6qTbKY33jj8Pc+0qqTvNtOcy2CNzBuTANsDtsabN6XZ61b47/mxeO0A9oHWFj+L7rKPC9LoxwJxjZmZWVXyrIQHO53PO+Qt9Wrb2zLzf7+sMm+fZP+Adx3Ecx3Ec5zvyB+o9+U+lUKtwAAAAAElFTkSuQmCC' | base64 --decode > /tmp/gptwebkit-icon.png
+          sips -z 1024 1024 /tmp/gptwebkit-icon.png --out GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png >/dev/null
 
       - name: Build device app without signing
         run: |
