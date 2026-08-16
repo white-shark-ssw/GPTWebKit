@@ -20,6 +20,11 @@ enum NativeConversationStore {
     }
 }
 
+enum NativeSidebarNavigationRouter {
+    static var openConversation: ((NativeConversationItem) -> Bool)?
+    static var openNewChat: (() -> Bool)?
+}
+
 final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegate {
     var onSelect: ((NativeConversationItem) -> Void)?
     var onNewChat: (() -> Void)?
@@ -168,7 +173,8 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     @objc private func closeTapped() { dismiss() }
 
     @objc private func newChatTapped() {
-        onNewChat?()
+        let handled = NativeSidebarNavigationRouter.openNewChat?() ?? false
+        if !handled { onNewChat?() }
         dismiss()
     }
 
@@ -194,7 +200,9 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         tableView.deselectRow(at: indexPath, animated: true)
         guard items.indices.contains(indexPath.row) else { return }
-        onSelect?(items[indexPath.row])
+        let item = items[indexPath.row]
+        let handled = NativeSidebarNavigationRouter.openConversation?(item) ?? false
+        if !handled { onSelect?(item) }
         dismiss()
     }
 }
