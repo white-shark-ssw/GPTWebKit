@@ -18,6 +18,7 @@ final class WebViewController: UIViewController {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.userContentController.addUserScript(WKUserScript(source: UploadUnlockScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("LongConversation"), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("MarkdownExport"), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
 
@@ -67,9 +68,30 @@ extension WebViewController: WKNavigationDelegate {
 }
 
 extension WebViewController: WKUIDelegate {
+    @available(iOS 18.4, *)
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
         uploadPanel.present(from: self, allowsMultipleSelection: parameters.allowsMultipleSelection, completion: completionHandler)
     }
+}
+
+private enum UploadUnlockScript {
+    static let source = """
+    (() => {
+      'use strict';
+      const unlock = (root = document) => root.querySelectorAll?.('input[type="file"]').forEach((input) => {
+        input.removeAttribute('accept');
+      });
+      const start = () => {
+        unlock();
+        new MutationObserver((mutations) => mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => {
+          if (node.nodeType !== 1) return;
+          if (node.matches?.('input[type="file"]')) node.removeAttribute('accept');
+          unlock(node);
+        }))).observe(document.documentElement, { childList: true, subtree: true });
+      };
+      if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once: true });
+    })();
+    """
 }
 
 private enum ResourceScript {
