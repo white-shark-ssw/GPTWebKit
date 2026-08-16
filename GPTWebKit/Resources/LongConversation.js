@@ -186,14 +186,7 @@
         const clone = response.clone();
         const text = await clone.text();
         if (!text || text.length > 1024 * 1024) return;
-        sidebarCache = {
-          href: url.href,
-          text,
-          status: clone.status,
-          statusText: clone.statusText,
-          headers: Array.from(clone.headers.entries()),
-          at: Date.now()
-        };
+        sidebarCache = { href:url.href, text, status:clone.status, statusText:clone.statusText, headers:Array.from(clone.headers.entries()), at:Date.now() };
         state.sidebarCacheAt = sidebarCache.at;
       } catch (_) {}
     };
@@ -203,28 +196,22 @@
       sidebarPrewarmBusy = true;
       try {
         const url = new URL('/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false', location.origin);
-        const response = await nativeFetch(url.href, { method: 'GET', credentials: 'include' });
+        const response = await nativeFetch(url.href, { method:'GET', credentials:'include' });
         await cacheSidebarResponse(url, response);
-      } catch (_) {
-      } finally {
-        sidebarPrewarmBusy = false;
-      }
+      } catch (_) {} finally { sidebarPrewarmBusy = false; }
     };
     const invalidateSidebar = () => { sidebarCache = null; state.sidebarCacheAt = 0; };
 
     window.fetch = async (...args) => {
       const parsed = parseRequest(args[0], args[1]);
-
       if (parsed.method !== 'GET' && parsed.url?.pathname.startsWith('/backend-api/conversation')) {
         invalidateSidebar();
         setTimeout(prewarmSidebar, 1800);
       }
-
       if (parsed.history && settings.optimizeSidebar && sidebarCache && sidebarCache.href === parsed.url.href && Date.now() - sidebarCache.at < 30000) {
         state.sidebarCacheHits++;
         return rebuildCachedResponse(sidebarCache);
       }
-
       if (!parsed.conversation || !settings.enabled) {
         const response = await nativeFetch(...args);
         if (parsed.history && settings.optimizeSidebar) cacheSidebarResponse(parsed.url, response);
@@ -255,7 +242,7 @@
     const fetchFullConversation = async (id = conversationIdFromPath()) => {
       if (!id) throw new Error('当前页面不是会话页面');
       const url = requestURLs.get(id) || `/backend-api/conversation/${encodeURIComponent(id)}`;
-      const response = await nativeFetch(url, { method: 'GET', credentials: 'include', cache: 'no-store' });
+      const response = await nativeFetch(url, { method:'GET', credentials:'include', cache:'no-store' });
       if (!response.ok) throw new Error(`读取完整会话失败 (${response.status})`);
       const type = response.headers.get('content-type') || '';
       if (!/json/i.test(type)) throw new Error('完整会话返回内容不是 JSON');
@@ -265,7 +252,7 @@
     const api = {
       getSettings: () => ({ ...settings }),
       updateSettings: (patch = {}) => {
-        settings = { ...settings, ...patch, initialRounds: clampRounds(patch.initialRounds ?? settings.initialRounds), rebaseThreshold: 6 };
+        settings = { ...settings, ...patch, initialRounds:clampRounds(patch.initialRounds ?? settings.initialRounds), rebaseThreshold:6 };
         saveSettings();
         if (!settings.optimizeSidebar) invalidateSidebar(); else setTimeout(prewarmSidebar, 0);
         return { ...settings };
@@ -292,7 +279,7 @@
       clearConversationHistory: clearHistoryRounds,
       fetchFullConversation,
       prewarmSidebar,
-      getStatus: () => ({ ...state, currentRounds: currentRounds(), historyMode: historyMode() })
+      getStatus: () => ({ ...state, currentRounds:currentRounds(), historyMode:historyMode() })
     };
     window.GPTWebKitTailProxy = api;
     setTimeout(prewarmSidebar, 900);
@@ -303,6 +290,7 @@
     paused: document.visibilityState !== 'visible',
     scheduled: false,
     timer: 0,
+    idleTimer: 0,
     routeId: conversationIdFromPath(),
     lastNodeCount: 0,
     lastMutationAt: Date.now(),
@@ -324,7 +312,6 @@
     style.textContent = `
       .gptwebkit-tail-hidden { display:none !important; }
       ${settings.reduceMotion ? 'main [data-message-author-role] *, main [data-testid^="conversation-turn-"] * { animation-duration:0.001ms !important; animation-iteration-count:1 !important; transition-duration:0.001ms !important; scroll-behavior:auto !important; }' : ''}
-      ${settings.optimizeSidebar ? 'aside, nav[aria-label], [data-testid="history-list"], [data-testid="conversation-history"] { will-change:transform,opacity; } [data-testid="history-list"], [data-testid="conversation-history"] { contain:style paint; }' : ''}
       #gptwebkit-opt-panel { position:fixed; z-index:2147483640; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.28); padding:20px; }
       #gptwebkit-opt-card { width:min(350px,92vw); border-radius:18px; background:Canvas; color:CanvasText; box-shadow:0 12px 50px rgba(0,0,0,.28); padding:18px; font:15px -apple-system,BlinkMacSystemFont,sans-serif; }
       #gptwebkit-opt-card h3 { margin:0 0 12px; font-size:18px; }
@@ -401,7 +388,7 @@
   const pinLatest = (nodes) => {
     if (!nodes.length || Date.now() > state.pinUntil || state.paused || state.userInteracted) return;
     const last = nodes[nodes.length - 1];
-    try { last.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' }); } catch (_) {}
+    try { last.scrollIntoView({ block:'end', inline:'nearest', behavior:'auto' }); } catch (_) {}
     const rect = last.getBoundingClientRect();
     if (rect.bottom <= innerHeight + 12 && rect.bottom >= innerHeight * 0.45) state.stableBottomTicks++;
     else state.stableBottomTicks = 0;
@@ -416,9 +403,15 @@
     if (Date.now() - state.lastMutationAt < 900) return false;
     return true;
   };
+
   const requestRebase = (nodes) => {
     const id = conversationIdFromPath();
-    if (!id || state.rebasePending || !canRebase(nodes)) return;
+    if (!id || !canRebase(nodes)) return;
+    if (window.webkit?.messageHandlers?.rebaseRequest) {
+      try { window.dispatchEvent(new CustomEvent('gptwebkit:rebase-ready')); } catch (_) {}
+      return;
+    }
+    if (state.rebasePending) return;
     let last = 0;
     try { last = Number(sessionStorage.getItem(rebaseKey(id)) || 0); } catch (_) {}
     if (Date.now() - last < 8000) return;
@@ -431,6 +424,14 @@
     }, 180);
   };
 
+  const scheduleIdleCheck = () => {
+    if (state.idleTimer) clearTimeout(state.idleTimer);
+    state.idleTimer = setTimeout(() => {
+      state.idleTimer = 0;
+      schedule(0);
+    }, 1050);
+  };
+
   const ensureConversationObserver = () => {
     const main = document.querySelector('main');
     if (main === state.observedMain) return;
@@ -440,8 +441,9 @@
     state.mainObserver = new MutationObserver(() => {
       state.lastMutationAt = Date.now();
       schedule(isGenerating() ? 180 : 80);
+      scheduleIdleCheck();
     });
-    state.mainObserver.observe(main, { childList: true, subtree: true });
+    state.mainObserver.observe(main, { childList:true, subtree:true });
   };
 
   const handleRouteChange = () => {
@@ -472,7 +474,9 @@
     pinLatest(nodes);
     state.lastNodeCount = nodes.length;
     requestRebase(nodes);
+    try { window.dispatchEvent(new CustomEvent('gptwebkit:conversation-update')); } catch (_) {}
   };
+
   const schedule = (delay = 80) => {
     if (state.paused) return;
     if (state.timer) clearTimeout(state.timer);
@@ -528,6 +532,7 @@
   const prepareForBackground = () => {
     state.paused = true;
     if (state.timer) { clearTimeout(state.timer); state.timer = 0; }
+    if (state.idleTimer) { clearTimeout(state.idleTimer); state.idleTimer = 0; }
     state.mainObserver?.disconnect();
   };
   const suspend = prepareForBackground;
@@ -542,10 +547,17 @@
   const restoreAll = () => messageNodes().forEach((node) => node.classList.remove('gptwebkit-tail-hidden'));
   const forceLatestVisible = () => pinLatest(messageNodes());
   const beginPinLatest = () => { state.userInteracted = false; state.pinUntil = Date.now() + 2400; state.stableBottomTicks = 0; schedule(0); };
+  const updateSettings = (patch = {}) => {
+    TailProxy.updateSettings(patch);
+    installCSS();
+    schedule(0);
+    return { ...settings };
+  };
 
   window.GPTWebKitLongConversation = {
     schedule,
     openSettings,
+    updateSettings,
     getSettings: () => ({ ...settings }),
     getAllMessageNodes: messageNodes,
     isGenerating,
@@ -560,7 +572,7 @@
     returnLatest: () => TailProxy.returnLatest(),
     getRebaseState: () => {
       const nodes = messageNodes();
-      return { conversationId: conversationIdFromPath(), count: semanticMessageGroupCount(nodes), rounds: TailProxy.currentRounds(), historyMode: TailProxy.isHistoryMode(), generating: isGenerating(), draft: draftText(), lastMessageId: lastMessageId(nodes), safe: canRebase(nodes) };
+      return { conversationId:conversationIdFromPath(), count:semanticMessageGroupCount(nodes), rounds:TailProxy.currentRounds(), historyMode:TailProxy.isHistoryMode(), generating:isGenerating(), draft:draftText(), lastMessageId:lastMessageId(nodes), safe:canRebase(nodes) };
     }
   };
 
@@ -578,26 +590,18 @@
     }
     addEventListener('popstate', () => schedule(0));
   };
-  const stopAutoPin = () => {
-    state.userInteracted = true;
-    state.pinUntil = 0;
-  };
+  const stopAutoPin = () => { state.userInteracted = true; state.pinUntil = 0; };
   const start = () => {
     installCSS();
     patchHistory();
     ensureConversationObserver();
     addEventListener('visibilitychange', () => document.visibilityState === 'visible' ? resume() : prepareForBackground());
-    addEventListener('resize', () => schedule(100), { passive: true });
-    addEventListener('touchstart', stopAutoPin, { passive: true, capture: true });
-    addEventListener('wheel', stopAutoPin, { passive: true, capture: true });
-    setInterval(() => {
-      if (state.paused) return;
-      ensureConversationObserver();
-      schedule(0);
-    }, 1200);
-    setInterval(() => TailProxy.prewarmSidebar?.(), 20000);
+    addEventListener('resize', () => schedule(100), { passive:true });
+    addEventListener('touchstart', stopAutoPin, { passive:true, capture:true });
+    addEventListener('wheel', stopAutoPin, { passive:true, capture:true });
     schedule(0);
+    scheduleIdleCheck();
   };
 
-  if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once: true });
+  if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once:true });
 })();
