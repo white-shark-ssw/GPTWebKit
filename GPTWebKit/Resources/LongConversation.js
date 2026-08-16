@@ -2,12 +2,12 @@
   'use strict';
   if (window.GPTWebKitLongConversation) return;
 
-  const STORAGE_KEY = 'gptwebkit.longConversation.settings.v3';
+  const STORAGE_KEY = 'gptwebkit.longConversation.settings.v4';
   const defaults = { enabled: true, minMessages: 6, overscan: 1, keepRecent: 3, fastFollowLatest: true, autoRecoverStall: false };
   let settings = { ...defaults };
   try { settings = { ...defaults, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }; } catch (_) {}
 
-  const state = { records: [], knownNodes: new WeakSet(), ticking: false, suspended: false, url: location.href, routeStartedAt: Date.now(), userInteracted: false, lastCount: 0, stallSince: 0, lastRecoveryAt: 0, wasGenerating: false };
+  const state = { records: [], knownNodes: new WeakSet(), ticking: false, suspended: false, url: location.href, routeStartedAt: Date.now(), userInteracted: false, lastCount: 0, stallSince: 0, lastRecoveryAt: 0, wasGenerating: false, pinLatestUntil: Date.now() + 18000, lastBottomHeight: 0, stableBottomTicks: 0 };
 
   const installCSS = () => {
     if (document.getElementById('gptwebkit-long-conversation-style')) return;
@@ -42,6 +42,8 @@
     return false;
   };
 
+  const isWaitingForCompletedReply = () => /连接已中断[^\n]{0,40}正在等待完整回复|连接中断[^\n]{0,40}等待完整回复|connection interrupted[^\n]{0,80}waiting for (the )?(complete|full) response/i.test(document.body?.innerText || '');
+
   const openSettings = () => {
     document.getElementById('gptwebkit-opt-panel')?.remove();
     const panel = document.createElement('div');
@@ -49,9 +51,9 @@
     panel.innerHTML = `<div id="gptwebkit-opt-card">
       <h3>长对话优化</h3>
       <label><span>启用优化</span><input data-k="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}></label>
-      <label><span>快速跟随到最新消息</span><input data-k="fastFollowLatest" type="checkbox" ${settings.fastFollowLatest ? 'checked' : ''}></label>
+      <label><span>进入会话自动贴到最新</span><input data-k="fastFollowLatest" type="checkbox" ${settings.fastFollowLatest ? 'checked' : ''}></label>
       <label><span>连接中断自动恢复</span><input data-k="autoRecoverStall" type="checkbox" ${settings.autoRecoverStall ? 'checked' : ''}></label>
-      <div class="hint">生成/思考过程中永远不会自动刷新；自动恢复默认关闭，避免误伤流式回答。</div>
+      <div class="hint">进入正在生成中的会话时不会刷新，也不会尝试接管旧的流式连接；会自动贴底等待服务器写入完整回复。</div>
       <label><span>始终保留最近消息</span><input data-k="keepRecent" type="number" min="2" max="12" value="${settings.keepRecent}"></label>
       <label><span>上下预留消息</span><input data-k="overscan" type="number" min="0" max="8" value="${settings.overscan}"></label>
       <div class="actions"><button data-a="reset">恢复默认</button><button data-a="close">完成</button></div>
@@ -90,9 +92,13 @@
 
   const scrollRoot = () => {
     let root = document.scrollingElement;
+    let bestArea = 0;
     for (const candidate of document.querySelectorAll('main, main *')) {
       const style = getComputedStyle(candidate);
-      if (/(auto|scroll|overlay)/.test(style.overflowY) && candidate.scrollHeight > candidate.clientHeight * 1.2) root = candidate;
+      if (!/(auto|scroll|overlay)/.test(style.overflowY) || candidate.scrollHeight <= candidate.clientHeight * 1.1) continue;
+      const rect = candidate.getBoundingClientRect();
+      const area = Math.max(0, rect.width) * Math.max(0, rect.height);
+      if (area >= bestArea) { bestArea = area; root = candidate; }
     }
     return root;
   };
@@ -138,15 +144,29 @@
     state.lastCount = 0;
     state.stallSince = 0;
     state.wasGenerating = false;
+    state.pinLatestUntil = Date.now() + 18000;
+    state.lastBottomHeight = 0;
+    state.stableBottomTicks = 0;
   };
 
-  const followLatestDuringInitialLoad = (root, count, generating) => {
-    if (generating || !settings.fastFollowLatest || state.userInteracted || Date.now() - state.routeStartedAt > 10000 || count === state.lastCount) return;
-    state.lastCount = count;
-    requestAnimationFrame(() => {
-      if (root === document.scrollingElement) window.scrollTo(0, document.documentElement.scrollHeight);
-      else root.scrollTop = root.scrollHeight;
-    });
+  const forceLatestVisible = () => {
+    if (!settings.fastFollowLatest || state.userInteracted || Date.now() > state.pinLatestUntil) return;
+    const root = scrollRoot();
+    const nodes = messageNodes();
+    const last = nodes[nodes.length - 1];
+    try { last?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' }); } catch (_) {}
+    if (root === document.scrollingElement) {
+      const height = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
+      window.scrollTo(0, height);
+      if (Math.abs(height - state.lastBottomHeight) < 2) state.stableBottomTicks++; else state.stableBottomTicks = 0;
+      state.lastBottomHeight = height;
+    } else {
+      const height = root.scrollHeight;
+      root.scrollTop = height;
+      if (Math.abs(height - state.lastBottomHeight) < 2) state.stableBottomTicks++; else state.stableBottomTicks = 0;
+      state.lastBottomHeight = height;
+    }
+    if (state.stableBottomTicks >= 18 && !isGenerating() && !isWaitingForCompletedReply()) state.pinLatestUntil = 0;
   };
 
   const update = () => {
@@ -158,8 +178,11 @@
     const records = state.records;
     const root = scrollRoot();
     const generating = isGenerating();
+    const waitingCompleted = isWaitingForCompletedReply();
 
-    if (generating) {
+    if (settings.fastFollowLatest && !state.userInteracted && (Date.now() < state.pinLatestUntil || waitingCompleted)) requestAnimationFrame(forceLatestVisible);
+
+    if (generating || waitingCompleted) {
       state.wasGenerating = true;
       state.stallSince = 0;
       restoreRecent(Math.max(settings.keepRecent + 5, 8));
@@ -167,11 +190,10 @@
     }
     if (state.wasGenerating) {
       state.wasGenerating = false;
-      state.routeStartedAt = Date.now();
-      state.userInteracted = true;
+      state.pinLatestUntil = Date.now() + 5000;
+      state.stableBottomTicks = 0;
     }
 
-    followLatestDuringInitialLoad(root, records.length, false);
     if (!settings.enabled) { restoreAll(); return; }
     if (records.length < settings.minMessages) return;
 
@@ -205,7 +227,7 @@
   };
 
   const checkConnectionStall = () => {
-    if (!settings.autoRecoverStall || document.visibilityState !== 'visible' || isGenerating()) { state.stallSince = 0; return; }
+    if (!settings.autoRecoverStall || document.visibilityState !== 'visible' || isGenerating() || isWaitingForCompletedReply()) { state.stallSince = 0; return; }
     const text = document.body?.innerText || '';
     const stalled = /数据连接中断|正在等待数据传输|等待数据传输|connection interrupted|waiting for data|network connection was lost/i.test(text);
     if (!stalled) { state.stallSince = 0; return; }
@@ -217,9 +239,9 @@
     }
   };
 
-  window.GPTWebKitLongConversation = { restoreAll, getAllMessageNodes: () => state.records.map((record) => record.node).filter(Boolean), schedule, openSettings, getSettings: () => ({ ...settings }), isGenerating };
+  window.GPTWebKitLongConversation = { restoreAll, getAllMessageNodes: () => state.records.map((record) => record.node).filter(Boolean), schedule, openSettings, getSettings: () => ({ ...settings }), isGenerating, isWaitingForCompletedReply, forceLatestVisible };
 
-  const userTouched = () => { if (Date.now() - state.routeStartedAt > 600) state.userInteracted = true; };
+  const userTouched = () => { if (Date.now() - state.routeStartedAt > 700) state.userInteracted = true; };
   addEventListener('touchstart', userTouched, { passive: true, capture: true });
   addEventListener('pointerdown', userTouched, { passive: true, capture: true });
   addEventListener('wheel', userTouched, { passive: true, capture: true });
@@ -229,8 +251,8 @@
   const start = () => {
     installCSS();
     installSettingsButton();
-    new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true });
-    setInterval(checkConnectionStall, 3000);
+    new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+    setInterval(() => { checkConnectionStall(); forceLatestVisible(); }, 250);
     schedule();
   };
   if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once: true });
