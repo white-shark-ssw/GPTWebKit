@@ -1,25 +1,39 @@
 (() => {
   'use strict';
-  if (window.__gptWebKitLongConversation) return;
-  window.__gptWebKitLongConversation = true;
+  if (window.GPTWebKitLongConversation) return;
 
   const settings = { minMessages: 14, overscan: 3, keepRecent: 4 };
-  const state = { records: new Map(), ticking: false };
+  const state = { records: [], knownNodes: new WeakSet(), ticking: false, suspended: false, url: location.href };
 
-  const getMessages = () => Array.from(document.querySelectorAll('main [data-message-author-role], main [data-testid^="conversation-turn-"], main article')).filter((node, index, all) => !all.some((other, i) => i !== index && other.contains(node)));
+  const discoverMessages = () => {
+    const nodes = Array.from(document.querySelectorAll('main [data-message-author-role], main [data-testid^="conversation-turn-"], main article')).filter((node, index, all) => !all.some((other, i) => i !== index && other.contains(node)));
+    for (const node of nodes) {
+      if (state.knownNodes.has(node)) continue;
+      state.knownNodes.add(node);
+      state.records.push({ node, placeholder: null });
+    }
+    state.records = state.records.filter((record) => record.node?.isConnected || record.placeholder?.isConnected);
+  };
+
   const scrollRoot = () => {
-    let node = document.scrollingElement;
+    let root = document.scrollingElement;
     for (const candidate of document.querySelectorAll('main, main *')) {
       const style = getComputedStyle(candidate);
-      if (/(auto|scroll|overlay)/.test(style.overflowY) && candidate.scrollHeight > candidate.clientHeight * 1.2) node = candidate;
+      if (/(auto|scroll|overlay)/.test(style.overflowY) && candidate.scrollHeight > candidate.clientHeight * 1.2) root = candidate;
     }
-    return node;
+    return root;
   };
 
   const restore = (record) => {
     if (!record.placeholder?.isConnected || !record.node) return;
     record.placeholder.replaceWith(record.node);
     record.placeholder = null;
+  };
+
+  const restoreAll = () => {
+    state.suspended = true;
+    state.records.forEach(restore);
+    requestAnimationFrame(() => { state.suspended = false; schedule(); });
   };
 
   const virtualize = (record) => {
@@ -31,37 +45,45 @@
     placeholder.style.height = `${Math.ceil(rect.height)}px`;
     placeholder.style.minHeight = '1px';
     placeholder.style.contain = 'layout style paint';
-    placeholder.addEventListener('click', () => restore(record), { once: true });
+    placeholder.addEventListener('click', () => { restore(record); schedule(); }, { once: true });
     record.node.replaceWith(placeholder);
     record.placeholder = placeholder;
   };
 
+  const resetForRouteChange = () => {
+    if (state.url === location.href) return;
+    state.url = location.href;
+    state.records = [];
+    state.knownNodes = new WeakSet();
+  };
+
   const update = () => {
     state.ticking = false;
-    const messages = getMessages();
-    if (messages.length < settings.minMessages) return;
-    messages.forEach((node) => { if (!state.records.has(node)) state.records.set(node, { node, placeholder: null }); });
+    if (state.suspended) return;
+    resetForRouteChange();
+    discoverMessages();
+    const records = state.records;
+    if (records.length < settings.minMessages) return;
 
     const root = scrollRoot();
     const viewportTop = root === document.scrollingElement ? 0 : root.getBoundingClientRect().top;
     const viewportBottom = root === document.scrollingElement ? innerHeight : root.getBoundingClientRect().bottom;
-    const recentStart = Math.max(0, messages.length - settings.keepRecent);
+    const recentStart = Math.max(0, records.length - settings.keepRecent);
     const visibleIndexes = [];
 
-    messages.forEach((node, index) => {
-      const record = state.records.get(node);
-      const target = record.placeholder || node;
+    records.forEach((record, index) => {
+      const target = record.placeholder || record.node;
+      if (!target?.isConnected) return;
       const rect = target.getBoundingClientRect();
       if (rect.bottom >= viewportTop && rect.top <= viewportBottom) visibleIndexes.push(index);
     });
 
     const firstVisible = visibleIndexes.length ? Math.min(...visibleIndexes) : recentStart;
-    const lastVisible = visibleIndexes.length ? Math.max(...visibleIndexes) : messages.length - 1;
+    const lastVisible = visibleIndexes.length ? Math.max(...visibleIndexes) : records.length - 1;
     const keepStart = Math.max(0, firstVisible - settings.overscan);
-    const keepEnd = Math.min(messages.length - 1, lastVisible + settings.overscan);
+    const keepEnd = Math.min(records.length - 1, lastVisible + settings.overscan);
 
-    messages.forEach((node, index) => {
-      const record = state.records.get(node);
+    records.forEach((record, index) => {
       const keep = (index >= keepStart && index <= keepEnd) || index >= recentStart;
       if (keep) restore(record); else virtualize(record);
     });
@@ -71,6 +93,12 @@
     if (state.ticking) return;
     state.ticking = true;
     requestAnimationFrame(update);
+  };
+
+  window.GPTWebKitLongConversation = {
+    restoreAll,
+    getAllMessageNodes: () => state.records.map((record) => record.node).filter(Boolean),
+    schedule
   };
 
   addEventListener('scroll', schedule, true);
