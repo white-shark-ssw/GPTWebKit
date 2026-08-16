@@ -18,11 +18,10 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
-      - name: Generate requested app icon
+      - name: Prepare app icon
         run: |
-          mkdir -p GPTWebKit/Assets.xcassets/AppIcon.appiconset
-          echo 'iVBORw0KGgoAAAANSUhEUgAAADoAAAA6CAIAAABu2d1/AAAB40lEQVR42u2X35HiMAyHN3eFoE4QFVACogM6MKnEKYEO7FRACVYJUIHu4Tfj8ThzL8ce3tnV92QyJPNZ0R/n48NxHMdxHMdxHOcHMH3KU4jodDoxMxHlnNd1XZblf+j+fv0RzHy/34nodrs9Hg8iulwuIvJ8Po/HIzNP06SqX+LtEJGZhRDaKzFGMzOzUkpKCQtmHq8bY0wp1Z8hBMh1GwghlFKIaKQrM5uZiMAJgexE6yKlVEoZlgOQMzM44b1XP2YupZhZjBEXsbcxugiViLS62zBDGrmBLB+QwbCsdVZ1QwjI3TaoNXER7AG6pZQY41YXRSYiIlKD2lZbl9lvoi2vVhd76NpZ28Je7w+//uGenPNut2v7AxbrutaLqorRsCxLSgk7medZVdtdvUNXVaGoqtfrNcb4NwNVnef5cDiICIKac3539+0mGRHVnrXtHl3O1DId0By2lYRSq013q9tNwbfqbsu/nhbQ1DpdLFCmA8ZvG1RmxrrOtk4Xt4yZw+2I6qTbKY33jj8Pc+0qqTvNtOcy2CNzBuTANsDtsabN6XZ61b47/mxeO0A9oHWFj+L7rKPC9LoxwJxjZmZWVXyrIQHO53PO+Qt9Wrb2zLzf7+sMm+fZP+Adx3Ecx3Ec5zvyB+o9+U+lUKtwAAAAAElFTkSuQmCC' | base64 --decode > /tmp/gptwebkit-icon.png
-          sips -z 1024 1024 /tmp/gptwebkit-icon.png --out GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png >/dev/null
+          test -f GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-source.png
+          sips -z 1024 1024 GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-source.png --out GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png >/dev/null
 
       - name: Build device app without signing
         run: |
