@@ -53,7 +53,7 @@ final class WebViewController: UIViewController {
         NSLayoutConstraint.activate([
             webView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: view.topAnchor),
+            webView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             webView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
     }
@@ -134,6 +134,30 @@ private enum UploadBridgeScript {
         }
       };
 
+      const makeDragEvent = (type, dt) => {
+        try {
+          return new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
+        } catch (_) {
+          const event = new Event(type, { bubbles: true, cancelable: true });
+          try { Object.defineProperty(event, 'dataTransfer', { value: dt }); } catch (_) {}
+          return event;
+        }
+      };
+
+      const clearDragOverlay = () => {
+        const phrases = ['添加任意内容', '将任意文件拖放到此处'];
+        for (const node of document.querySelectorAll('body *')) {
+          const text = (node.textContent || '').trim();
+          if (!phrases.some((phrase) => text.includes(phrase))) continue;
+          const style = getComputedStyle(node);
+          if (style.position !== 'fixed' && style.position !== 'absolute') continue;
+          const rect = node.getBoundingClientRect();
+          if (rect.width < innerWidth * 0.7 || rect.height < innerHeight * 0.35) continue;
+          node.style.setProperty('display', 'none', 'important');
+          node.style.setProperty('pointer-events', 'none', 'important');
+        }
+      };
+
       const dispatchDrop = (files) => {
         const dt = makeDataTransfer(files);
         if (!dt) return false;
@@ -141,16 +165,14 @@ private enum UploadBridgeScript {
         const target = prompt?.closest('form') || prompt?.parentElement || document.querySelector('main') || document.body;
         if (!target) return false;
 
-        for (const type of ['dragenter', 'dragover', 'drop']) {
-          let event;
-          try {
-            event = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt });
-          } catch (_) {
-            event = new Event(type, { bubbles: true, cancelable: true });
-            try { Object.defineProperty(event, 'dataTransfer', { value: dt }); } catch (_) {}
-          }
-          target.dispatchEvent(event);
-        }
+        target.dispatchEvent(makeDragEvent('dragenter', dt));
+        target.dispatchEvent(makeDragEvent('dragover', dt));
+        target.dispatchEvent(makeDragEvent('drop', dt));
+        target.dispatchEvent(makeDragEvent('dragleave', dt));
+        target.dispatchEvent(makeDragEvent('dragend', dt));
+        document.body?.dispatchEvent(makeDragEvent('dragleave', dt));
+        document.body?.dispatchEvent(makeDragEvent('dragend', dt));
+        for (const delay of [0, 50, 150, 400, 1000]) setTimeout(clearDragOverlay, delay);
         return true;
       };
 
