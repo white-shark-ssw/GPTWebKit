@@ -3,22 +3,24 @@
   if (window.GPTWebKitMarkdown) return;
 
   let exportBusy = false;
-  const titleOf = () => document.title.replace(/\s*[-–|]\s*ChatGPT.*$/i, '').trim() || document.querySelector('header h1')?.textContent?.trim() || 'ChatGPT Conversation';
-  const roleOf = (node, index) => node.getAttribute('data-message-author-role') || node.querySelector?.('[data-message-author-role]')?.getAttribute('data-message-author-role') || (index % 2 === 0 ? 'user' : 'assistant');
+  const titleOfPage = () => document.title.replace(/\s*[-–|]\s*ChatGPT.*$/i, '').trim() || document.querySelector('header h1')?.textContent?.trim() || 'ChatGPT Conversation';
+  const normalize = (text) => String(text || '').replace(/\r\n/g, '\n').replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+
   const messageNodes = () => {
     const tracked = window.GPTWebKitLongConversation?.getAllMessageNodes?.() || [];
     if (tracked.length) return tracked;
-    return Array.from(document.querySelectorAll('main [data-message-author-role], main [data-testid^="conversation-turn-"]')).filter((node, index, all) => !all.some((other, i) => i !== index && other.contains(node)));
+    const turns = Array.from(document.querySelectorAll('main [data-testid^="conversation-turn-"]'));
+    if (turns.length) return turns;
+    return Array.from(document.querySelectorAll('main [data-message-author-role]')).filter((node) => !node.parentElement?.closest?.('[data-message-author-role]'));
   };
 
+  const roleOfNode = (node, index) => node.getAttribute('data-message-author-role') || node.querySelector?.('[data-message-author-role]')?.getAttribute('data-message-author-role') || (index % 2 === 0 ? 'user' : 'assistant');
   const cleanClone = (node) => {
     const clone = node.cloneNode(true);
     clone.querySelectorAll('script,style,noscript,button,svg,[aria-hidden="true"],[data-testid*="copy" i],[data-testid*="feedback" i]').forEach((item) => item.remove());
     return clone;
   };
-
   const escapePipes = (text) => text.replace(/\|/g, '\\|').replace(/\n+/g, ' ').trim();
-  const normalize = (text) => text.replace(/[ \t]+\n/g, '\n').replace(/\n[ \t]+/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   const children = (node) => Array.from(node.childNodes).map(renderNode).join('');
 
   const renderTable = (table) => {
@@ -109,18 +111,102 @@
     return children(el);
   }
 
-  const renderMessage = (node, index) => {
+  const renderDOMMessage = (node, index) => {
     const clone = cleanClone(node);
     const content = clone.querySelector('.markdown, [class*="markdown"], [data-message-author-role]') || clone;
-    const role = roleOf(node, index) === 'user' ? 'User' : 'Assistant';
+    const role = roleOfNode(node, index) === 'user' ? 'User' : 'Assistant';
     return `## ${role}\n\n${normalize(renderNode(content))}`;
   };
 
-  const currentConversation = () => {
+  const currentConversationFromDOM = () => {
     const nodes = messageNodes();
-    const title = titleOf();
-    const body = nodes.map(renderMessage).filter((item) => item.trim()).join('\n\n---\n\n');
-    return { title, markdown: `# ${title}\n\n${body}\n`, count: nodes.length };
+    const title = titleOfPage();
+    const body = nodes.map(renderDOMMessage).filter((item) => item.trim()).join('\n\n---\n\n');
+    return { title, markdown: `# ${title}\n\n${body}\n`, count: nodes.length, source: 'dom' };
+  };
+
+  const containerOf = (data) => {
+    if (data?.mapping && typeof data.mapping === 'object') return data;
+    if (data?.conversation?.mapping && typeof data.conversation.mapping === 'object') return data.conversation;
+    return null;
+  };
+
+  const currentPath = (mapping, currentNode) => {
+    const reversed = [];
+    const visited = new Set();
+    let id = currentNode;
+    while (id && mapping[id] && !visited.has(id)) {
+      visited.add(id);
+      reversed.push(id);
+      id = mapping[id]?.parent || null;
+    }
+    reversed.reverse();
+    return reversed;
+  };
+
+  const partToText = (part) => {
+    if (typeof part === 'string') return part;
+    if (!part || typeof part !== 'object') return '';
+    if (typeof part.text === 'string') return part.text;
+    if (typeof part.content === 'string') return part.content;
+    if (typeof part.transcript === 'string') return part.transcript;
+    if (part.content_type === 'image_asset_pointer' || part.asset_pointer) return '[图片]';
+    return '';
+  };
+
+  const messageText = (message) => {
+    const content = message?.content || {};
+    const parts = Array.isArray(content.parts) ? content.parts : [];
+    let text = parts.map(partToText).filter(Boolean).join('\n');
+    if (!text && typeof content.text === 'string') text = content.text;
+    text = normalize(text);
+    return text.replace(/cite[^]+/g, '').replace(/[^]+/g, '').trim();
+  };
+
+  const sourceEntries = (message) => {
+    const metadata = message?.metadata || {};
+    const candidates = [];
+    if (Array.isArray(metadata.content_references)) candidates.push(...metadata.content_references);
+    if (Array.isArray(metadata.citations)) candidates.push(...metadata.citations);
+    const seen = new Set();
+    const out = [];
+    const scan = (value, depth = 0) => {
+      if (!value || depth > 3) return;
+      if (Array.isArray(value)) { value.forEach((item) => scan(item, depth + 1)); return; }
+      if (typeof value !== 'object') return;
+      const url = typeof value.url === 'string' && /^https?:\/\//i.test(value.url) ? value.url : '';
+      const title = typeof value.title === 'string' ? value.title.trim() : '';
+      if (url && !seen.has(url)) { seen.add(url); out.push({ title: title || url, url }); }
+      for (const key of ['metadata', 'source', 'sources', 'attribution', 'items']) if (value[key]) scan(value[key], depth + 1);
+    };
+    candidates.forEach((item) => scan(item));
+    return out;
+  };
+
+  const renderJSONMessage = (node) => {
+    const message = node?.message;
+    const role = message?.author?.role;
+    if (role !== 'user' && role !== 'assistant') return '';
+    const text = messageText(message);
+    if (!text) return '';
+    const heading = role === 'user' ? 'User' : 'Assistant';
+    const sources = sourceEntries(message);
+    const sourceText = sources.length ? `\n\n### Sources\n\n${sources.map((item) => `- [${item.title.replace(/\]/g, '\\]')}](${item.url})`).join('\n')}` : '';
+    return `## ${heading}\n\n${text}${sourceText}`;
+  };
+
+  const fullConversation = async () => {
+    const proxy = window.GPTWebKitTailProxy;
+    const id = proxy?.currentConversationId?.() || '';
+    if (!proxy?.fetchFullConversation || !id) return currentConversationFromDOM();
+    const data = await proxy.fetchFullConversation(id);
+    const container = containerOf(data);
+    if (!container?.mapping || !container?.current_node) throw new Error('完整会话结构无法识别');
+    const path = currentPath(container.mapping, container.current_node);
+    const rendered = path.map((nodeId) => renderJSONMessage(container.mapping[nodeId])).filter(Boolean);
+    if (!rendered.length) throw new Error('完整会话中没有可导出的用户/助手消息');
+    const title = normalize(container.title || data?.title || titleOfPage()) || 'ChatGPT Conversation';
+    return { title, markdown: `# ${title}\n\n${rendered.join('\n\n---\n\n')}\n`, count: rendered.length, source: 'full-json', conversationId: id, currentNode: container.current_node };
   };
 
   const shareResult = (result) => {
@@ -130,7 +216,7 @@
         return;
       }
     } catch (_) {}
-    const blob = new Blob([result.markdown], { type:'text/markdown;charset=utf-8' });
+    const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -139,17 +225,19 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
 
-  const exportCurrent = () => {
+  const exportCurrent = async () => {
     if (exportBusy) return;
+    if (window.GPTWebKitLongConversation?.isGenerating?.()) { alert('当前回复仍在生成，请等待回复完成后再导出。'); return; }
     exportBusy = true;
     try {
-      const result = currentConversation();
-      if (!result.count) { alert('当前页面没有可导出的对话内容。'); return; }
+      const result = await fullConversation();
       shareResult(result);
+    } catch (error) {
+      alert(`导出失败：${error?.message || error}`);
     } finally {
-      setTimeout(() => { exportBusy = false; }, 1800);
+      setTimeout(() => { exportBusy = false; }, 1200);
     }
   };
 
-  window.GPTWebKitMarkdown = { currentConversation, exportCurrent };
+  window.GPTWebKitMarkdown = { currentConversation: currentConversationFromDOM, fullConversation, exportCurrent };
 })();
