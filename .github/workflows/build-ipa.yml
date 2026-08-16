@@ -1,0 +1,58 @@
+name: Build IPA
+
+on:
+  push:
+    branches:
+      - feat/initial-ios-shell
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build device app without signing
+        run: |
+          set -o pipefail
+          rm -rf build Payload GPTWebKit-unsigned.ipa
+          xcodebuild \
+            -project GPTWebKit.xcodeproj \
+            -scheme GPTWebKit \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build | tee xcodebuild.log
+
+      - name: Package IPA
+        run: |
+          APP_PATH="build/Build/Products/Release-iphoneos/GPTWebKit.app"
+          test -d "$APP_PATH"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          ditto -c -k --sequesterRsrc --keepParent Payload GPTWebKit-unsigned.ipa
+          ls -lh GPTWebKit-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: GPTWebKit-unsigned-ipa
+          path: GPTWebKit-unsigned.ipa
+          if-no-files-found: error
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: xcodebuild.log
+          if-no-files-found: ignore
