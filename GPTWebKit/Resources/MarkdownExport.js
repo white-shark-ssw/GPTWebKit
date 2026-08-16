@@ -227,7 +227,6 @@
 
   const exportCurrent = async () => {
     if (exportBusy) return;
-    if (window.GPTWebKitLongConversation?.isGenerating?.()) { alert('当前回复仍在生成，请等待回复完成后再导出。'); return; }
     exportBusy = true;
     try {
       const result = await fullConversation();
