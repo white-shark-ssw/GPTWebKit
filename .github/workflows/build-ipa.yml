@@ -19,6 +19,12 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
 
+      - name: Validate injected JavaScript
+        run: |
+          node --check GPTWebKit/Resources/LongConversation.js
+          node --check GPTWebKit/Resources/MarkdownExport.js
+          node --check GPTWebKit/Resources/UIEnhancements.js
+
       - name: Prepare app icon
         run: |
           test -f GPTWebKit/Assets.xcassets/AppIcon.appiconset/AppIcon-source.png
