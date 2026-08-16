@@ -2,24 +2,20 @@
   'use strict';
   if (window.GPTWebKitLongConversation) return;
 
-  const STORAGE_KEY = 'gptwebkit.longConversation.settings.v4';
+  const STORAGE_KEY = 'gptwebkit.longConversation.settings.v5';
   const defaults = { enabled: true, minMessages: 6, overscan: 1, keepRecent: 3, fastFollowLatest: true, autoRecoverStall: false };
   let settings = { ...defaults };
   try { settings = { ...defaults, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }; } catch (_) {}
 
-  const state = { records: [], knownNodes: new WeakSet(), ticking: false, suspended: false, url: location.href, routeStartedAt: Date.now(), userInteracted: false, lastCount: 0, stallSince: 0, lastRecoveryAt: 0, wasGenerating: false, pinLatestUntil: Date.now() + 18000, lastBottomHeight: 0, stableBottomTicks: 0 };
+  const state = { records: [], knownNodes: new WeakSet(), ticking: false, suspended: false, paused: document.visibilityState !== 'visible', url: location.href, routeStartedAt: Date.now(), userInteracted: false, stallSince: 0, lastRecoveryAt: 0, wasGenerating: false, pinLatestUntil: Date.now() + 18000, lastBottomHeight: 0, stableBottomTicks: 0 };
 
   const installCSS = () => {
     if (document.getElementById('gptwebkit-long-conversation-style')) return;
     const style = document.createElement('style');
     style.id = 'gptwebkit-long-conversation-style';
     style.textContent = `
-      main [data-message-author-role], main [data-testid^="conversation-turn-"], main article {
-        content-visibility: auto;
-        contain-intrinsic-size: auto 520px;
-      }
-      [data-gptwebkit-placeholder="1"] { content-visibility: auto; contain: layout style paint; }
-      #gptwebkit-opt-button { position:fixed; right:4px; top:48%; z-index:2147483000; width:32px; height:42px; border:0; border-radius:12px 0 0 12px; background:rgba(0,0,0,.42); color:white; font-size:17px; opacity:.55; }
+      main [data-message-author-role], main [data-testid^="conversation-turn-"], main article { content-visibility:auto; contain-intrinsic-size:auto 520px; }
+      [data-gptwebkit-placeholder="1"] { content-visibility:auto; contain:layout style paint; }
       #gptwebkit-opt-panel { position:fixed; z-index:2147483640; inset:0; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,.28); padding:20px; }
       #gptwebkit-opt-card { width:min(340px,92vw); border-radius:18px; background:Canvas; color:CanvasText; box-shadow:0 12px 50px rgba(0,0,0,.28); padding:18px; font:15px -apple-system,BlinkMacSystemFont,sans-serif; }
       #gptwebkit-opt-card h3 { margin:0 0 14px; font-size:18px; }
@@ -41,7 +37,6 @@
     }
     return false;
   };
-
   const isWaitingForCompletedReply = () => /连接已中断[^\n]{0,40}正在等待完整回复|连接中断[^\n]{0,40}等待完整回复|connection interrupted[^\n]{0,80}waiting for (the )?(complete|full) response/i.test(document.body?.innerText || '');
 
   const openSettings = () => {
@@ -53,7 +48,7 @@
       <label><span>启用优化</span><input data-k="enabled" type="checkbox" ${settings.enabled ? 'checked' : ''}></label>
       <label><span>进入会话自动贴到最新</span><input data-k="fastFollowLatest" type="checkbox" ${settings.fastFollowLatest ? 'checked' : ''}></label>
       <label><span>连接中断自动恢复</span><input data-k="autoRecoverStall" type="checkbox" ${settings.autoRecoverStall ? 'checked' : ''}></label>
-      <div class="hint">进入正在生成中的会话时不会刷新，也不会尝试接管旧的流式连接；会自动贴底等待服务器写入完整回复。</div>
+      <div class="hint">后台/锁屏时优化器会完全暂停；正在生成或等待完整回复时不会自动刷新。</div>
       <label><span>始终保留最近消息</span><input data-k="keepRecent" type="number" min="2" max="12" value="${settings.keepRecent}"></label>
       <label><span>上下预留消息</span><input data-k="overscan" type="number" min="0" max="8" value="${settings.overscan}"></label>
       <div class="actions"><button data-a="reset">恢复默认</button><button data-a="close">完成</button></div>
@@ -69,18 +64,7 @@
     document.body.appendChild(panel);
   };
 
-  const installSettingsButton = () => {
-    if (document.getElementById('gptwebkit-opt-button') || !document.body) return;
-    const button = document.createElement('button');
-    button.id = 'gptwebkit-opt-button';
-    button.textContent = '⚙︎';
-    button.title = '长对话优化设置';
-    button.addEventListener('click', openSettings);
-    document.body.appendChild(button);
-  };
-
   const messageNodes = () => Array.from(document.querySelectorAll('main [data-message-author-role], main [data-testid^="conversation-turn-"], main article')).filter((node, index, all) => !all.some((other, i) => i !== index && other.contains(node)));
-
   const discoverMessages = () => {
     for (const node of messageNodes()) {
       if (state.knownNodes.has(node)) continue;
@@ -89,7 +73,6 @@
     }
     state.records = state.records.filter((record) => record.node?.isConnected || record.placeholder?.isConnected);
   };
-
   const scrollRoot = () => {
     let root = document.scrollingElement;
     let bestArea = 0;
@@ -102,24 +85,20 @@
     }
     return root;
   };
-
   const restore = (record) => {
     if (!record.placeholder?.isConnected || !record.node) return;
     record.placeholder.replaceWith(record.node);
     record.placeholder = null;
   };
-
   const restoreAll = () => {
     state.suspended = true;
     state.records.forEach(restore);
     requestAnimationFrame(() => { state.suspended = false; schedule(); });
   };
-
   const restoreRecent = (count = 8) => {
     const start = Math.max(0, state.records.length - count);
     for (let i = start; i < state.records.length; i++) restore(state.records[i]);
   };
-
   const virtualize = (record) => {
     if (!record.node?.isConnected || record.placeholder) return;
     const rect = record.node.getBoundingClientRect();
@@ -132,56 +111,42 @@
     record.node.replaceWith(placeholder);
     record.placeholder = placeholder;
   };
-
   const resetForRouteChange = () => {
     if (state.url === location.href) return;
-    restoreAll();
+    state.records.forEach(restore);
     state.url = location.href;
     state.records = [];
     state.knownNodes = new WeakSet();
     state.routeStartedAt = Date.now();
     state.userInteracted = false;
-    state.lastCount = 0;
     state.stallSince = 0;
     state.wasGenerating = false;
     state.pinLatestUntil = Date.now() + 18000;
     state.lastBottomHeight = 0;
     state.stableBottomTicks = 0;
   };
-
   const forceLatestVisible = () => {
-    if (!settings.fastFollowLatest || state.userInteracted || Date.now() > state.pinLatestUntil) return;
+    if (state.paused || !settings.fastFollowLatest || state.userInteracted || (Date.now() > state.pinLatestUntil && !isWaitingForCompletedReply())) return;
     const root = scrollRoot();
     const nodes = messageNodes();
     const last = nodes[nodes.length - 1];
-    try { last?.scrollIntoView({ block: 'end', inline: 'nearest', behavior: 'auto' }); } catch (_) {}
-    if (root === document.scrollingElement) {
-      const height = Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0);
-      window.scrollTo(0, height);
-      if (Math.abs(height - state.lastBottomHeight) < 2) state.stableBottomTicks++; else state.stableBottomTicks = 0;
-      state.lastBottomHeight = height;
-    } else {
-      const height = root.scrollHeight;
-      root.scrollTop = height;
-      if (Math.abs(height - state.lastBottomHeight) < 2) state.stableBottomTicks++; else state.stableBottomTicks = 0;
-      state.lastBottomHeight = height;
-    }
+    try { last?.scrollIntoView({ block:'end', inline:'nearest', behavior:'auto' }); } catch (_) {}
+    const height = root === document.scrollingElement ? Math.max(document.body?.scrollHeight || 0, document.documentElement?.scrollHeight || 0) : root.scrollHeight;
+    if (root === document.scrollingElement) window.scrollTo(0, height); else root.scrollTop = height;
+    if (Math.abs(height - state.lastBottomHeight) < 2) state.stableBottomTicks++; else state.stableBottomTicks = 0;
+    state.lastBottomHeight = height;
     if (state.stableBottomTicks >= 18 && !isGenerating() && !isWaitingForCompletedReply()) state.pinLatestUntil = 0;
   };
-
   const update = () => {
     state.ticking = false;
-    if (state.suspended) return;
+    if (state.suspended || state.paused) return;
     resetForRouteChange();
-    installSettingsButton();
     discoverMessages();
     const records = state.records;
     const root = scrollRoot();
     const generating = isGenerating();
     const waitingCompleted = isWaitingForCompletedReply();
-
     if (settings.fastFollowLatest && !state.userInteracted && (Date.now() < state.pinLatestUntil || waitingCompleted)) requestAnimationFrame(forceLatestVisible);
-
     if (generating || waitingCompleted) {
       state.wasGenerating = true;
       state.stallSince = 0;
@@ -193,43 +158,35 @@
       state.pinLatestUntil = Date.now() + 5000;
       state.stableBottomTicks = 0;
     }
-
     if (!settings.enabled) { restoreAll(); return; }
     if (records.length < settings.minMessages) return;
-
     const viewportTop = root === document.scrollingElement ? 0 : root.getBoundingClientRect().top;
     const viewportBottom = root === document.scrollingElement ? innerHeight : root.getBoundingClientRect().bottom;
     const recentStart = Math.max(0, records.length - settings.keepRecent);
     const visibleIndexes = [];
-
     records.forEach((record, index) => {
       const target = record.placeholder || record.node;
       if (!target?.isConnected) return;
       const rect = target.getBoundingClientRect();
       if (rect.bottom >= viewportTop && rect.top <= viewportBottom) visibleIndexes.push(index);
     });
-
     const firstVisible = visibleIndexes.length ? Math.min(...visibleIndexes) : recentStart;
     const lastVisible = visibleIndexes.length ? Math.max(...visibleIndexes) : records.length - 1;
     const keepStart = Math.max(0, firstVisible - settings.overscan);
     const keepEnd = Math.min(records.length - 1, lastVisible + settings.overscan);
-
     records.forEach((record, index) => {
       const keep = (index >= keepStart && index <= keepEnd) || index >= recentStart;
       if (keep) restore(record); else virtualize(record);
     });
   };
-
   const schedule = () => {
-    if (state.ticking) return;
+    if (state.paused || state.ticking) return;
     state.ticking = true;
     requestAnimationFrame(update);
   };
-
   const checkConnectionStall = () => {
-    if (!settings.autoRecoverStall || document.visibilityState !== 'visible' || isGenerating() || isWaitingForCompletedReply()) { state.stallSince = 0; return; }
-    const text = document.body?.innerText || '';
-    const stalled = /数据连接中断|正在等待数据传输|等待数据传输|connection interrupted|waiting for data|network connection was lost/i.test(text);
+    if (state.paused || !settings.autoRecoverStall || document.visibilityState !== 'visible' || isGenerating() || isWaitingForCompletedReply()) { state.stallSince = 0; return; }
+    const stalled = /数据连接中断|正在等待数据传输|等待数据传输|connection interrupted|waiting for data|network connection was lost/i.test(document.body?.innerText || '');
     if (!stalled) { state.stallSince = 0; return; }
     if (!state.stallSince) state.stallSince = Date.now();
     if (Date.now() - state.stallSince > 30000 && Date.now() - state.lastRecoveryAt > 120000) {
@@ -238,22 +195,24 @@
       location.reload();
     }
   };
+  const suspend = () => { state.paused = true; state.ticking = false; };
+  const resume = () => { state.paused = false; state.pinLatestUntil = Date.now() + 8000; state.stableBottomTicks = 0; schedule(); };
 
-  window.GPTWebKitLongConversation = { restoreAll, getAllMessageNodes: () => state.records.map((record) => record.node).filter(Boolean), schedule, openSettings, getSettings: () => ({ ...settings }), isGenerating, isWaitingForCompletedReply, forceLatestVisible };
+  window.GPTWebKitLongConversation = { restoreAll, getAllMessageNodes: () => state.records.map((record) => record.node).filter(Boolean), schedule, openSettings, getSettings: () => ({ ...settings }), isGenerating, isWaitingForCompletedReply, forceLatestVisible, suspend, resume };
 
-  const userTouched = () => { if (Date.now() - state.routeStartedAt > 700) state.userInteracted = true; };
-  addEventListener('touchstart', userTouched, { passive: true, capture: true });
-  addEventListener('pointerdown', userTouched, { passive: true, capture: true });
-  addEventListener('wheel', userTouched, { passive: true, capture: true });
+  const userTouched = () => { if (!state.paused && Date.now() - state.routeStartedAt > 700) state.userInteracted = true; };
+  addEventListener('touchstart', userTouched, { passive:true, capture:true });
+  addEventListener('pointerdown', userTouched, { passive:true, capture:true });
+  addEventListener('wheel', userTouched, { passive:true, capture:true });
   addEventListener('scroll', schedule, true);
-  addEventListener('resize', schedule, { passive: true });
+  addEventListener('resize', schedule, { passive:true });
+  addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') resume(); else suspend(); });
 
   const start = () => {
     installCSS();
-    installSettingsButton();
-    new MutationObserver(schedule).observe(document.documentElement, { childList: true, subtree: true, characterData: true });
-    setInterval(() => { checkConnectionStall(); forceLatestVisible(); }, 250);
+    new MutationObserver(schedule).observe(document.documentElement, { childList:true, subtree:true, characterData:true });
+    setInterval(() => { if (!state.paused) { checkConnectionStall(); forceLatestVisible(); } }, 300);
     schedule();
   };
-  if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once: true });
+  if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once:true });
 })();
