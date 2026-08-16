@@ -36,6 +36,7 @@ final class WebViewController: UIViewController {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.userContentController.add(self, name: "markdownExport")
         configuration.userContentController.addUserScript(WKUserScript(source: UploadBridgeScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("LongConversation"), injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("MarkdownExport"), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
@@ -84,6 +85,25 @@ final class WebViewController: UIViewController {
         webView.load(URLRequest(url: target))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.isRecovering = false }
     }
+
+    private func shareMarkdown(title: String, markdown: String) {
+        let invalid = CharacterSet(charactersIn: "/\\:*?\"<>|")
+        let safeTitle = title.components(separatedBy: invalid).joined(separator: "_").trimmingCharacters(in: .whitespacesAndNewlines)
+        let filename = "\(safeTitle.isEmpty ? "ChatGPT Conversation" : safeTitle).md"
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GPTWebKitExports", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appendingPathComponent(filename)
+            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            if let popover = activity.popoverPresentationController { popover.sourceView = view; popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.maxY - 1, width: 1, height: 1) }
+            present(activity, animated: true)
+        } catch {
+            let alert = UIAlertController(title: "导出失败", message: error.localizedDescription, preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "确定", style: .default))
+            present(alert, animated: true)
+        }
+    }
 }
 
 extension WebViewController: WKNavigationDelegate {
@@ -111,6 +131,14 @@ extension WebViewController: WKUIDelegate {
     @available(iOS 18.4, *)
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
         uploadPanel.present(from: self, allowsMultipleSelection: parameters.allowsMultipleSelection, completion: completionHandler)
+    }
+}
+
+extension WebViewController: WKScriptMessageHandler {
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "markdownExport", let body = message.body as? [String: Any], let markdown = body["markdown"] as? String else { return }
+        let title = body["title"] as? String ?? "ChatGPT Conversation"
+        shareMarkdown(title: title, markdown: markdown)
     }
 }
 
