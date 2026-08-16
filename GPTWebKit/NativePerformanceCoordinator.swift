@@ -482,7 +482,8 @@ final class NativePerformanceCoordinator: NSObject, UIGestureRecognizerDelegate,
                 self?.activeWebView()?.evaluateJavaScript("window.GPTWebKitLongConversation?.returnLatest?.(); true", completionHandler: nil)
             }
             controller.loadCacheCount = { [weak self] completion in
-                self?.loadCacheItems { completion($0.count) } ?? completion(0)
+                guard let self else { completion(0); return }
+                self.loadCacheItems { completion($0.count) }
             }
             controller.onOpenCache = { [weak self, weak controller] in
                 guard let self, let controller else { return }
@@ -503,7 +504,7 @@ final class NativePerformanceCoordinator: NSObject, UIGestureRecognizerDelegate,
             "return await (window.GPTWebKitTailProxy?.cacheList?.() || Promise.resolve([]));",
             arguments: [:],
             in: nil,
-            contentWorld: .page
+            in: .page
         ) { result in
             DispatchQueue.main.async {
                 switch result {
@@ -530,8 +531,10 @@ final class NativePerformanceCoordinator: NSObject, UIGestureRecognizerDelegate,
             "return !!(await window.GPTWebKitTailProxy?.cacheRemove?.(conversationId));",
             arguments: ["conversationId": id],
             in: nil,
-            contentWorld: .page
-        ) { _ in DispatchQueue.main.async { completion() } }
+            in: .page
+        ) { _ in
+            DispatchQueue.main.async { completion() }
+        }
     }
 
     private func clearAllCache(completion: @escaping () -> Void) {
@@ -540,7 +543,7 @@ final class NativePerformanceCoordinator: NSObject, UIGestureRecognizerDelegate,
             "return !!(await window.GPTWebKitTailProxy?.cacheClear?.());",
             arguments: [:],
             in: nil,
-            contentWorld: .page
+            in: .page
         ) { [weak self] _ in
             DispatchQueue.main.async {
                 self?.requestControlledGC()
@@ -551,9 +554,18 @@ final class NativePerformanceCoordinator: NSObject, UIGestureRecognizerDelegate,
 
     private func presentCacheManager(from presenter: UIViewController) {
         let controller = NativeConversationCacheViewController()
-        controller.loadItems = { [weak self] completion in self?.loadCacheItems(completion: completion) ?? completion([]) }
-        controller.removeItem = { [weak self] id, completion in self?.removeCacheItem(id: id, completion: completion) ?? completion() }
-        controller.clearAll = { [weak self] completion in self?.clearAllCache(completion: completion) ?? completion() }
+        controller.loadItems = { [weak self] completion in
+            guard let self else { completion([]); return }
+            self.loadCacheItems(completion: completion)
+        }
+        controller.removeItem = { [weak self] id, completion in
+            guard let self else { completion(); return }
+            self.removeCacheItem(id: id, completion: completion)
+        }
+        controller.clearAll = { [weak self] completion in
+            guard let self else { completion(); return }
+            self.clearAllCache(completion: completion)
+        }
         let navigation = UINavigationController(rootViewController: controller)
         navigation.modalPresentationStyle = .pageSheet
         if let sheet = navigation.sheetPresentationController {
@@ -654,7 +666,7 @@ private final class NativePerformanceSettingsViewController: UIViewController {
     var onLoadEarlier: (() -> Void)?
     var onReturnLatest: (() -> Void)?
     var onOpenCache: (() -> Void)?
-    var loadCacheCount: (((Int) -> Void) -> Void)?
+    var loadCacheCount: ((@escaping (Int) -> Void) -> Void)?
 
     private var settings: NativePerformanceSettings
     private let roundsValueLabel = UILabel()
@@ -829,7 +841,7 @@ private final class NativePerformanceSettingsViewController: UIViewController {
 }
 
 private final class NativeConversationCacheViewController: UITableViewController {
-    var loadItems: ((([NativeConversationCacheItem]) -> Void) -> Void)?
+    var loadItems: ((@escaping ([NativeConversationCacheItem]) -> Void) -> Void)?
     var removeItem: ((String, @escaping () -> Void) -> Void)?
     var clearAll: ((@escaping () -> Void) -> Void)?
 
