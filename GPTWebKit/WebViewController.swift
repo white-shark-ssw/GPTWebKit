@@ -13,6 +13,7 @@ final class WebViewController: UIViewController {
     private var isInBackground = false
     private var contentProcessTerminated = false
     private var foregroundProbeID = 0
+    private var isExportInteractionActive = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -127,7 +128,11 @@ final class WebViewController: UIViewController {
 
     private func startSnapshotTimer() {
         snapshotTimer?.invalidate()
-        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: true) { [weak self] _ in self?.persistSessionSnapshot() }
+        guard !isExportInteractionActive else { snapshotTimer = nil; return }
+        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: true) { [weak self] _ in
+            guard let self, !self.isExportInteractionActive else { return }
+            self.persistSessionSnapshot()
+        }
     }
 
     @objc private func handleWillResignActive() {
@@ -156,7 +161,7 @@ final class WebViewController: UIViewController {
             return
         }
         showWebView()
-        webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil)
+        if !isExportInteractionActive { webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
         foregroundProbeID += 1
         let probeID = foregroundProbeID
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.probeWebViewHealth(attempt: 0, probeID: probeID) }
@@ -226,7 +231,7 @@ final class WebViewController: UIViewController {
             timeout.cancel()
             if error == nil, let info = result as? [String: Any], (info["ok"] as? Bool) == true {
                 self.showWebView()
-                self.webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil)
+                if !self.isExportInteractionActive { self.webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
                 return
             }
             self.handleHealthProbeFailure(attempt: attempt, probeID: probeID)
@@ -389,9 +394,36 @@ final class WebViewController: UIViewController {
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
+    private func beginNativeExportInteraction() {
+        guard !isExportInteractionActive else { return }
+        isExportInteractionActive = true
+        foregroundProbeID += 1
+        snapshotTimer?.invalidate()
+        snapshotTimer = nil
+        view.endEditing(true)
+        webView.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
+    }
+
+    private func endNativeExportInteraction() {
+        guard isExportInteractionActive else { return }
+        isExportInteractionActive = false
+        if !isInBackground {
+            webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil)
+            startSnapshotTimer()
+        }
+    }
+
     private func exportCurrentMarkdown() {
-        webView.evaluateJavaScript("window.GPTWebKitMarkdown?.exportCurrent?.(); true") { [weak self] _, error in
-            if let error { self?.showSimpleAlert(title: "导出失败", message: error.localizedDescription) }
+        beginNativeExportInteraction()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) { [weak self] in
+            guard let self else { return }
+            self.webView.evaluateJavaScript("window.GPTWebKitMarkdown?.exportCurrent?.(); true") { [weak self] _, error in
+                guard let self else { return }
+                if let error {
+                    self.endNativeExportInteraction()
+                    self.showSimpleAlert(title: "导出失败", message: error.localizedDescription)
+                }
+            }
         }
     }
 
@@ -408,40 +440,79 @@ final class WebViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    private func promptMarkdownFilename(title: String, markdown: String) {
-        guard presentedViewController == nil else { return }
+    private func prepareMarkdownFilenamePrompt(title: String, markdown: String) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GPTWebKitExports", isDirectory: true)
+        let pendingURL = directory.appendingPathComponent(".pending-\(UUID().uuidString).md")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            do {
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+                try markdown.write(to: pendingURL, atomically: true, encoding: .utf8)
+                DispatchQueue.main.async { self?.promptMarkdownFilename(title: title, sourceURL: pendingURL) }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.endNativeExportInteraction()
+                    self?.showSimpleAlert(title: "导出失败", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func promptMarkdownFilename(title: String, sourceURL: URL) {
+        guard presentedViewController == nil else {
+            try? FileManager.default.removeItem(at: sourceURL)
+            endNativeExportInteraction()
+            return
+        }
         let defaultName = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "ChatGPT Conversation" : title.trimmingCharacters(in: .whitespacesAndNewlines)
         let alert = UIAlertController(title: "Markdown 文件名", message: "可直接使用当前会话标题，也可以修改后再导出。", preferredStyle: .alert)
         alert.addTextField { textField in
             textField.text = defaultName
             textField.clearButtonMode = .whileEditing
             textField.autocorrectionType = .no
+            textField.spellCheckingType = .no
+            textField.smartQuotesType = .no
+            textField.smartDashesType = .no
             textField.returnKeyType = .done
-            DispatchQueue.main.async { textField.selectAll(nil) }
         }
-        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
-        alert.addAction(UIAlertAction(title: "确定", style: .default) { [weak self, weak alert] _ in
-            let input = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            self?.shareMarkdown(filename: input.isEmpty ? defaultName : input, markdown: markdown)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+            try? FileManager.default.removeItem(at: sourceURL)
+            self?.endNativeExportInteraction()
         })
-        present(alert, animated: true)
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { [weak self, weak alert] _ in
+            guard let self else { return }
+            let input = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                self.shareMarkdown(filename: input.isEmpty ? defaultName : input, sourceURL: sourceURL)
+            }
+        })
+        present(alert, animated: true) { [weak alert] in
+            guard let textField = alert?.textFields?.first else { return }
+            textField.becomeFirstResponder()
+            textField.selectAll(nil)
+        }
     }
 
-    private func shareMarkdown(filename: String, markdown: String) {
+    private func shareMarkdown(filename: String, sourceURL: URL) {
         var base = filename.trimmingCharacters(in: .whitespacesAndNewlines)
         if base.lowercased().hasSuffix(".md") { base.removeLast(3) }
         let invalid = CharacterSet(charactersIn: "/\\:*?\"<>|")
         base = base.components(separatedBy: invalid).joined(separator: "_").trimmingCharacters(in: .whitespacesAndNewlines)
         if base.isEmpty { base = "ChatGPT Conversation" }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GPTWebKitExports", isDirectory: true)
+        let url = directory.appendingPathComponent("\(base).md")
         do {
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let url = directory.appendingPathComponent("\(base).md")
-            try markdown.write(to: url, atomically: true, encoding: .utf8)
+            if FileManager.default.fileExists(atPath: url.path) { try FileManager.default.removeItem(at: url) }
+            try FileManager.default.moveItem(at: sourceURL, to: url)
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+            activity.completionWithItemsHandler = { [weak self] _, _, _, _ in
+                try? FileManager.default.removeItem(at: url)
+                self?.endNativeExportInteraction()
+            }
             if let popover = activity.popoverPresentationController { popover.sourceView = menuButton; popover.sourceRect = menuButton.bounds }
             present(activity, animated: true)
         } catch {
+            try? FileManager.default.removeItem(at: sourceURL)
+            endNativeExportInteraction()
             showSimpleAlert(title: "导出失败", message: error.localizedDescription)
         }
     }
@@ -505,7 +576,7 @@ extension WebViewController: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "markdownExport", let body = message.body as? [String: Any], let markdown = body["markdown"] as? String else { return }
         let title = body["title"] as? String ?? "ChatGPT Conversation"
-        promptMarkdownFilename(title: title, markdown: markdown)
+        prepareMarkdownFilenamePrompt(title: title, markdown: markdown)
     }
 }
 
