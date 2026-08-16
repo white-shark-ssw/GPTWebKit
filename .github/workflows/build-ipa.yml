@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - feat/initial-ios-shell
+      - feat/0.2-native-recovery-exporter
   workflow_dispatch:
 
 jobs:
@@ -44,14 +45,14 @@ jobs:
           test -d "$APP_PATH"
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          ditto -c -k --sequesterRsrc --keepParent Payload GPTWebKit-unsigned.ipa
-          ls -lh GPTWebKit-unsigned.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ChatGPT-Web-0.2.0-alpha1.ipa
+          ls -lh ChatGPT-Web-0.2.0-alpha1.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: GPTWebKit-unsigned-ipa
-          path: GPTWebKit-unsigned.ipa
+          name: ChatGPT-Web-0.2.0-alpha1
+          path: ChatGPT-Web-0.2.0-alpha1.ipa
           if-no-files-found: error
 
       - name: Upload build log on failure
