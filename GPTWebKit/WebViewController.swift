@@ -5,6 +5,7 @@ final class WebViewController: UIViewController {
     private let uploadPanel = UploadPanelCoordinator()
     private let statusLabel = UILabel()
     private let menuButton = UIButton(type: .system)
+    private let processPool = WKProcessPool()
     private var webView: WKWebView!
     private var recoveryURL: URL?
     private var pendingRestoreSnapshot: SessionSnapshot?
@@ -35,11 +36,13 @@ final class WebViewController: UIViewController {
     private func makeConfiguration() -> WKWebViewConfiguration {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .default()
+        configuration.processPool = processPool
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.userContentController.add(self, name: "markdownExport")
         configuration.userContentController.addUserScript(WKUserScript(source: UploadBridgeScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("LongConversation"), injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("MarkdownExport"), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
+        configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("UIEnhancements"), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         return configuration
     }
 
@@ -129,7 +132,7 @@ final class WebViewController: UIViewController {
     private func startSnapshotTimer() {
         snapshotTimer?.invalidate()
         guard !isExportInteractionActive else { snapshotTimer = nil; return }
-        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: true) { [weak self] _ in
+        snapshotTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
             guard let self, !self.isExportInteractionActive else { return }
             self.persistSessionSnapshot()
         }
@@ -173,10 +176,8 @@ final class WebViewController: UIViewController {
     }
 
     private func loadInitialPage() {
-        let snapshot = loadSessionSnapshot()
-        let savedURL = snapshot.flatMap { URL(string: $0.url) }.flatMap { isChatGPTURL($0) ? $0 : nil }
-        pendingRestoreSnapshot = savedURL == nil ? nil : snapshot
-        load(savedURL ?? URL(string: "https://chatgpt.com/")!)
+        pendingRestoreSnapshot = nil
+        load(URL(string: "https://chatgpt.com/")!)
     }
 
     private func load(_ url: URL) {
@@ -597,7 +598,14 @@ private enum UploadBridgeScript {
       'use strict';
       if (window.__gptWebKitUploadBridge) return;
       window.__gptWebKitUploadBridge = true;
-      const unlock = (root = document) => root.querySelectorAll?.('input[type="file"]').forEach((input) => input.removeAttribute('accept'));
+
+      const unlockInput = (input) => {
+        if (input instanceof HTMLInputElement && input.type === 'file' && input.hasAttribute('accept')) input.removeAttribute('accept');
+      };
+      const unlock = (root = document) => {
+        if (root instanceof HTMLInputElement) unlockInput(root);
+        root.querySelectorAll?.('input[type="file"][accept]').forEach(unlockInput);
+      };
       const isVideo = (file) => file && (file.type?.startsWith('video/') || /\\.(mov|mp4|m4v|webm|avi|mkv)$/i.test(file.name || ''));
       const makeDataTransfer = (files) => { try { const dt = new DataTransfer(); for (const file of files) dt.items.add(file); return dt; } catch (_) { return null; } };
       const makeDragEvent = (type, dt) => { try { return new DragEvent(type, { bubbles:true, cancelable:true, dataTransfer:dt }); } catch (_) { const event = new Event(type, { bubbles:true, cancelable:true }); try { Object.defineProperty(event, 'dataTransfer', { value:dt }); } catch (_) {} return event; } };
@@ -630,6 +638,7 @@ private enum UploadBridgeScript {
         for (const delay of [0, 50, 150, 400, 1000]) setTimeout(clearDragOverlay, delay);
         return true;
       };
+
       document.addEventListener('change', (event) => {
         const input = event.target;
         if (!(input instanceof HTMLInputElement) || input.type !== 'file' || !input.files?.length) return;
@@ -641,13 +650,33 @@ private enum UploadBridgeScript {
         dispatchDrop(files);
         setTimeout(() => { try { input.value = ''; } catch (_) {} }, 0);
       }, true);
+
+      const pendingRoots = new Set();
+      let unlockRAF = 0;
+      const scheduleUnlock = (node) => {
+        if (!(node instanceof Element)) return;
+        if (node.matches('input[type="file"]')) {
+          unlockInput(node);
+          return;
+        }
+        if (!node.childElementCount) return;
+        pendingRoots.add(node);
+        if (unlockRAF) return;
+        unlockRAF = requestAnimationFrame(() => {
+          unlockRAF = 0;
+          const roots = Array.from(pendingRoots);
+          pendingRoots.clear();
+          for (const root of roots) {
+            if (root.querySelector?.('input[type="file"][accept]')) unlock(root);
+          }
+        });
+      };
+
       const start = () => {
         unlock();
-        new MutationObserver((mutations) => mutations.forEach((mutation) => mutation.addedNodes.forEach((node) => {
-          if (node.nodeType !== 1) return;
-          if (node.matches?.('input[type="file"]')) node.removeAttribute('accept');
-          unlock(node);
-        }))).observe(document.documentElement, { childList:true, subtree:true });
+        new MutationObserver((mutations) => {
+          for (const mutation of mutations) for (const node of mutation.addedNodes) scheduleUnlock(node);
+        }).observe(document.documentElement, { childList:true, subtree:true });
       };
       if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once:true });
     })();
