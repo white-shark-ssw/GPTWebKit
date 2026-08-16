@@ -9,8 +9,10 @@ final class WebViewController: UIViewController {
     private var recoveryURL: URL?
     private var pendingRestoreSnapshot: SessionSnapshot?
     private var snapshotTimer: Timer?
-    private var lastBackgroundAt: Date?
     private var isRecovering = false
+    private var isInBackground = false
+    private var contentProcessTerminated = false
+    private var foregroundProbeID = 0
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -76,6 +78,7 @@ final class WebViewController: UIViewController {
     }
 
     private func rebuildWebView() {
+        foregroundProbeID += 1
         let old = webView
         old?.stopLoading()
         old?.navigationDelegate = nil
@@ -129,11 +132,12 @@ final class WebViewController: UIViewController {
 
     @objc private func handleWillResignActive() {
         persistSessionSnapshot()
-        webView.evaluateJavaScript("window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
+        webView.evaluateJavaScript("window.GPTWebKitLongConversation?.prepareForBackground?.(); true", completionHandler: nil)
     }
 
     @objc private func handleDidEnterBackground() {
-        lastBackgroundAt = Date()
+        isInBackground = true
+        foregroundProbeID += 1
         snapshotTimer?.invalidate()
         snapshotTimer = nil
     }
@@ -145,14 +149,22 @@ final class WebViewController: UIViewController {
     }
 
     @objc private func handleDidBecomeActive() {
+        isInBackground = false
         startSnapshotTimer()
+        if contentProcessTerminated {
+            recoverContentProcess(reason: "deferred-web-content-terminated")
+            return
+        }
+        showWebView()
         webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.validateWebViewHealth() }
+        foregroundProbeID += 1
+        let probeID = foregroundProbeID
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.probeWebViewHealth(attempt: 0, probeID: probeID) }
     }
 
     @objc private func handleMemoryWarning() {
         persistSessionSnapshot()
-        webView.evaluateJavaScript("window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
+        webView.evaluateJavaScript("window.GPTWebKitLongConversation?.prepareForBackground?.(); true", completionHandler: nil)
     }
 
     private func loadInitialPage() {
@@ -190,38 +202,58 @@ final class WebViewController: UIViewController {
         statusLabel.text = "ChatGPT 加载失败\n\n\(error.localizedDescription)\n\n可点击右侧菜单中的“恢复页面”。"
     }
 
-    private func validateWebViewHealth() {
-        guard !isRecovering else { return }
+    private func probeWebViewHealth(attempt: Int, probeID: Int) {
+        guard !isInBackground, !isRecovering, !contentProcessTerminated, probeID == foregroundProbeID else { return }
         let script = """
         (() => {
           const body = document.body;
           const html = document.documentElement;
-          return { ok: !!body && !!html && document.readyState !== 'loading' && body.childElementCount > 0, href: location.href, height: Math.max(body?.scrollHeight || 0, html?.scrollHeight || 0) };
+          const height = Math.max(body?.scrollHeight || 0, html?.scrollHeight || 0);
+          const childCount = body?.childElementCount || 0;
+          return { ok: !!body && !!html && childCount > 0 && height > 40, href: location.href, height, childCount };
         })();
         """
         var finished = false
         let timeout = DispatchWorkItem { [weak self] in
-            guard !finished else { return }
+            guard let self, !finished, probeID == self.foregroundProbeID, !self.isInBackground else { return }
             finished = true
-            self?.recoverContentProcess(reason: "health-timeout")
+            self.handleHealthProbeFailure(attempt: attempt, probeID: probeID)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: timeout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: timeout)
         webView.evaluateJavaScript(script) { [weak self] result, error in
-            guard !finished else { return }
+            guard let self, !finished, probeID == self.foregroundProbeID, !self.isInBackground else { return }
             finished = true
             timeout.cancel()
-            guard error == nil, let info = result as? [String: Any], (info["ok"] as? Bool) == true else {
-                self?.recoverContentProcess(reason: "health-failed")
+            if error == nil, let info = result as? [String: Any], (info["ok"] as? Bool) == true {
+                self.showWebView()
+                self.webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil)
                 return
             }
-            self?.showWebView()
-            self?.webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil)
+            self.handleHealthProbeFailure(attempt: attempt, probeID: probeID)
         }
     }
 
+    private func handleHealthProbeFailure(attempt: Int, probeID: Int) {
+        guard !isInBackground, !isRecovering, probeID == foregroundProbeID else { return }
+        if contentProcessTerminated {
+            recoverContentProcess(reason: "confirmed-web-content-terminated")
+            return
+        }
+        if attempt < 2 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.probeWebViewHealth(attempt: attempt + 1, probeID: probeID) }
+            return
+        }
+        recoverContentProcess(reason: "foreground-health-failed")
+    }
+
     private func recoverContentProcess(reason: String) {
+        if isInBackground && reason != "manual" {
+            contentProcessTerminated = true
+            return
+        }
         guard !isRecovering else { return }
         isRecovering = true
+        foregroundProbeID += 1
         snapshotTimer?.invalidate()
         snapshotTimer = nil
         let snapshot = loadSessionSnapshot() ?? fallbackSnapshot()
@@ -229,10 +261,12 @@ final class WebViewController: UIViewController {
         let target = URL(string: snapshot.url).flatMap { isChatGPTURL($0) ? $0 : nil } ?? recoveryURL ?? URL(string: "https://chatgpt.com/")!
         showRecoveryStatus("正在恢复会话…")
         rebuildWebView()
+        contentProcessTerminated = false
         load(target)
         DispatchQueue.main.asyncAfter(deadline: .now() + 12) { [weak self] in
-            self?.isRecovering = false
-            self?.startSnapshotTimer()
+            guard let self else { return }
+            self.isRecovering = false
+            if !self.isInBackground { self.startSnapshotTimer() }
         }
     }
 
@@ -260,16 +294,16 @@ final class WebViewController: UIViewController {
         let script = """
         (() => {
           const findScrollRoot = () => {
-            let root = document.scrollingElement || document.documentElement;
-            let bestArea = 0;
-            for (const el of document.querySelectorAll('main, main *')) {
-              const s = getComputedStyle(el);
-              if (!/(auto|scroll|overlay)/.test(s.overflowY) || el.scrollHeight <= el.clientHeight * 1.05) continue;
-              const r = el.getBoundingClientRect();
-              const area = Math.max(0, r.width) * Math.max(0, r.height);
-              if (area >= bestArea) { bestArea = area; root = el; }
-            }
-            return root;
+            const last = Array.from(document.querySelectorAll('main [data-message-author-role], main [data-testid^="conversation-turn-"], main article')).pop();
+            const prompt = document.querySelector('#prompt-textarea, textarea, [contenteditable="true"][data-placeholder]');
+            const find = (node) => {
+              for (let el = node?.parentElement; el && el !== document.body; el = el.parentElement) {
+                const s = getComputedStyle(el);
+                if (/(auto|scroll|overlay)/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 40) return el;
+              }
+              return null;
+            };
+            return find(last) || find(prompt) || document.scrollingElement || document.documentElement;
           };
           const root = findScrollRoot();
           const prompt = document.querySelector('#prompt-textarea, textarea, [contenteditable="true"][data-placeholder]');
@@ -314,16 +348,16 @@ final class WebViewController: UIViewController {
         (() => {
           const saved = \(json);
           const findScrollRoot = () => {
-            let root = document.scrollingElement || document.documentElement;
-            let bestArea = 0;
-            for (const el of document.querySelectorAll('main, main *')) {
-              const s = getComputedStyle(el);
-              if (!/(auto|scroll|overlay)/.test(s.overflowY) || el.scrollHeight <= el.clientHeight * 1.05) continue;
-              const r = el.getBoundingClientRect();
-              const area = Math.max(0, r.width) * Math.max(0, r.height);
-              if (area >= bestArea) { bestArea = area; root = el; }
-            }
-            return root;
+            const last = Array.from(document.querySelectorAll('main [data-message-author-role], main [data-testid^="conversation-turn-"], main article')).pop();
+            const prompt = document.querySelector('#prompt-textarea, textarea, [contenteditable="true"][data-placeholder]');
+            const find = (node) => {
+              for (let el = node?.parentElement; el && el !== document.body; el = el.parentElement) {
+                const s = getComputedStyle(el);
+                if (/(auto|scroll|overlay)/.test(s.overflowY) && el.scrollHeight > el.clientHeight + 40) return el;
+              }
+              return null;
+            };
+            return find(last) || find(prompt) || document.scrollingElement || document.documentElement;
           };
           const apply = () => {
             const root = findScrollRoot();
@@ -338,16 +372,16 @@ final class WebViewController: UIViewController {
             if (saved.draft) {
               const prompt = document.querySelector('#prompt-textarea, textarea, [contenteditable="true"][data-placeholder]');
               if (prompt instanceof HTMLTextAreaElement) {
-                if (!prompt.value) { prompt.value = saved.draft; prompt.dispatchEvent(new Event('input', { bubbles: true })); }
+                if (!prompt.value) { prompt.value = saved.draft; prompt.dispatchEvent(new Event('input', { bubbles:true })); }
               } else if (prompt && !(prompt.innerText || '').trim()) {
                 prompt.textContent = saved.draft;
-                try { prompt.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: saved.draft })); } catch (_) { prompt.dispatchEvent(new Event('input', { bubbles: true })); }
+                try { prompt.dispatchEvent(new InputEvent('input', { bubbles:true, inputType:'insertText', data:saved.draft })); } catch (_) { prompt.dispatchEvent(new Event('input', { bubbles:true })); }
               }
             }
           };
           apply();
           let ticks = 0;
-          const timer = setInterval(() => { apply(); if (++ticks >= 32) clearInterval(timer); }, 250);
+          const timer = setInterval(() => { apply(); if (++ticks >= 24) clearInterval(timer); }, 250);
           window.GPTWebKitLongConversation?.resume?.();
           return true;
         })();
@@ -374,14 +408,35 @@ final class WebViewController: UIViewController {
         present(alert, animated: true)
     }
 
-    private func shareMarkdown(title: String, markdown: String) {
+    private func promptMarkdownFilename(title: String, markdown: String) {
+        guard presentedViewController == nil else { return }
+        let defaultName = title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "ChatGPT Conversation" : title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let alert = UIAlertController(title: "Markdown 文件名", message: "可直接使用当前会话标题，也可以修改后再导出。", preferredStyle: .alert)
+        alert.addTextField { textField in
+            textField.text = defaultName
+            textField.clearButtonMode = .whileEditing
+            textField.autocorrectionType = .no
+            textField.returnKeyType = .done
+            DispatchQueue.main.async { textField.selectAll(nil) }
+        }
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+        alert.addAction(UIAlertAction(title: "确定", style: .default) { [weak self, weak alert] _ in
+            let input = alert?.textFields?.first?.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            self?.shareMarkdown(filename: input.isEmpty ? defaultName : input, markdown: markdown)
+        })
+        present(alert, animated: true)
+    }
+
+    private func shareMarkdown(filename: String, markdown: String) {
+        var base = filename.trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.lowercased().hasSuffix(".md") { base.removeLast(3) }
         let invalid = CharacterSet(charactersIn: "/\\:*?\"<>|")
-        let safeTitle = title.components(separatedBy: invalid).joined(separator: "_").trimmingCharacters(in: .whitespacesAndNewlines)
-        let filename = "\(safeTitle.isEmpty ? "ChatGPT Conversation" : safeTitle).md"
+        base = base.components(separatedBy: invalid).joined(separator: "_").trimmingCharacters(in: .whitespacesAndNewlines)
+        if base.isEmpty { base = "ChatGPT Conversation" }
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GPTWebKitExports", isDirectory: true)
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-            let url = directory.appendingPathComponent(filename)
+            let url = directory.appendingPathComponent("\(base).md")
             try markdown.write(to: url, atomically: true, encoding: .utf8)
             let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
             if let popover = activity.popoverPresentationController { popover.sourceView = menuButton; popover.sourceRect = menuButton.bounds }
@@ -399,9 +454,10 @@ extension WebViewController: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         if let url = webView.url, isChatGPTURL(url) { recoveryURL = url }
+        contentProcessTerminated = false
         showWebView()
         isRecovering = false
-        startSnapshotTimer()
+        if !isInBackground { startSnapshotTimer() }
         if let snapshot = pendingRestoreSnapshot {
             pendingRestoreSnapshot = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.restoreSessionSnapshot(snapshot) }
@@ -410,13 +466,21 @@ extension WebViewController: WKNavigationDelegate {
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        contentProcessTerminated = true
+        if isInBackground || UIApplication.shared.applicationState != .active { return }
         recoverContentProcess(reason: "web-content-terminated")
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
-        if nsError.domain == WKErrorDomain, nsError.code == WKError.webContentProcessTerminated.rawValue { recoverContentProcess(reason: "navigation-process-terminated"); return }
+        if nsError.domain == WKErrorDomain, nsError.code == WKError.webContentProcessTerminated.rawValue {
+            contentProcessTerminated = true
+            if isInBackground || UIApplication.shared.applicationState != .active { return }
+            recoverContentProcess(reason: "navigation-process-terminated")
+            return
+        }
+        if isInBackground { return }
         isRecovering = false
         showLoadError(error)
     }
@@ -424,6 +488,7 @@ extension WebViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
+        if isInBackground { return }
         isRecovering = false
         showLoadError(error)
     }
@@ -440,12 +505,12 @@ extension WebViewController: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "markdownExport", let body = message.body as? [String: Any], let markdown = body["markdown"] as? String else { return }
         let title = body["title"] as? String ?? "ChatGPT Conversation"
-        shareMarkdown(title: title, markdown: markdown)
+        promptMarkdownFilename(title: title, markdown: markdown)
     }
 }
 
 private struct SessionSnapshot: Codable {
-    static let storageKey = "GPTWebKit.SessionSnapshot.v2"
+    static let storageKey = "GPTWebKit.SessionSnapshot.v3"
     var url: String
     var scrollTop: Double
     var scrollHeight: Double
@@ -464,7 +529,7 @@ private enum UploadBridgeScript {
       const unlock = (root = document) => root.querySelectorAll?.('input[type="file"]').forEach((input) => input.removeAttribute('accept'));
       const isVideo = (file) => file && (file.type?.startsWith('video/') || /\\.(mov|mp4|m4v|webm|avi|mkv)$/i.test(file.name || ''));
       const makeDataTransfer = (files) => { try { const dt = new DataTransfer(); for (const file of files) dt.items.add(file); return dt; } catch (_) { return null; } };
-      const makeDragEvent = (type, dt) => { try { return new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: dt }); } catch (_) { const event = new Event(type, { bubbles: true, cancelable: true }); try { Object.defineProperty(event, 'dataTransfer', { value: dt }); } catch (_) {} return event; } };
+      const makeDragEvent = (type, dt) => { try { return new DragEvent(type, { bubbles:true, cancelable:true, dataTransfer:dt }); } catch (_) { const event = new Event(type, { bubbles:true, cancelable:true }); try { Object.defineProperty(event, 'dataTransfer', { value:dt }); } catch (_) {} return event; } };
       const clearDragOverlay = () => {
         const phrases = ['添加任意内容', '将任意文件拖放到此处'];
         for (const node of document.querySelectorAll('body *')) {
@@ -511,9 +576,9 @@ private enum UploadBridgeScript {
           if (node.nodeType !== 1) return;
           if (node.matches?.('input[type="file"]')) node.removeAttribute('accept');
           unlock(node);
-        }))).observe(document.documentElement, { childList: true, subtree: true });
+        }))).observe(document.documentElement, { childList:true, subtree:true });
       };
-      if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once: true });
+      if (document.documentElement) start(); else addEventListener('DOMContentLoaded', start, { once:true });
     })();
     """
 }
