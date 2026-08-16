@@ -6,7 +6,13 @@ final class WebViewController: UIViewController {
     private let statusLabel = UILabel()
     private let menuButton = UIButton(type: .system)
     private let processPool = WKProcessPool()
+    private let scriptMessageNames = ["markdownExport", "nativeSidebar", "sidebarData", "rebaseRequest"]
     private var webView: WKWebView!
+    private var shadowWebView: WKWebView?
+    private var shadowRebaseContext: ShadowRebaseContext?
+    private var shadowProbeGeneration = 0
+    private var nativeSidebarView: NativeSidebarView?
+    private var sidebarItems = NativeConversationStore.load()
     private var recoveryURL: URL?
     private var pendingRestoreSnapshot: SessionSnapshot?
     private var snapshotTimer: Timer?
@@ -30,7 +36,8 @@ final class WebViewController: UIViewController {
     deinit {
         snapshotTimer?.invalidate()
         NotificationCenter.default.removeObserver(self)
-        webView?.configuration.userContentController.removeScriptMessageHandler(forName: "markdownExport")
+        removeScriptHandlers(from: webView)
+        if let shadowWebView { removeScriptHandlers(from: shadowWebView) }
     }
 
     private func makeConfiguration() -> WKWebViewConfiguration {
@@ -38,12 +45,49 @@ final class WebViewController: UIViewController {
         configuration.websiteDataStore = .default()
         configuration.processPool = processPool
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.userContentController.add(self, name: "markdownExport")
+        for name in scriptMessageNames { configuration.userContentController.add(self, name: name) }
         configuration.userContentController.addUserScript(WKUserScript(source: UploadBridgeScript.source, injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("LongConversation"), injectionTime: .atDocumentStart, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("MarkdownExport"), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         configuration.userContentController.addUserScript(WKUserScript(source: ResourceScript.load("UIEnhancements"), injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         return configuration
+    }
+
+    private func makeWebView() -> WKWebView {
+        let created = WKWebView(frame: .zero, configuration: makeConfiguration())
+        created.translatesAutoresizingMaskIntoConstraints = false
+        created.navigationDelegate = self
+        created.uiDelegate = self
+        created.allowsBackForwardNavigationGestures = true
+        created.scrollView.keyboardDismissMode = .interactive
+        created.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        return created
+    }
+
+    private func attachWebView(_ created: WKWebView, below sibling: UIView? = nil) {
+        if let sibling { view.insertSubview(created, belowSubview: sibling) }
+        else if menuButton.superview == nil { view.addSubview(created) }
+        else { view.insertSubview(created, belowSubview: menuButton) }
+        NSLayoutConstraint.activate([
+            created.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            created.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            created.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            created.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+    }
+
+    private func removeScriptHandlers(from target: WKWebView?) {
+        guard let target else { return }
+        for name in scriptMessageNames { target.configuration.userContentController.removeScriptMessageHandler(forName: name) }
+    }
+
+    private func detachWebView(_ target: WKWebView?) {
+        guard let target else { return }
+        target.stopLoading()
+        target.navigationDelegate = nil
+        target.uiDelegate = nil
+        removeScriptHandlers(from: target)
+        target.removeFromSuperview()
     }
 
     private func configureStatusLabel() {
@@ -63,32 +107,17 @@ final class WebViewController: UIViewController {
     }
 
     private func configureWebView() {
-        let created = WKWebView(frame: .zero, configuration: makeConfiguration())
-        created.translatesAutoresizingMaskIntoConstraints = false
-        created.navigationDelegate = self
-        created.uiDelegate = self
-        created.allowsBackForwardNavigationGestures = true
-        created.scrollView.keyboardDismissMode = .interactive
-        created.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+        let created = makeWebView()
         created.isHidden = true
         webView = created
-        if menuButton.superview == nil { view.addSubview(created) } else { view.insertSubview(created, belowSubview: menuButton) }
-        NSLayoutConstraint.activate([
-            created.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            created.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            created.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            created.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
+        attachWebView(created)
     }
 
     private func rebuildWebView() {
         foregroundProbeID += 1
+        cancelShadowRebase()
         let old = webView
-        old?.stopLoading()
-        old?.navigationDelegate = nil
-        old?.uiDelegate = nil
-        old?.configuration.userContentController.removeScriptMessageHandler(forName: "markdownExport")
-        old?.removeFromSuperview()
+        detachWebView(old)
         configureWebView()
         view.bringSubviewToFront(menuButton)
     }
@@ -148,6 +177,7 @@ final class WebViewController: UIViewController {
         foregroundProbeID += 1
         snapshotTimer?.invalidate()
         snapshotTimer = nil
+        cancelShadowRebase()
     }
 
     @objc private func handleWillEnterForeground() {
@@ -164,13 +194,14 @@ final class WebViewController: UIViewController {
             return
         }
         showWebView()
-        if !isExportInteractionActive { webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
+        if !isExportInteractionActive && nativeSidebarView == nil { webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
         foregroundProbeID += 1
         let probeID = foregroundProbeID
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in self?.probeWebViewHealth(attempt: 0, probeID: probeID) }
     }
 
     @objc private func handleMemoryWarning() {
+        cancelShadowRebase()
         persistSessionSnapshot()
         webView.evaluateJavaScript("window.GPTWebKitLongConversation?.prepareForBackground?.(); true", completionHandler: nil)
     }
@@ -181,6 +212,7 @@ final class WebViewController: UIViewController {
     }
 
     private func load(_ url: URL) {
+        cancelShadowRebase()
         recoveryURL = url
         webView.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 45))
     }
@@ -190,10 +222,17 @@ final class WebViewController: UIViewController {
         return host == "chatgpt.com" || host.hasSuffix(".chatgpt.com")
     }
 
+    private func currentConversationID(in url: URL?) -> String? {
+        guard let components = url?.pathComponents, let index = components.firstIndex(of: "c"), components.indices.contains(index + 1) else { return nil }
+        let value = components[index + 1]
+        return value.isEmpty ? nil : value
+    }
+
     private func showWebView() {
         statusLabel.isHidden = true
         webView.isHidden = false
         view.bringSubviewToFront(menuButton)
+        if let nativeSidebarView { view.bringSubviewToFront(nativeSidebarView) }
     }
 
     private func showRecoveryStatus(_ text: String) {
@@ -232,7 +271,7 @@ final class WebViewController: UIViewController {
             timeout.cancel()
             if error == nil, let info = result as? [String: Any], (info["ok"] as? Bool) == true {
                 self.showWebView()
-                if !self.isExportInteractionActive { self.webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
+                if !self.isExportInteractionActive && self.nativeSidebarView == nil { self.webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
                 return
             }
             self.handleHealthProbeFailure(attempt: attempt, probeID: probeID)
@@ -258,6 +297,7 @@ final class WebViewController: UIViewController {
             return
         }
         guard !isRecovering else { return }
+        cancelShadowRebase()
         isRecovering = true
         foregroundProbeID += 1
         snapshotTimer?.invalidate()
@@ -277,6 +317,7 @@ final class WebViewController: UIViewController {
     }
 
     private func reloadCurrentPage() {
+        cancelShadowRebase()
         persistSessionSnapshot { [weak self] snapshot in
             guard let self else { return }
             self.pendingRestoreSnapshot = snapshot
@@ -395,8 +436,64 @@ final class WebViewController: UIViewController {
         webView.evaluateJavaScript(script, completionHandler: nil)
     }
 
+    private func showNativeSidebar() {
+        guard nativeSidebarView == nil, !isInBackground else { return }
+        cancelShadowRebase()
+        view.endEditing(true)
+        webView.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
+
+        let drawer = NativeSidebarView(items: sidebarItems, currentConversationID: currentConversationID(in: webView.url))
+        drawer.onSelect = { [weak self] item in
+            guard let self, let url = URL(string: "https://chatgpt.com/c/\(item.id)") else { return }
+            self.load(url)
+        }
+        drawer.onNewChat = { [weak self] in
+            guard let self, let url = URL(string: "https://chatgpt.com/") else { return }
+            self.load(url)
+        }
+        drawer.onClose = { [weak self, weak drawer] in
+            guard let self else { return }
+            if self.nativeSidebarView === drawer { self.nativeSidebarView = nil }
+            if !self.isInBackground && !self.isExportInteractionActive { self.webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
+        }
+        nativeSidebarView = drawer
+        view.addSubview(drawer)
+        NSLayoutConstraint.activate([
+            drawer.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            drawer.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            drawer.topAnchor.constraint(equalTo: view.topAnchor),
+            drawer.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        view.layoutIfNeeded()
+        drawer.show()
+        requestNativeSidebarData()
+    }
+
+    private func requestNativeSidebarData() {
+        guard webView != nil else { return }
+        webView.evaluateJavaScript("window.GPTWebKitNativeUI?.pushSidebarData?.(); true", completionHandler: nil)
+    }
+
+    private func updateSidebarData(_ body: [String: Any]) {
+        guard let rawItems = body["items"] as? [[String: Any]] else { return }
+        let parsed = rawItems.compactMap { raw -> NativeConversationItem? in
+            guard let id = raw["id"] as? String, !id.isEmpty else { return nil }
+            let title = (raw["title"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let updatedAt = (raw["updatedAt"] as? NSNumber)?.doubleValue ?? (raw["updatedAt"] as? Double) ?? 0
+            return NativeConversationItem(id: id, title: title?.isEmpty == false ? title! : "新对话", updatedAt: updatedAt)
+        }
+        guard !parsed.isEmpty else {
+            nativeSidebarView?.update(items: sidebarItems, currentConversationID: currentConversationID(in: webView.url), refreshing: false)
+            return
+        }
+        sidebarItems = parsed
+        NativeConversationStore.save(parsed)
+        nativeSidebarView?.update(items: parsed, currentConversationID: currentConversationID(in: webView.url), refreshing: false)
+    }
+
     private func beginNativeExportInteraction() {
         guard !isExportInteractionActive else { return }
+        cancelShadowRebase()
         isExportInteractionActive = true
         foregroundProbeID += 1
         snapshotTimer?.invalidate()
@@ -408,7 +505,7 @@ final class WebViewController: UIViewController {
     private func endNativeExportInteraction() {
         guard isExportInteractionActive else { return }
         isExportInteractionActive = false
-        if !isInBackground {
+        if !isInBackground && nativeSidebarView == nil {
             webView.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil)
             startSnapshotTimer()
         }
@@ -517,14 +614,113 @@ final class WebViewController: UIViewController {
             showSimpleAlert(title: "导出失败", message: error.localizedDescription)
         }
     }
+
+    private func startShadowRebase(_ body: [String: Any]) {
+        guard shadowWebView == nil, nativeSidebarView == nil, !isExportInteractionActive, !isInBackground, UIApplication.shared.applicationState == .active else { return }
+        guard let conversationID = body["conversationId"] as? String, !conversationID.isEmpty, let currentNode = body["currentNode"] as? String, !currentNode.isEmpty else { return }
+        guard currentConversationID(in: webView.url) == conversationID else { return }
+        let href = (body["href"] as? String) ?? webView.url?.absoluteString ?? ""
+        guard let url = URL(string: href), isChatGPTURL(url) else { return }
+        let lastMessageID = (body["lastMessageId"] as? String) ?? ""
+
+        shadowProbeGeneration += 1
+        let shadow = makeWebView()
+        shadow.alpha = 0.001
+        shadow.isUserInteractionEnabled = false
+        shadowWebView = shadow
+        shadowRebaseContext = ShadowRebaseContext(conversationID: conversationID, currentNode: currentNode, lastMessageID: lastMessageID, href: href)
+        attachWebView(shadow, below: webView)
+        shadow.load(URLRequest(url: url, cachePolicy: .reloadRevalidatingCacheData, timeoutInterval: 45))
+    }
+
+    private func validateShadowRebase(attempt: Int, generation: Int) {
+        guard generation == shadowProbeGeneration, let shadow = shadowWebView, let context = shadowRebaseContext else { return }
+        let script = """
+        (() => {
+          const proxy = window.GPTWebKitTailProxy;
+          const status = proxy?.getStatus?.() || {};
+          const nodes = window.GPTWebKitLongConversation?.getAllMessageNodes?.() || [];
+          return { id: proxy?.currentConversationId?.() || '', node: status.lastOriginalCurrentNode || '', ready: document.readyState !== 'loading' && nodes.length > 0, count: nodes.length };
+        })();
+        """
+        shadow.evaluateJavaScript(script) { [weak self] result, error in
+            guard let self, generation == self.shadowProbeGeneration, shadow === self.shadowWebView, let context = self.shadowRebaseContext else { return }
+            guard error == nil, let info = result as? [String: Any] else {
+                if attempt < 14 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.validateShadowRebase(attempt: attempt + 1, generation: generation) } }
+                else { self.cancelShadowRebase() }
+                return
+            }
+            let id = info["id"] as? String ?? ""
+            let node = info["node"] as? String ?? ""
+            let ready = info["ready"] as? Bool ?? false
+            if !node.isEmpty && node != context.currentNode { self.cancelShadowRebase(); return }
+            if id == context.conversationID && node == context.currentNode && ready { self.verifyActiveBeforeShadowSwap(generation: generation); return }
+            if attempt < 14 { DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { self.validateShadowRebase(attempt: attempt + 1, generation: generation) } }
+            else { self.cancelShadowRebase() }
+        }
+    }
+
+    private func verifyActiveBeforeShadowSwap(generation: Int) {
+        guard generation == shadowProbeGeneration, shadowWebView != nil, let context = shadowRebaseContext else { return }
+        webView.evaluateJavaScript("window.GPTWebKitLongConversation?.getRebaseState?.() || null") { [weak self] result, _ in
+            guard let self, generation == self.shadowProbeGeneration, let state = result as? [String: Any], let context = self.shadowRebaseContext else { return }
+            let conversationID = state["conversationId"] as? String ?? ""
+            let generating = state["generating"] as? Bool ?? true
+            let draft = state["draft"] as? String ?? ""
+            let historyMode = state["historyMode"] as? Bool ?? true
+            let lastMessageID = state["lastMessageId"] as? String ?? ""
+            guard conversationID == context.conversationID, !generating, draft.isEmpty, !historyMode else { self.cancelShadowRebase(); return }
+            if !context.lastMessageID.isEmpty && !lastMessageID.isEmpty && context.lastMessageID != lastMessageID { self.cancelShadowRebase(); return }
+            self.swapInShadowWebView(generation: generation)
+        }
+    }
+
+    private func swapInShadowWebView(generation: Int) {
+        guard generation == shadowProbeGeneration, let shadow = shadowWebView, let context = shadowRebaseContext, currentConversationID(in: webView.url) == context.conversationID else { cancelShadowRebase(); return }
+        let old = webView
+        shadowWebView = nil
+        shadowRebaseContext = nil
+        shadowProbeGeneration += 1
+        webView = shadow
+        shadow.alpha = 1
+        shadow.isUserInteractionEnabled = true
+        recoveryURL = shadow.url ?? URL(string: context.href) ?? recoveryURL
+        view.bringSubviewToFront(shadow)
+        view.bringSubviewToFront(menuButton)
+        if let nativeSidebarView { view.bringSubviewToFront(nativeSidebarView) }
+        shadow.evaluateJavaScript("window.GPTWebKitLongConversation?.beginPinLatest?.(); true", completionHandler: nil)
+        UIView.animate(withDuration: 0.08, animations: { old?.alpha = 0 }) { [weak self] _ in
+            self?.detachWebView(old)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            self?.requestNativeSidebarData()
+            self?.persistSessionSnapshot()
+        }
+    }
+
+    private func cancelShadowRebase() {
+        shadowProbeGeneration += 1
+        shadowRebaseContext = nil
+        if let shadow = shadowWebView {
+            shadowWebView = nil
+            detachWebView(shadow)
+        }
+    }
 }
 
 extension WebViewController: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        if webView === shadowWebView { return }
         if let url = webView.url, isChatGPTURL(url) { recoveryURL = url }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        if webView === shadowWebView {
+            let generation = shadowProbeGeneration
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in self?.validateShadowRebase(attempt: 0, generation: generation) }
+            return
+        }
+        guard webView === self.webView else { return }
         if let url = webView.url, isChatGPTURL(url) { recoveryURL = url }
         contentProcessTerminated = false
         showWebView()
@@ -534,16 +730,21 @@ extension WebViewController: WKNavigationDelegate {
             pendingRestoreSnapshot = nil
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.restoreSessionSnapshot(snapshot) }
         }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in self?.requestNativeSidebarData() }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in self?.persistSessionSnapshot() }
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        if webView === shadowWebView { cancelShadowRebase(); return }
+        guard webView === self.webView else { return }
         contentProcessTerminated = true
         if isInBackground || UIApplication.shared.applicationState != .active { return }
         recoverContentProcess(reason: "web-content-terminated")
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if webView === shadowWebView { cancelShadowRebase(); return }
+        guard webView === self.webView else { return }
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
         if nsError.domain == WKErrorDomain, nsError.code == WKError.webContentProcessTerminated.rawValue {
@@ -558,6 +759,8 @@ extension WebViewController: WKNavigationDelegate {
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        if webView === shadowWebView { cancelShadowRebase(); return }
+        guard webView === self.webView else { return }
         let nsError = error as NSError
         if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
         if isInBackground { return }
@@ -569,15 +772,30 @@ extension WebViewController: WKNavigationDelegate {
 extension WebViewController: WKUIDelegate {
     @available(iOS 18.4, *)
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters, initiatedByFrame frame: WKFrameInfo, completionHandler: @escaping ([URL]?) -> Void) {
+        guard webView === self.webView else { completionHandler(nil); return }
         uploadPanel.present(from: self, allowsMultipleSelection: parameters.allowsMultipleSelection, completion: completionHandler)
     }
 }
 
 extension WebViewController: WKScriptMessageHandler {
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "markdownExport", let body = message.body as? [String: Any], let markdown = body["markdown"] as? String else { return }
-        let title = body["title"] as? String ?? "ChatGPT Conversation"
-        prepareMarkdownFilenamePrompt(title: title, markdown: markdown)
+        if let source = message.webView, source !== webView { return }
+        switch message.name {
+        case "markdownExport":
+            guard let body = message.body as? [String: Any], let markdown = body["markdown"] as? String else { return }
+            let title = body["title"] as? String ?? "ChatGPT Conversation"
+            prepareMarkdownFilenamePrompt(title: title, markdown: markdown)
+        case "nativeSidebar":
+            showNativeSidebar()
+        case "sidebarData":
+            guard let body = message.body as? [String: Any] else { return }
+            updateSidebarData(body)
+        case "rebaseRequest":
+            guard let body = message.body as? [String: Any] else { return }
+            startShadowRebase(body)
+        default:
+            break
+        }
     }
 }
 
@@ -590,6 +808,13 @@ private struct SessionSnapshot: Codable {
     var nearBottom: Bool
     var draft: String
     var savedAt: TimeInterval
+}
+
+private struct ShadowRebaseContext {
+    let conversationID: String
+    let currentNode: String
+    let lastMessageID: String
+    let href: String
 }
 
 private enum UploadBridgeScript {
