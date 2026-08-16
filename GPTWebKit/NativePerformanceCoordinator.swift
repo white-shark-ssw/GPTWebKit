@@ -466,7 +466,13 @@ final class NativePerformanceCoordinator: NSObject, UIGestureRecognizerDelegate,
             let controller = NativePerformanceSettingsViewController(settings: settings)
             controller.onChange = { [weak webView] settings in
                 guard let webView else { return }
-                let json = "{enabled:\(settings.enabled ? \"true\" : \"false\"),initialRounds:\(settings.initialRounds),optimizeSidebar:\(settings.optimizeSidebar ? \"true\" : \"false\"),reduceMotion:\(settings.reduceMotion ? \"true\" : \"false\")}"
+                let object: [String: Any] = [
+                    "enabled": settings.enabled,
+                    "initialRounds": settings.initialRounds,
+                    "optimizeSidebar": settings.optimizeSidebar,
+                    "reduceMotion": settings.reduceMotion
+                ]
+                guard let data = try? JSONSerialization.data(withJSONObject: object), let json = String(data: data, encoding: .utf8) else { return }
                 webView.evaluateJavaScript("window.GPTWebKitLongConversation?.updateSettings?.(\(json)); true", completionHandler: nil)
             }
             controller.onLoadEarlier = { [weak self] in
@@ -787,7 +793,9 @@ private final class NativePerformanceSettingsViewController: UIViewController {
     private func refreshCacheCount() {
         loadCacheCount? { [weak self] count in
             guard let self else { return }
-            self.cacheButton.configuration?.subtitle = "\(count) / 10"
+            var configuration = self.cacheButton.configuration
+            configuration?.subtitle = "\(count) / 10"
+            self.cacheButton.configuration = configuration
         }
     }
 
