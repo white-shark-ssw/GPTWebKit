@@ -1,27 +1,32 @@
 (() => {
   'use strict';
-  if (window.__GPTWebKitUIEnhancements) return;
-  window.__GPTWebKitUIEnhancements = true;
 
   const LEGACY_BLOCK_STYLE_ID = 'gptwebkit-legacy-control-block';
-  let uploadResumeTimer = 0;
-  let lastSidebarItems = [];
-  let sidebarObserver = null;
-  let sidebarObserverTimer = 0;
-
-  const installLegacyControlBlock = () => {
+  const blockLegacyHistoryControl = () => {
     let style = document.getElementById(LEGACY_BLOCK_STYLE_ID);
     if (!style) {
       style = document.createElement('style');
       style.id = LEGACY_BLOCK_STYLE_ID;
       (document.head || document.documentElement)?.appendChild(style);
     }
-    style.textContent = '#gptwebkit-inline-history{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}';
+    if (style) style.textContent = '#gptwebkit-inline-history{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}';
+    document.getElementById('gptwebkit-inline-history')?.remove();
   };
 
+  blockLegacyHistoryControl();
+  if (window.__GPTWebKitUIEnhancements) {
+    setTimeout(blockLegacyHistoryControl, 0);
+    return;
+  }
+  window.__GPTWebKitUIEnhancements = true;
+
+  let uploadResumeTimer = 0;
+  let lastSidebarItems = [];
+  let sidebarObserver = null;
+  let sidebarObserverTimer = 0;
+
   const removeLegacyOverlays = () => {
-    installLegacyControlBlock();
-    document.getElementById('gptwebkit-inline-history')?.remove();
+    blockLegacyHistoryControl();
     document.getElementById('gptwebkit-conversation-limit')?.remove();
     document.getElementById('gptwebkit-ui-enhancements-style')?.remove();
     document.getElementById('gptwebkit-sidebar-hydrate-style')?.remove();
