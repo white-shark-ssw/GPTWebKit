@@ -20,11 +20,6 @@ enum NativePerformancePanel {
                     guard let data = try? JSONSerialization.data(withJSONObject: object), let json = String(data: data, encoding: .utf8) else { return }
                     webView.evaluateJavaScript("window.GPTWebKitLongConversation?.updateSettings?.(\(json)); true", completionHandler: nil)
                 }
-                controller.onLoadEarlier = { [weak webView] in
-                    pill("正在加载更早 1 轮…")
-                    webView?.evaluateJavaScript("window.GPTWebKitLongConversation?.loadEarlier?.(); true", completionHandler: nil)
-                }
-                controller.onReturnLatest = { [weak webView] in webView?.evaluateJavaScript("window.GPTWebKitLongConversation?.returnLatest?.(); true", completionHandler: nil) }
                 controller.loadCacheCount = { [weak webView] completion in loadCacheItems(webView: webView, completion: { completion($0.count) }) }
                 controller.onOpenCache = { [weak controller, weak webView] in
                     guard let controller else { return }
@@ -115,8 +110,6 @@ private struct NativeConversationCacheItem {
 
 private final class NativePerformanceSettingsViewController: UIViewController {
     var onChange: ((NativePerformanceSettings) -> Void)?
-    var onLoadEarlier: (() -> Void)?
-    var onReturnLatest: (() -> Void)?
     var onOpenCache: (() -> Void)?
     var loadCacheCount: ((@escaping (Int) -> Void) -> Void)?
 
@@ -190,27 +183,12 @@ private final class NativePerformanceSettingsViewController: UIViewController {
         cacheButton.contentHorizontalAlignment = .fill
         cacheButton.addTarget(self, action: #selector(cacheTapped), for: .touchUpInside)
 
-        let older = UIButton(type: .system)
-        older.configuration = .bordered()
-        older.configuration?.title = "加载更早 1 轮"
-        older.addTarget(self, action: #selector(loadEarlierTapped), for: .touchUpInside)
-
-        let latest = UIButton(type: .system)
-        latest.configuration = .borderedProminent()
-        latest.configuration?.title = "回到最新 \(settings.initialRounds) 轮"
-        latest.addTarget(self, action: #selector(returnLatestTapped), for: .touchUpInside)
-
-        let historyButtons = UIStackView(arrangedSubviews: [older, latest])
-        historyButtons.axis = .horizontal
-        historyButtons.distribution = .fillEqually
-        historyButtons.spacing = 10
-
         let done = UIButton(type: .system)
         done.configuration = .filled()
         done.configuration?.title = "完成"
         done.addTarget(self, action: #selector(doneTapped), for: .touchUpInside)
 
-        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitle, card, cacheButton, historyButtons, done])
+        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitle, card, cacheButton, done])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 14
@@ -267,8 +245,6 @@ private final class NativePerformanceSettingsViewController: UIViewController {
     @objc private func switchChanged() { publish() }
     @objc private func roundsChanged() { settings.initialRounds = Int(roundsStepper.value); roundsValueLabel.text = "\(settings.initialRounds) 轮"; publish() }
     @objc private func cacheTapped() { onOpenCache?() }
-    @objc private func loadEarlierTapped() { dismiss(animated: true) { [weak self] in self?.onLoadEarlier?() } }
-    @objc private func returnLatestTapped() { dismiss(animated: true) { [weak self] in self?.onReturnLatest?() } }
     @objc private func doneTapped() { dismiss(animated: true) }
 }
 

@@ -4,18 +4,18 @@ import WebKit
 final class NativePerformanceCoordinator: NSObject {
     private weak var host: UIViewController?
     private var sidebarHitButton: UIButton?
+    private var nativeSidebarView: NativeSidebarView?
 
     init(host: UIViewController) {
         self.host = host
         super.init()
         host.loadViewIfNeeded()
-        NativeSidebarNavigationRouter.openConversation = nil
-        NativeSidebarNavigationRouter.openNewChat = nil
         installMenuOverride()
         updateSidebarHitButton()
 
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
+        center.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(handleSidebarStoreChange), name: NativeConversationStore.didChangeNotification, object: nil)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
             self?.installMenuOverride()
@@ -32,8 +32,10 @@ final class NativePerformanceCoordinator: NSObject {
     @objc private func handleDidBecomeActive() {
         installMenuOverride()
         updateSidebarHitButton()
+        if let nativeSidebarView { host?.view.bringSubviewToFront(nativeSidebarView) }
     }
 
+    @objc private func handleDidEnterBackground() { dismissNativeSidebar(animated: false) }
     @objc private func handleSidebarStoreChange() { updateSidebarHitButton() }
 
     private func allSubviews(of view: UIView) -> [UIView] {
@@ -51,6 +53,12 @@ final class NativePerformanceCoordinator: NSObject {
         return webViews.first(where: { !$0.isHidden && $0.alpha > 0.5 && $0.isUserInteractionEnabled })
             ?? webViews.first(where: { !$0.isHidden && $0.alpha > 0.5 })
             ?? webViews.first
+    }
+
+    private func currentConversationID(in url: URL?) -> String? {
+        guard let components = url?.pathComponents, let index = components.firstIndex(of: "c"), components.indices.contains(index + 1) else { return nil }
+        let value = components[index + 1]
+        return value.isEmpty ? nil : value
     }
 
     private func installMenuOverride() {
@@ -96,8 +104,54 @@ final class NativePerformanceCoordinator: NSObject {
         sidebarHitButton = button
     }
 
-    @objc private func sidebarHitTapped() {
-        activeWebView()?.evaluateJavaScript("window.webkit?.messageHandlers?.nativeSidebar?.postMessage({source:'native-hit'}); true", completionHandler: nil)
+    @objc private func sidebarHitTapped() { presentNativeSidebar() }
+
+    private func presentNativeSidebar() {
+        guard let host, nativeSidebarView == nil else { return }
+        let items = NativeConversationStore.load()
+        guard !items.isEmpty else { updateSidebarHitButton(); return }
+        let webView = activeWebView()
+        webView?.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
+
+        let drawer = NativeSidebarView(items: items, currentConversationID: currentConversationID(in: webView?.url))
+        drawer.onSelect = { [weak self] item in
+            guard let self, let url = URL(string: "https://chatgpt.com/c/\(item.id)") else { return }
+            self.navigateReplacingHistory(to: url)
+        }
+        drawer.onNewChat = { [weak self] in
+            guard let self, let url = URL(string: "https://chatgpt.com/") else { return }
+            self.navigateReplacingHistory(to: url)
+        }
+        drawer.onClose = { [weak self, weak drawer] in
+            guard let self else { return }
+            if self.nativeSidebarView === drawer { self.nativeSidebarView = nil }
+            if UIApplication.shared.applicationState == .active { self.activeWebView()?.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
+            if let button = self.sidebarHitButton { self.host?.view.bringSubviewToFront(button) }
+        }
+
+        nativeSidebarView = drawer
+        host.view.addSubview(drawer)
+        NSLayoutConstraint.activate([
+            drawer.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
+            drawer.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
+            drawer.topAnchor.constraint(equalTo: host.view.topAnchor),
+            drawer.bottomAnchor.constraint(equalTo: host.view.bottomAnchor)
+        ])
+        host.view.layoutIfNeeded()
+        drawer.show(animated: true)
+    }
+
+    private func dismissNativeSidebar(animated: Bool) {
+        guard let drawer = nativeSidebarView else { return }
+        nativeSidebarView = nil
+        drawer.dismiss(animated: animated)
+    }
+
+    private func navigateReplacingHistory(to url: URL) {
+        guard let webView = activeWebView(), let data = try? JSONEncoder().encode(url.absoluteString), let literal = String(data: data, encoding: .utf8) else { return }
+        webView.evaluateJavaScript("location.replace(\(literal)); true") { [weak webView] _, error in
+            if error != nil { webView?.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 45)) }
+        }
     }
 
     private func presentSettings() {
@@ -107,6 +161,7 @@ final class NativePerformanceCoordinator: NSObject {
 
     private func hardResetToHome() {
         guard let webView = activeWebView() else { return }
+        dismissNativeSidebar(animated: false)
         showTransientPill("正在一键重置…")
         for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("GPTWebKit.SessionSnapshot.") { UserDefaults.standard.removeObject(forKey: key) }
 
