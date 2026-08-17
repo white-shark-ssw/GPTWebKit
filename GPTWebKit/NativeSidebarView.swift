@@ -7,6 +7,7 @@ struct NativeConversationItem: Codable, Equatable {
 }
 
 enum NativeConversationStore {
+    static let didChangeNotification = Notification.Name("GPTWebKit.NativeSidebar.didChange")
     private static let key = "GPTWebKit.NativeSidebar.v1"
 
     static func load() -> [NativeConversationItem] {
@@ -15,8 +16,9 @@ enum NativeConversationStore {
     }
 
     static func save(_ items: [NativeConversationItem]) {
-        guard let data = try? JSONEncoder().encode(Array(items.prefix(60))) else { return }
+        guard !items.isEmpty, let data = try? JSONEncoder().encode(Array(items.prefix(60))) else { return }
         UserDefaults.standard.set(data, forKey: key)
+        NotificationCenter.default.post(name: didChangeNotification, object: nil)
     }
 }
 
@@ -38,15 +40,26 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     private var items: [NativeConversationItem]
     private var currentConversationID: String?
     private var isClosing = false
+    private var storeObserver: NSObjectProtocol?
 
     init(items: [NativeConversationItem], currentConversationID: String?) {
         self.items = items
         self.currentConversationID = currentConversationID
         super.init(frame: .zero)
         configure()
+        storeObserver = NotificationCenter.default.addObserver(forName: NativeConversationStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            let latest = NativeConversationStore.load()
+            guard !latest.isEmpty, latest != self.items else { return }
+            self.update(items: latest, currentConversationID: self.currentConversationID, refreshing: false)
+        }
     }
 
     required init?(coder: NSCoder) { nil }
+
+    deinit {
+        if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
+    }
 
     private func configure() {
         translatesAutoresizingMaskIntoConstraints = false
