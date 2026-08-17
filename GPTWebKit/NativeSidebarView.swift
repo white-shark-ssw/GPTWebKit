@@ -140,33 +140,34 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         update(items: items, currentConversationID: currentConversationID, refreshing: items.isEmpty)
     }
 
+    private func closedTransform() -> CGAffineTransform { CGAffineTransform(translationX: -(panel.bounds.width + 28), y: 0) }
+
     func prewarm() {
         guard !isPresented else { return }
-        isUserInteractionEnabled = false
         isHidden = false
-        alpha = 0
-        panel.transform = .identity
-        dimControl.alpha = 0
-        layoutIfNeeded()
-        tableView.layoutIfNeeded()
-        panel.transform = CGAffineTransform(translationX: -panel.bounds.width, y: 0)
+        isUserInteractionEnabled = false
         alpha = 1
-        isHidden = true
+        UIView.performWithoutAnimation {
+            panel.transform = .identity
+            dimControl.alpha = 0
+            layoutIfNeeded()
+            tableView.layoutIfNeeded()
+            panel.transform = closedTransform()
+            layoutIfNeeded()
+        }
     }
 
     func show(animated: Bool = true) {
         guard !isPresented else { return }
         isPresented = true
-        isHidden = false
         isUserInteractionEnabled = true
-        superview?.bringSubviewToFront(self)
         if panel.bounds.width <= 0 { layoutIfNeeded() }
         panel.layer.removeAllAnimations()
         dimControl.layer.removeAllAnimations()
-        panel.transform = CGAffineTransform(translationX: -panel.bounds.width, y: 0)
+        panel.transform = closedTransform()
         dimControl.alpha = 0
         guard animated else { panel.transform = .identity; dimControl.alpha = 1; return }
-        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animate(withDuration: 0.10, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
             self.panel.transform = .identity
             self.dimControl.alpha = 1
         }
@@ -210,18 +211,17 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         guard isPresented else { return }
         isPresented = false
         let completion: (Bool) -> Void = { _ in
-            self.isHidden = true
             self.isUserInteractionEnabled = false
             self.onClose?()
         }
         guard animated else {
-            panel.transform = CGAffineTransform(translationX: -panel.bounds.width, y: 0)
+            panel.transform = closedTransform()
             dimControl.alpha = 0
             completion(true)
             return
         }
-        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn, .beginFromCurrentState, .allowUserInteraction], animations: {
-            self.panel.transform = CGAffineTransform(translationX: -self.panel.bounds.width, y: 0)
+        UIView.animate(withDuration: 0.10, delay: 0, options: [.curveEaseIn, .beginFromCurrentState, .allowUserInteraction], animations: {
+            self.panel.transform = self.closedTransform()
             self.dimControl.alpha = 0
         }, completion: completion)
     }

@@ -6,6 +6,9 @@ final class NativePerformanceCoordinator: NSObject {
     private var sidebarHitButton: UIButton?
     private var nativeSidebarView: NativeSidebarView?
     private var sidebarItems = NativeConversationStore.load()
+    private var markdownExportBusy = false
+    private var markdownExportGeneration = 0
+    private var markdownExportTimeoutWorkItem: DispatchWorkItem?
 
     init(host: UIViewController) {
         self.host = host
@@ -28,6 +31,7 @@ final class NativePerformanceCoordinator: NSObject {
 
     deinit {
         NotificationCenter.default.removeObserver(self)
+        markdownExportTimeoutWorkItem?.cancel()
         NativeSidebarNavigationRouter.openConversation = nil
         NativeSidebarNavigationRouter.openNewChat = nil
     }
@@ -39,7 +43,11 @@ final class NativePerformanceCoordinator: NSObject {
         if nativeSidebarView?.isPresented == true, let nativeSidebarView { host?.view.bringSubviewToFront(nativeSidebarView) }
     }
 
-    @objc private func handleDidEnterBackground() { dismissNativeSidebar(animated: false) }
+    @objc private func handleDidEnterBackground() {
+        dismissNativeSidebar(animated: false)
+        cancelMarkdownExport()
+    }
+
     @objc private func handleSidebarStoreChange() {
         sidebarItems = NativeConversationStore.load()
         updateSidebarHitButton()
@@ -68,7 +76,9 @@ final class NativePerformanceCoordinator: NSObject {
         var children: [UIMenuElement] = []
         for element in menu.children {
             guard let action = element as? UIAction else { children.append(element); continue }
-            if action.title == "长对话设置" {
+            if action.title == "导出 Markdown" {
+                children.append(UIAction(title: action.title, image: action.image, identifier: action.identifier, discoverabilityTitle: action.discoverabilityTitle, attributes: action.attributes, state: action.state) { [weak self] _ in self?.startMarkdownExport() })
+            } else if action.title == "长对话设置" {
                 children.append(UIAction(title: action.title, image: action.image, identifier: action.identifier, discoverabilityTitle: action.discoverabilityTitle, attributes: action.attributes, state: action.state) { [weak self] _ in self?.presentSettings() })
             } else if action.title != "一键重置" {
                 children.append(action)
@@ -124,6 +134,7 @@ final class NativePerformanceCoordinator: NSObject {
         }
         drawer.onClose = { [weak self] in
             guard let self else { return }
+            self.sidebarHitButton?.isUserInteractionEnabled = true
             if UIApplication.shared.applicationState == .active { self.activeWebView()?.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
             if let button = self.sidebarHitButton { self.host?.view.bringSubviewToFront(button) }
         }
@@ -139,12 +150,13 @@ final class NativePerformanceCoordinator: NSObject {
 
     @objc private func sidebarHitTapped() {
         guard let drawer = nativeSidebarView, !drawer.isPresented else { return }
+        sidebarHitButton?.isUserInteractionEnabled = false
         drawer.show(animated: true)
-        let webView = activeWebView()
-        webView?.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.02) { [weak self, weak drawer, weak webView] in
-            guard let self, let drawer else { return }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self, weak drawer] in
+            guard let self, let drawer, drawer.isPresented else { return }
+            let webView = self.activeWebView()
             drawer.updateCurrentConversationID(self.currentConversationID(in: webView?.url))
+            webView?.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
         }
     }
 
@@ -162,9 +174,87 @@ final class NativePerformanceCoordinator: NSObject {
         NativePerformancePanel.present(from: host, webView: webView) { [weak self] text in self?.showTransientPill(text) }
     }
 
+    private func startMarkdownExport() {
+        guard !markdownExportBusy else { showTransientPill("正在导出 Markdown…"); return }
+        guard let webView = activeWebView() else { showSimpleAlert(title: "导出失败", message: "当前页面不可用"); return }
+
+        markdownExportBusy = true
+        markdownExportGeneration += 1
+        let generation = markdownExportGeneration
+        showTransientPill("正在读取完整会话…")
+
+        markdownExportTimeoutWorkItem?.cancel()
+        let timeout = DispatchWorkItem { [weak self, weak webView] in
+            guard let self, generation == self.markdownExportGeneration, self.markdownExportBusy else { return }
+            self.markdownExportBusy = false
+            if webView === self.activeWebView() { self.showSimpleAlert(title: "导出失败", message: "读取完整会话超时，请重试。") }
+        }
+        markdownExportTimeoutWorkItem = timeout
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: timeout)
+
+        let script = """
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const waitExporter = async () => {
+          for (let i = 0; i < 20; i++) {
+            if (window.GPTWebKitMarkdown?.fullConversation) return window.GPTWebKitMarkdown;
+            await sleep(100);
+          }
+          return null;
+        };
+        try {
+          const exporter = await waitExporter();
+          if (!exporter?.fullConversation) throw new Error('Markdown 导出模块未加载');
+          const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('读取完整会话超时')), 12000));
+          const result = await Promise.race([exporter.fullConversation(), timeout]);
+          const markdown = String(result?.markdown || '');
+          if (!markdown.trim()) throw new Error('没有可导出的 Markdown 内容');
+          const handler = window.webkit?.messageHandlers?.markdownExport;
+          if (!handler) throw new Error('原生 Markdown 分享通道不可用');
+          handler.postMessage({
+            title:String(result?.title || document.title || 'ChatGPT Conversation'),
+            markdown,
+            count:Number(result?.count || 0),
+            source:String(result?.source || 'full-json')
+          });
+          return { ok:true, count:Number(result?.count || 0) };
+        } catch (error) {
+          return { ok:false, error:String(error?.message || error || '未知错误') };
+        }
+        """
+
+        webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { [weak self, weak webView] result in
+            DispatchQueue.main.async {
+                guard let self, generation == self.markdownExportGeneration else { return }
+                self.markdownExportTimeoutWorkItem?.cancel()
+                self.markdownExportTimeoutWorkItem = nil
+                self.markdownExportBusy = false
+                guard let webView, webView === self.activeWebView() else {
+                    self.showSimpleAlert(title: "导出失败", message: "导出期间页面发生了切换，请重试。")
+                    return
+                }
+                switch result {
+                case .success(let value):
+                    if let info = value as? [String: Any], (info["ok"] as? Bool) == true { return }
+                    let message = (value as? [String: Any])?["error"] as? String ?? "Markdown 导出没有返回有效结果"
+                    self.showSimpleAlert(title: "导出失败", message: message)
+                case .failure(let error):
+                    self.showSimpleAlert(title: "导出失败", message: error.localizedDescription)
+                }
+            }
+        }
+    }
+
+    private func cancelMarkdownExport() {
+        markdownExportGeneration += 1
+        markdownExportBusy = false
+        markdownExportTimeoutWorkItem?.cancel()
+        markdownExportTimeoutWorkItem = nil
+    }
+
     private func hardResetToHome() {
         guard let webView = activeWebView() else { return }
         dismissNativeSidebar(animated: false)
+        cancelMarkdownExport()
         showTransientPill("正在一键重置…")
         for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("GPTWebKit.SessionSnapshot.") { UserDefaults.standard.removeObject(forKey: key) }
 
@@ -195,6 +285,14 @@ final class NativePerformanceCoordinator: NSObject {
 
         webView.callAsyncJavaScript(cleanup, arguments: [:], in: nil, in: .page, completionHandler: { _ in DispatchQueue.main.async { reloadHome() } })
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { reloadHome() }
+    }
+
+    private func showSimpleAlert(title: String, message: String) {
+        guard let host else { return }
+        guard host.presentedViewController == nil else { showTransientPill(message); return }
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "确定", style: .default))
+        host.present(alert, animated: true)
     }
 
     private func showTransientPill(_ text: String) {
