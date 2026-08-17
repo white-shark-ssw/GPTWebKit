@@ -41,6 +41,7 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     private var currentConversationID: String?
     private var isClosing = false
     private var storeObserver: NSObjectProtocol?
+    private var emptyStateWorkItem: DispatchWorkItem?
 
     init(items: [NativeConversationItem], currentConversationID: String?) {
         self.items = items
@@ -58,6 +59,7 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     required init?(coder: NSCoder) { nil }
 
     deinit {
+        emptyStateWorkItem?.cancel()
         if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
     }
 
@@ -164,9 +166,27 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         self.items = items
         self.currentConversationID = currentConversationID
         tableView.reloadData()
-        if refreshing && items.isEmpty { spinner.startAnimating() } else { spinner.stopAnimating() }
-        emptyLabel.isHidden = !items.isEmpty
-        emptyLabel.text = refreshing ? "正在读取最近会话…" : "暂无最近会话"
+        emptyStateWorkItem?.cancel()
+        emptyStateWorkItem = nil
+
+        if !items.isEmpty {
+            spinner.stopAnimating()
+            emptyLabel.isHidden = true
+            return
+        }
+
+        emptyLabel.isHidden = false
+        emptyLabel.text = "正在读取最近会话…"
+        spinner.startAnimating()
+        guard !refreshing else { return }
+
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, self.items.isEmpty else { return }
+            self.spinner.stopAnimating()
+            self.emptyLabel.text = "暂无最近会话"
+        }
+        emptyStateWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
     }
 
     func dismiss(animated: Bool = true) {
