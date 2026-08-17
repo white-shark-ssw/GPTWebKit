@@ -16,6 +16,7 @@
 		A008 /* UIEnhancements.js in Resources */ = {isa = PBXBuildFile; fileRef = B008 /* UIEnhancements.js */; };
 		A009 /* NativeSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B009 /* NativeSidebarView.swift */; };
 		A010 /* NativePerformanceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B010 /* NativePerformanceCoordinator.swift */; };
+		A011 /* NativePerformancePanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B011 /* NativePerformancePanels.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -30,6 +31,7 @@
 		B008 /* UIEnhancements.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = UIEnhancements.js; sourceTree = "<group>"; };
 		B009 /* NativeSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSidebarView.swift; sourceTree = "<group>"; };
 		B010 /* NativePerformanceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePerformanceCoordinator.swift; sourceTree = "<group>"; };
+		B011 /* NativePerformancePanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePerformancePanels.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -38,7 +40,7 @@
 
 /* Begin PBXGroup section */
 		D000 = {isa = PBXGroup; children = (D001 /* GPTWebKit */, D002 /* Products */); sourceTree = "<group>"; };
-		D001 /* GPTWebKit */ = {isa = PBXGroup; path = GPTWebKit; sourceTree = "<group>"; children = (B001, B002, B003, B004, B009, B010, B007, D003 /* Resources */); };
+		D001 /* GPTWebKit */ = {isa = PBXGroup; path = GPTWebKit; sourceTree = "<group>"; children = (B001, B002, B003, B004, B009, B010, B011, B007, D003 /* Resources */); };
 		D002 /* Products */ = {isa = PBXGroup; children = (B000); name = Products; sourceTree = "<group>"; };
 		D003 /* Resources */ = {isa = PBXGroup; path = Resources; sourceTree = "<group>"; children = (B005, B006, B008); };
 /* End PBXGroup section */
@@ -56,14 +58,14 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		C002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A001, A002, A003, A004, A009, A010); runOnlyForDeploymentPostprocessing = 0; };
+		C002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A001, A002, A003, A004, A009, A010, A011); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		G001 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Debug; };
 		G002 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Release; };
-		G003 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 18; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
-		G004 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 18; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+		G003 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 19; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		G004 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 19; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
