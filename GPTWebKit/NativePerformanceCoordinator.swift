@@ -5,6 +5,7 @@ final class NativePerformanceCoordinator: NSObject {
     private weak var host: UIViewController?
     private var sidebarHitButton: UIButton?
     private var nativeSidebarView: NativeSidebarView?
+    private var sidebarItems = NativeConversationStore.load()
 
     init(host: UIViewController) {
         self.host = host
@@ -36,20 +37,14 @@ final class NativePerformanceCoordinator: NSObject {
     }
 
     @objc private func handleDidEnterBackground() { dismissNativeSidebar(animated: false) }
-    @objc private func handleSidebarStoreChange() { updateSidebarHitButton() }
-
-    private func allSubviews(of view: UIView) -> [UIView] {
-        var result: [UIView] = []
-        for subview in view.subviews {
-            result.append(subview)
-            result.append(contentsOf: allSubviews(of: subview))
-        }
-        return result
+    @objc private func handleSidebarStoreChange() {
+        sidebarItems = NativeConversationStore.load()
+        updateSidebarHitButton()
     }
 
     private func activeWebView() -> WKWebView? {
         guard let host else { return nil }
-        let webViews = allSubviews(of: host.view).compactMap { $0 as? WKWebView }
+        let webViews = host.view.subviews.compactMap { $0 as? WKWebView }
         return webViews.first(where: { !$0.isHidden && $0.alpha > 0.5 && $0.isUserInteractionEnabled })
             ?? webViews.first(where: { !$0.isHidden && $0.alpha > 0.5 })
             ?? webViews.first
@@ -63,7 +58,7 @@ final class NativePerformanceCoordinator: NSObject {
 
     private func installMenuOverride() {
         guard let host else { return }
-        let buttons = allSubviews(of: host.view).compactMap { $0 as? UIButton }
+        let buttons = host.view.subviews.compactMap { $0 as? UIButton }
         guard let button = buttons.first(where: { candidate in candidate.menu?.children.contains(where: { ($0 as? UIAction)?.title == "长对话设置" }) == true }), let menu = button.menu else { return }
 
         var children: [UIMenuElement] = []
@@ -81,7 +76,7 @@ final class NativePerformanceCoordinator: NSObject {
 
     private func updateSidebarHitButton() {
         guard let host else { return }
-        guard !NativeConversationStore.load().isEmpty else {
+        guard !sidebarItems.isEmpty else {
             sidebarHitButton?.removeFromSuperview()
             sidebarHitButton = nil
             return
@@ -92,7 +87,7 @@ final class NativePerformanceCoordinator: NSObject {
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = .clear
         button.accessibilityLabel = "打开侧边栏"
-        button.addTarget(self, action: #selector(sidebarHitTapped), for: .touchUpInside)
+        button.addTarget(self, action: #selector(sidebarHitTapped), for: .touchDown)
         host.view.addSubview(button)
         NSLayoutConstraint.activate([
             button.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
@@ -107,13 +102,9 @@ final class NativePerformanceCoordinator: NSObject {
     @objc private func sidebarHitTapped() { presentNativeSidebar() }
 
     private func presentNativeSidebar() {
-        guard let host, nativeSidebarView == nil else { return }
-        let items = NativeConversationStore.load()
-        guard !items.isEmpty else { updateSidebarHitButton(); return }
+        guard let host, nativeSidebarView == nil, !sidebarItems.isEmpty else { return }
         let webView = activeWebView()
-        webView?.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
-
-        let drawer = NativeSidebarView(items: items, currentConversationID: currentConversationID(in: webView?.url))
+        let drawer = NativeSidebarView(items: sidebarItems, currentConversationID: currentConversationID(in: webView?.url))
         drawer.onSelect = { [weak self] item in
             guard let self, let url = URL(string: "https://chatgpt.com/c/\(item.id)") else { return }
             self.navigateReplacingHistory(to: url)
@@ -130,15 +121,12 @@ final class NativePerformanceCoordinator: NSObject {
         }
 
         nativeSidebarView = drawer
+        drawer.translatesAutoresizingMaskIntoConstraints = true
+        drawer.frame = host.view.bounds
+        drawer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         host.view.addSubview(drawer)
-        NSLayoutConstraint.activate([
-            drawer.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
-            drawer.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
-            drawer.topAnchor.constraint(equalTo: host.view.topAnchor),
-            drawer.bottomAnchor.constraint(equalTo: host.view.bottomAnchor)
-        ])
-        host.view.layoutIfNeeded()
         drawer.show(animated: true)
+        webView?.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
     }
 
     private func dismissNativeSidebar(animated: Bool) {

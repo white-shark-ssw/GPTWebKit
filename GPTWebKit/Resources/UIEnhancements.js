@@ -3,12 +3,24 @@
   if (window.__GPTWebKitUIEnhancements) return;
   window.__GPTWebKitUIEnhancements = true;
 
+  const LEGACY_BLOCK_STYLE_ID = 'gptwebkit-legacy-control-block';
   let uploadResumeTimer = 0;
   let lastSidebarItems = [];
   let sidebarObserver = null;
   let sidebarObserverTimer = 0;
 
+  const installLegacyControlBlock = () => {
+    let style = document.getElementById(LEGACY_BLOCK_STYLE_ID);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = LEGACY_BLOCK_STYLE_ID;
+      (document.head || document.documentElement)?.appendChild(style);
+    }
+    style.textContent = '#gptwebkit-inline-history{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}';
+  };
+
   const removeLegacyOverlays = () => {
+    installLegacyControlBlock();
     document.getElementById('gptwebkit-inline-history')?.remove();
     document.getElementById('gptwebkit-conversation-limit')?.remove();
     document.getElementById('gptwebkit-ui-enhancements-style')?.remove();
@@ -84,6 +96,7 @@
   };
 
   const pushSidebarData = () => {
+    removeLegacyOverlays();
     const dom = sidebarDOMItems();
     if (dom.length) return publishSidebarItems(dom, { source:'dom' });
     if (lastSidebarItems.length) return publishSidebarItems(lastSidebarItems, { source:'network-cache' });
@@ -170,10 +183,12 @@
     document.addEventListener('click', (event) => {
       if (event.isTrusted && looksLikeSidebarButton(event.target)) watchOfficialSidebar();
     }, true);
+    addEventListener('pageshow', removeLegacyOverlays, { passive:true });
+    setTimeout(removeLegacyOverlays, 120);
     setTimeout(pushSidebarData, 180);
   };
 
-  window.GPTWebKitNativeUI = { pushSidebarData, sidebarDOMItems };
+  window.GPTWebKitNativeUI = { pushSidebarData, sidebarDOMItems, removeLegacyOverlays };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
   else start();
 })();

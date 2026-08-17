@@ -156,7 +156,7 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         panel.transform = CGAffineTransform(translationX: -panel.bounds.width, y: 0)
         dimControl.alpha = 0
         guard animated else { panel.transform = .identity; dimControl.alpha = 1; return }
-        UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animate(withDuration: 0.13, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
             self.panel.transform = .identity
             self.dimControl.alpha = 1
         }
@@ -197,7 +197,7 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
             self.onClose?()
         }
         guard animated else { completion(true); return }
-        UIView.animate(withDuration: 0.16, delay: 0, options: [.curveEaseIn, .beginFromCurrentState, .allowUserInteraction], animations: {
+        UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState, .allowUserInteraction], animations: {
             self.panel.transform = CGAffineTransform(translationX: -self.panel.bounds.width, y: 0)
             self.dimControl.alpha = 0
         }, completion: completion)
