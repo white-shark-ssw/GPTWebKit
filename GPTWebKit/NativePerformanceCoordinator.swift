@@ -3,31 +3,23 @@ import WebKit
 
 final class NativePerformanceCoordinator: NSObject {
     private weak var host: UIViewController?
-    private var sidebarHitButton: UIButton?
-    private var nativeSidebarView: NativeSidebarView?
+    private var fallbackSidebarView: NativeSidebarView?
     private var sidebarItems = NativeConversationStore.load()
     private var markdownExportBusy = false
     private var markdownExportGeneration = 0
     private var markdownExportTimeoutWorkItem: DispatchWorkItem?
-    private var officialSidebarProbeGeneration = 0
 
     init(host: UIViewController) {
         self.host = host
         super.init()
         host.loadViewIfNeeded()
         installMenuOverride()
-        updateSidebarHitButton()
-        DispatchQueue.main.async { [weak self] in self?.prepareNativeSidebarIfNeeded() }
 
         let center = NotificationCenter.default
         center.addObserver(self, selector: #selector(handleDidBecomeActive), name: UIApplication.didBecomeActiveNotification, object: nil)
         center.addObserver(self, selector: #selector(handleDidEnterBackground), name: UIApplication.didEnterBackgroundNotification, object: nil)
         center.addObserver(self, selector: #selector(handleSidebarStoreChange), name: NativeConversationStore.didChangeNotification, object: nil)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
-            self?.installMenuOverride()
-            self?.updateSidebarHitButton()
-            self?.prepareNativeSidebarIfNeeded()
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.installMenuOverride() }
     }
 
     deinit {
@@ -37,24 +29,17 @@ final class NativePerformanceCoordinator: NSObject {
         NativeSidebarNavigationRouter.openNewChat = nil
     }
 
-    @objc private func handleDidBecomeActive() {
-        installMenuOverride()
-        updateSidebarHitButton()
-        prepareNativeSidebarIfNeeded()
-        if nativeSidebarView?.isPresented == true, let nativeSidebarView { host?.view.bringSubviewToFront(nativeSidebarView) }
-    }
+    @objc private func handleDidBecomeActive() { installMenuOverride() }
 
     @objc private func handleDidEnterBackground() {
-        dismissNativeSidebar(animated: false)
+        fallbackSidebarView?.dismiss(animated: false)
         cancelMarkdownExport()
-        officialSidebarProbeGeneration += 1
-        sidebarHitButton?.isHidden = false
     }
 
     @objc private func handleSidebarStoreChange() {
         sidebarItems = NativeConversationStore.load()
-        updateSidebarHitButton()
-        prepareNativeSidebarIfNeeded()
+        guard let drawer = fallbackSidebarView, drawer.isPresented else { return }
+        drawer.update(items: sidebarItems, currentConversationID: currentConversationID(in: activeWebView()?.url), refreshing: false)
     }
 
     private func activeWebView() -> WKWebView? {
@@ -83,50 +68,28 @@ final class NativePerformanceCoordinator: NSObject {
                 children.append(UIAction(title: action.title, image: action.image, identifier: action.identifier, discoverabilityTitle: action.discoverabilityTitle, attributes: action.attributes, state: action.state) { [weak self] _ in self?.startMarkdownExport() })
             } else if action.title == "长对话设置" {
                 children.append(UIAction(title: action.title, image: action.image, identifier: action.identifier, discoverabilityTitle: action.discoverabilityTitle, attributes: action.attributes, state: action.state) { [weak self] _ in self?.presentSettings() })
-            } else if action.title != "一键重置" {
+            } else if action.title != "一键重置" && action.title != "备用会话列表" {
                 children.append(action)
             }
         }
+        children.append(UIAction(title: "备用会话列表", image: UIImage(systemName: "sidebar.left")) { [weak self] _ in self?.presentFallbackSidebar() })
         children.append(UIAction(title: "一键重置", image: UIImage(systemName: "arrow.counterclockwise.circle")) { [weak self] _ in self?.hardResetToHome() })
         button.menu = UIMenu(title: menu.title, image: menu.image, identifier: menu.identifier, options: menu.options, children: children)
     }
 
-    private func updateSidebarHitButton() {
+    private func presentFallbackSidebar() {
         guard let host else { return }
-        guard !sidebarItems.isEmpty else {
-            sidebarHitButton?.removeFromSuperview()
-            sidebarHitButton = nil
-            return
-        }
-        if let button = sidebarHitButton { host.view.bringSubviewToFront(button); return }
+        sidebarItems = NativeConversationStore.load()
+        guard !sidebarItems.isEmpty else { showTransientPill("备用会话列表尚未同步") ; return }
 
-        let button = UIButton(type: .custom)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.backgroundColor = .clear
-        button.accessibilityLabel = "打开侧边栏"
-        button.addTarget(self, action: #selector(sidebarHitTapped), for: .touchDown)
-        host.view.addSubview(button)
-        NSLayoutConstraint.activate([
-            button.leadingAnchor.constraint(equalTo: host.view.leadingAnchor),
-            button.topAnchor.constraint(equalTo: host.view.safeAreaLayoutGuide.topAnchor),
-            button.widthAnchor.constraint(equalToConstant: 62),
-            button.heightAnchor.constraint(equalToConstant: 58)
-        ])
-        host.view.bringSubviewToFront(button)
-        sidebarHitButton = button
-    }
-
-    private func prepareNativeSidebarIfNeeded() {
-        guard let host, !sidebarItems.isEmpty else { return }
-        let currentID = currentConversationID(in: activeWebView()?.url)
-        if let drawer = nativeSidebarView {
-            drawer.update(items: sidebarItems, currentConversationID: currentID, refreshing: false)
-            if !drawer.isPresented { drawer.prewarm() }
-            if let button = sidebarHitButton { host.view.bringSubviewToFront(button) }
+        if let drawer = fallbackSidebarView {
+            drawer.update(items: sidebarItems, currentConversationID: currentConversationID(in: activeWebView()?.url), refreshing: false)
+            if !drawer.isPresented { drawer.show(animated: true) }
+            host.view.bringSubviewToFront(drawer)
             return
         }
 
-        let drawer = NativeSidebarView(items: sidebarItems, currentConversationID: currentID)
+        let drawer = NativeSidebarView(items: sidebarItems, currentConversationID: currentConversationID(in: activeWebView()?.url))
         drawer.onSelect = { [weak self] item in
             guard let self, let url = URL(string: "https://chatgpt.com/c/\(item.id)") else { return }
             self.navigateReplacingHistory(to: url)
@@ -139,110 +102,28 @@ final class NativePerformanceCoordinator: NSObject {
             guard let self, let url = URL(string: "https://chatgpt.com/projects") else { return }
             self.navigateReplacingHistory(to: url)
         }
-        drawer.onAccount = { [weak self] in self?.openOfficialAccountUI() }
+        drawer.onAccount = { [weak self] in self?.openOfficialSidebar() }
         drawer.onClose = { [weak self] in
-            guard let self else { return }
-            self.sidebarHitButton?.isUserInteractionEnabled = true
-            if UIApplication.shared.applicationState == .active { self.activeWebView()?.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
-            if let button = self.sidebarHitButton, !button.isHidden { self.host?.view.bringSubviewToFront(button) }
+            guard let self, let drawer = self.fallbackSidebarView else { return }
+            drawer.prewarm()
         }
-
         drawer.translatesAutoresizingMaskIntoConstraints = true
         drawer.frame = host.view.bounds
         drawer.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         host.view.addSubview(drawer)
-        nativeSidebarView = drawer
+        fallbackSidebarView = drawer
         drawer.prewarm()
-        if let button = sidebarHitButton { host.view.bringSubviewToFront(button) }
-    }
-
-    @objc private func sidebarHitTapped() {
-        guard let drawer = nativeSidebarView, !drawer.isPresented else { return }
-        sidebarHitButton?.isUserInteractionEnabled = false
         drawer.show(animated: true)
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self, weak drawer] in
-            guard let self, let drawer, drawer.isPresented else { return }
-            let webView = self.activeWebView()
-            drawer.updateCurrentConversationID(self.currentConversationID(in: webView?.url))
-            webView?.evaluateJavaScript("document.activeElement?.blur?.(); window.GPTWebKitLongConversation?.suspend?.(); true", completionHandler: nil)
-        }
     }
 
-    private func dismissNativeSidebar(animated: Bool) { nativeSidebarView?.dismiss(animated: animated) }
+    private func openOfficialSidebar() {
+        activeWebView()?.evaluateJavaScript("window.GPTWebKitNativeUI?.openOfficialSidebar?.(); true", completionHandler: nil)
+    }
 
     private func navigateReplacingHistory(to url: URL) {
         guard let webView = activeWebView(), let data = try? JSONEncoder().encode(url.absoluteString), let literal = String(data: data, encoding: .utf8) else { return }
         webView.evaluateJavaScript("location.replace(\(literal)); true") { [weak webView] _, error in
             if error != nil { webView?.load(URLRequest(url: url, cachePolicy: .useProtocolCachePolicy, timeoutInterval: 45)) }
-        }
-    }
-
-    private func openOfficialAccountUI() {
-        guard let webView = activeWebView() else { return }
-        officialSidebarProbeGeneration += 1
-        let generation = officialSidebarProbeGeneration
-        sidebarHitButton?.isHidden = true
-        let script = """
-        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-        const visible = (el) => {
-          if (!(el instanceof HTMLElement)) return false;
-          const r = el.getBoundingClientRect();
-          const s = getComputedStyle(el);
-          return r.width > 8 && r.height > 8 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth && s.display !== 'none' && s.visibility !== 'hidden';
-        };
-        const label = (el) => `${el.getAttribute?.('aria-label') || ''} ${el.getAttribute?.('title') || ''} ${el.getAttribute?.('data-testid') || ''} ${el.textContent || ''}`.replace(/\\s+/g, ' ').trim();
-        const buttons = () => Array.from(document.querySelectorAll('button'));
-        let close = buttons().find((button) => visible(button) && /close.*sidebar|关闭.*侧|收起.*侧/i.test(label(button)));
-        if (!close) {
-          const open = buttons().find((button) => visible(button) && (/open.*sidebar|打开.*侧|侧边栏|sidebar/i.test(label(button))) && button.getBoundingClientRect().top < 130 && button.getBoundingClientRect().left < innerWidth * 0.35);
-          if (open) open.click();
-          await sleep(160);
-        }
-        const candidates = buttons().filter((button) => visible(button));
-        const profile = candidates
-          .filter((button) => button.getBoundingClientRect().top > innerHeight * 0.55)
-          .find((button) => /profile|account|settings|user menu|账号|账户|个人|设置|我的/i.test(label(button)));
-        if (profile) { profile.click(); return { ok:true, profile:true }; }
-        close = buttons().find((button) => visible(button) && /close.*sidebar|关闭.*侧|收起.*侧/i.test(label(button)));
-        return { ok:!!close, profile:false };
-        """
-        webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { [weak self, weak webView] result in
-            DispatchQueue.main.async {
-                guard let self, generation == self.officialSidebarProbeGeneration else { return }
-                if case .success(let value) = result, let info = value as? [String: Any], (info["ok"] as? Bool) == true {
-                    self.waitForOfficialSidebarToClose(webView: webView, generation: generation, attempt: 0)
-                } else {
-                    self.sidebarHitButton?.isHidden = false
-                    self.showTransientPill("未能打开账号入口")
-                }
-            }
-        }
-    }
-
-    private func waitForOfficialSidebarToClose(webView: WKWebView?, generation: Int, attempt: Int) {
-        guard generation == officialSidebarProbeGeneration, let webView, webView === activeWebView() else { sidebarHitButton?.isHidden = false; return }
-        let script = """
-        (() => {
-          const visible = (el) => {
-            if (!(el instanceof HTMLElement)) return false;
-            const r = el.getBoundingClientRect();
-            const s = getComputedStyle(el);
-            return r.width > 8 && r.height > 8 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth && s.display !== 'none' && s.visibility !== 'hidden';
-          };
-          const label = (el) => `${el.getAttribute?.('aria-label') || ''} ${el.getAttribute?.('title') || ''} ${el.getAttribute?.('data-testid') || ''} ${el.textContent || ''}`;
-          if (Array.from(document.querySelectorAll('button')).some((button) => visible(button) && /close.*sidebar|关闭.*侧|收起.*侧/i.test(label(button)))) return true;
-          return Array.from(document.querySelectorAll('nav,aside')).some((node) => { const r = node.getBoundingClientRect(); return visible(node) && r.left < 24 && r.right > 180 && r.height > innerHeight * 0.55; });
-        })();
-        """
-        webView.evaluateJavaScript(script) { [weak self, weak webView] value, _ in
-            guard let self, generation == self.officialSidebarProbeGeneration else { return }
-            let open = value as? Bool ?? false
-            if open && attempt < 60 {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak webView] in self?.waitForOfficialSidebarToClose(webView: webView, generation: generation, attempt: attempt + 1) }
-            } else {
-                self.sidebarHitButton?.isHidden = false
-                if let button = self.sidebarHitButton { self.host?.view.bringSubviewToFront(button) }
-            }
         }
     }
 
@@ -330,7 +211,7 @@ final class NativePerformanceCoordinator: NSObject {
 
     private func hardResetToHome() {
         guard let webView = activeWebView() else { return }
-        dismissNativeSidebar(animated: false)
+        fallbackSidebarView?.dismiss(animated: false)
         cancelMarkdownExport()
         showTransientPill("正在一键重置…")
         for key in UserDefaults.standard.dictionaryRepresentation().keys where key.hasPrefix("GPTWebKit.SessionSnapshot.") { UserDefaults.standard.removeObject(forKey: key) }

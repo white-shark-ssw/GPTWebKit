@@ -2,6 +2,7 @@
   'use strict';
 
   const LEGACY_BLOCK_STYLE_ID = 'gptwebkit-legacy-control-block';
+  const PREWARM_STYLE_ID = 'gptwebkit-official-sidebar-prewarm-style';
   const blockLegacyHistoryControl = () => {
     let style = document.getElementById(LEGACY_BLOCK_STYLE_ID);
     if (!style) {
@@ -24,6 +25,28 @@
   let lastSidebarItems = [];
   let sidebarObserver = null;
   let sidebarObserverTimer = 0;
+  let officialSidebarPrewarmState = 'idle';
+  let officialSidebarPrewarmCancelled = false;
+  let officialSidebarPrewarmTimer = 0;
+
+  const installPrewarmStyle = () => {
+    let style = document.getElementById(PREWARM_STYLE_ID);
+    if (!style) {
+      style = document.createElement('style');
+      style.id = PREWARM_STYLE_ID;
+      (document.head || document.documentElement)?.appendChild(style);
+    }
+    if (style) style.textContent = `
+      html.gptwebkit-sidebar-prewarming aside,
+      html.gptwebkit-sidebar-prewarming [data-testid*="sidebar" i],
+      html.gptwebkit-sidebar-prewarming [class*="sidebar" i] {
+        opacity:0!important;
+        transition:none!important;
+        animation:none!important;
+        pointer-events:none!important;
+      }
+    `;
+  };
 
   const removeLegacyOverlays = () => {
     blockLegacyHistoryControl();
@@ -145,14 +168,48 @@
     window.fetch = wrapped;
   };
 
+  const visible = (el) => {
+    if (!(el instanceof HTMLElement)) return false;
+    const rect = el.getBoundingClientRect();
+    const style = getComputedStyle(el);
+    return rect.width > 8 && rect.height > 8 && rect.bottom > 0 && rect.right > 0 && rect.top < innerHeight && rect.left < innerWidth && style.display !== 'none' && style.visibility !== 'hidden';
+  };
+
+  const buttonLabel = (button) => `${button?.getAttribute?.('aria-label') || ''} ${button?.getAttribute?.('title') || ''} ${button?.getAttribute?.('data-testid') || ''} ${button?.textContent || ''}`.replace(/\s+/g, ' ').trim();
+  const topLeftButton = (button) => {
+    if (!(button instanceof HTMLElement) || !visible(button)) return false;
+    const rect = button.getBoundingClientRect();
+    return rect.top < 130 && rect.left < Math.min(180, innerWidth * 0.36);
+  };
+
+  const findOpenSidebarButton = () => {
+    const exact = document.querySelector('button[data-testid="open-sidebar-button"]');
+    if (topLeftButton(exact)) return exact;
+    return Array.from(document.querySelectorAll('button')).find((button) => topLeftButton(button) && /open.*sidebar|打开.*侧|侧边栏|侧栏|open menu|打开菜单/i.test(buttonLabel(button))) || null;
+  };
+
+  const findCloseSidebarButton = () => {
+    const exact = document.querySelector('button[data-testid="close-sidebar-button"]');
+    if (visible(exact)) return exact;
+    return Array.from(document.querySelectorAll('button')).find((button) => visible(button) && /close.*sidebar|关闭.*侧|收起.*侧|close menu|关闭菜单/i.test(buttonLabel(button))) || null;
+  };
+
+  const sidebarSurface = () => {
+    const candidates = Array.from(document.querySelectorAll('aside,nav,[data-testid*="sidebar" i],[class*="sidebar" i]'));
+    return candidates.find((node) => {
+      if (!visible(node)) return false;
+      const rect = node.getBoundingClientRect();
+      return rect.left < 30 && rect.width > Math.min(220, innerWidth * 0.55) && rect.height > innerHeight * 0.55;
+    }) || null;
+  };
+
+  const isOfficialSidebarOpen = () => !!findCloseSidebarButton() || !!sidebarSurface();
+
   const looksLikeSidebarButton = (target) => {
     const button = target?.closest?.('button');
     if (!(button instanceof HTMLElement)) return false;
     if (button.matches('button[data-testid="open-sidebar-button"], button[data-testid="close-sidebar-button"], button[data-testid*="sidebar" i], button[aria-label*="sidebar" i], button[title*="sidebar" i]')) return true;
-    const rect = button.getBoundingClientRect();
-    if (rect.top > 120 || rect.left > innerWidth * 0.32) return false;
-    const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.getAttribute('data-testid') || ''} ${button.textContent || ''}`;
-    return /侧边栏|侧栏|打开菜单|关闭菜单|open menu|close menu|sidebar/i.test(label);
+    return topLeftButton(button) && /侧边栏|侧栏|打开菜单|关闭菜单|open menu|close menu|sidebar/i.test(buttonLabel(button));
   };
 
   const watchOfficialSidebar = () => {
@@ -177,11 +234,86 @@
     }, 4000);
   };
 
+  const closePrewarmedSidebar = async (openButton) => {
+    if (officialSidebarPrewarmCancelled) return;
+    const close = findCloseSidebarButton();
+    if (close) close.click();
+    else if (openButton && visible(openButton)) openButton.click();
+    else {
+      try { document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', code:'Escape', bubbles:true, cancelable:true })); } catch (_) {}
+    }
+    const deadline = performance.now() + 650;
+    while (!officialSidebarPrewarmCancelled && isOfficialSidebarOpen() && performance.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+  };
+
+  const prewarmOfficialSidebar = async () => {
+    if (officialSidebarPrewarmState !== 'idle' || officialSidebarPrewarmCancelled || document.visibilityState !== 'visible') return false;
+    const openButton = findOpenSidebarButton();
+    if (!openButton) return false;
+    if (isOfficialSidebarOpen()) { officialSidebarPrewarmState = 'ready'; return true; }
+
+    officialSidebarPrewarmState = 'opening';
+    installPrewarmStyle();
+    document.documentElement?.classList?.add('gptwebkit-sidebar-prewarming');
+    try {
+      openButton.click();
+      const deadline = performance.now() + 1500;
+      while (!officialSidebarPrewarmCancelled && !isOfficialSidebarOpen() && performance.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+      if (officialSidebarPrewarmCancelled) return false;
+      if (!isOfficialSidebarOpen()) { officialSidebarPrewarmState = 'idle'; return false; }
+      watchOfficialSidebar();
+      await new Promise((resolve) => setTimeout(resolve, 90));
+      await closePrewarmedSidebar(openButton);
+      pushSidebarData();
+      officialSidebarPrewarmState = 'ready';
+      return true;
+    } catch (_) {
+      officialSidebarPrewarmState = 'idle';
+      return false;
+    } finally {
+      document.documentElement?.classList?.remove('gptwebkit-sidebar-prewarming');
+    }
+  };
+
+  const scheduleOfficialSidebarPrewarm = () => {
+    if (officialSidebarPrewarmCancelled || officialSidebarPrewarmState === 'ready' || officialSidebarPrewarmTimer) return;
+    let attempts = 0;
+    const attempt = async () => {
+      officialSidebarPrewarmTimer = 0;
+      if (officialSidebarPrewarmCancelled || officialSidebarPrewarmState === 'ready') return;
+      attempts++;
+      const ok = await prewarmOfficialSidebar();
+      if (!ok && !officialSidebarPrewarmCancelled && attempts < 18) officialSidebarPrewarmTimer = setTimeout(attempt, 100);
+    };
+    officialSidebarPrewarmTimer = setTimeout(attempt, 40);
+  };
+
+  const cancelPrewarmForUser = (event) => {
+    if (!event?.isTrusted) return;
+    officialSidebarPrewarmCancelled = true;
+    if (officialSidebarPrewarmTimer) clearTimeout(officialSidebarPrewarmTimer);
+    officialSidebarPrewarmTimer = 0;
+    document.documentElement?.classList?.remove('gptwebkit-sidebar-prewarming');
+  };
+
+  const openOfficialSidebar = () => {
+    officialSidebarPrewarmCancelled = true;
+    document.documentElement?.classList?.remove('gptwebkit-sidebar-prewarming');
+    if (isOfficialSidebarOpen()) return true;
+    const button = findOpenSidebarButton();
+    if (!button) return false;
+    button.click();
+    watchOfficialSidebar();
+    return true;
+  };
+
   const start = () => {
     removeLegacyOverlays();
+    installPrewarmStyle();
     installPassiveHistoryCapture();
-    document.addEventListener('touchstart', suspendForUploadMenu, { capture:true, passive:true });
+    document.addEventListener('touchstart', (event) => { cancelPrewarmForUser(event); suspendForUploadMenu(event); }, { capture:true, passive:true });
     document.addEventListener('pointerdown', (event) => {
+      cancelPrewarmForUser(event);
       if (event.isTrusted && looksLikeSidebarButton(event.target)) watchOfficialSidebar();
       suspendForUploadMenu(event);
     }, true);
@@ -191,9 +323,10 @@
     addEventListener('pageshow', removeLegacyOverlays, { passive:true });
     setTimeout(removeLegacyOverlays, 120);
     setTimeout(pushSidebarData, 180);
+    scheduleOfficialSidebarPrewarm();
   };
 
-  window.GPTWebKitNativeUI = { pushSidebarData, sidebarDOMItems, removeLegacyOverlays };
+  window.GPTWebKitNativeUI = { pushSidebarData, sidebarDOMItems, removeLegacyOverlays, openOfficialSidebar, prewarmOfficialSidebar, isOfficialSidebarOpen };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
   else start();
 })();
