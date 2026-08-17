@@ -9,6 +9,7 @@ final class NativePerformanceCoordinator: NSObject {
     private var markdownExportBusy = false
     private var markdownExportGeneration = 0
     private var markdownExportTimeoutWorkItem: DispatchWorkItem?
+    private var officialSidebarProbeGeneration = 0
 
     init(host: UIViewController) {
         self.host = host
@@ -46,6 +47,8 @@ final class NativePerformanceCoordinator: NSObject {
     @objc private func handleDidEnterBackground() {
         dismissNativeSidebar(animated: false)
         cancelMarkdownExport()
+        officialSidebarProbeGeneration += 1
+        sidebarHitButton?.isHidden = false
     }
 
     @objc private func handleSidebarStoreChange() {
@@ -132,11 +135,16 @@ final class NativePerformanceCoordinator: NSObject {
             guard let self, let url = URL(string: "https://chatgpt.com/") else { return }
             self.navigateReplacingHistory(to: url)
         }
+        drawer.onProjects = { [weak self] in
+            guard let self, let url = URL(string: "https://chatgpt.com/projects") else { return }
+            self.navigateReplacingHistory(to: url)
+        }
+        drawer.onAccount = { [weak self] in self?.openOfficialAccountUI() }
         drawer.onClose = { [weak self] in
             guard let self else { return }
             self.sidebarHitButton?.isUserInteractionEnabled = true
             if UIApplication.shared.applicationState == .active { self.activeWebView()?.evaluateJavaScript("window.GPTWebKitLongConversation?.resume?.(); true", completionHandler: nil) }
-            if let button = self.sidebarHitButton { self.host?.view.bringSubviewToFront(button) }
+            if let button = self.sidebarHitButton, !button.isHidden { self.host?.view.bringSubviewToFront(button) }
         }
 
         drawer.translatesAutoresizingMaskIntoConstraints = true
@@ -169,6 +177,75 @@ final class NativePerformanceCoordinator: NSObject {
         }
     }
 
+    private func openOfficialAccountUI() {
+        guard let webView = activeWebView() else { return }
+        officialSidebarProbeGeneration += 1
+        let generation = officialSidebarProbeGeneration
+        sidebarHitButton?.isHidden = true
+        let script = """
+        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const visible = (el) => {
+          if (!(el instanceof HTMLElement)) return false;
+          const r = el.getBoundingClientRect();
+          const s = getComputedStyle(el);
+          return r.width > 8 && r.height > 8 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth && s.display !== 'none' && s.visibility !== 'hidden';
+        };
+        const label = (el) => `${el.getAttribute?.('aria-label') || ''} ${el.getAttribute?.('title') || ''} ${el.getAttribute?.('data-testid') || ''} ${el.textContent || ''}`.replace(/\\s+/g, ' ').trim();
+        const buttons = () => Array.from(document.querySelectorAll('button'));
+        let close = buttons().find((button) => visible(button) && /close.*sidebar|关闭.*侧|收起.*侧/i.test(label(button)));
+        if (!close) {
+          const open = buttons().find((button) => visible(button) && (/open.*sidebar|打开.*侧|侧边栏|sidebar/i.test(label(button))) && button.getBoundingClientRect().top < 130 && button.getBoundingClientRect().left < innerWidth * 0.35);
+          if (open) open.click();
+          await sleep(160);
+        }
+        const candidates = buttons().filter((button) => visible(button));
+        const profile = candidates
+          .filter((button) => button.getBoundingClientRect().top > innerHeight * 0.55)
+          .find((button) => /profile|account|settings|user menu|账号|账户|个人|设置|我的/i.test(label(button)));
+        if (profile) { profile.click(); return { ok:true, profile:true }; }
+        close = buttons().find((button) => visible(button) && /close.*sidebar|关闭.*侧|收起.*侧/i.test(label(button)));
+        return { ok:!!close, profile:false };
+        """
+        webView.callAsyncJavaScript(script, arguments: [:], in: nil, in: .page) { [weak self, weak webView] result in
+            DispatchQueue.main.async {
+                guard let self, generation == self.officialSidebarProbeGeneration else { return }
+                if case .success(let value) = result, let info = value as? [String: Any], (info["ok"] as? Bool) == true {
+                    self.waitForOfficialSidebarToClose(webView: webView, generation: generation, attempt: 0)
+                } else {
+                    self.sidebarHitButton?.isHidden = false
+                    self.showTransientPill("未能打开账号入口")
+                }
+            }
+        }
+    }
+
+    private func waitForOfficialSidebarToClose(webView: WKWebView?, generation: Int, attempt: Int) {
+        guard generation == officialSidebarProbeGeneration, let webView, webView === activeWebView() else { sidebarHitButton?.isHidden = false; return }
+        let script = """
+        (() => {
+          const visible = (el) => {
+            if (!(el instanceof HTMLElement)) return false;
+            const r = el.getBoundingClientRect();
+            const s = getComputedStyle(el);
+            return r.width > 8 && r.height > 8 && r.bottom > 0 && r.right > 0 && r.top < innerHeight && r.left < innerWidth && s.display !== 'none' && s.visibility !== 'hidden';
+          };
+          const label = (el) => `${el.getAttribute?.('aria-label') || ''} ${el.getAttribute?.('title') || ''} ${el.getAttribute?.('data-testid') || ''} ${el.textContent || ''}`;
+          if (Array.from(document.querySelectorAll('button')).some((button) => visible(button) && /close.*sidebar|关闭.*侧|收起.*侧/i.test(label(button)))) return true;
+          return Array.from(document.querySelectorAll('nav,aside')).some((node) => { const r = node.getBoundingClientRect(); return visible(node) && r.left < 24 && r.right > 180 && r.height > innerHeight * 0.55; });
+        })();
+        """
+        webView.evaluateJavaScript(script) { [weak self, weak webView] value, _ in
+            guard let self, generation == self.officialSidebarProbeGeneration else { return }
+            let open = value as? Bool ?? false
+            if open && attempt < 60 {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak webView] in self?.waitForOfficialSidebarToClose(webView: webView, generation: generation, attempt: attempt + 1) }
+            } else {
+                self.sidebarHitButton?.isHidden = false
+                if let button = self.sidebarHitButton { self.host?.view.bringSubviewToFront(button) }
+            }
+        }
+    }
+
     private func presentSettings() {
         guard let host, let webView = activeWebView(), host.presentedViewController == nil else { return }
         NativePerformancePanel.present(from: host, webView: webView) { [weak self] text in self?.showTransientPill(text) }
@@ -190,7 +267,7 @@ final class NativePerformanceCoordinator: NSObject {
             if webView === self.activeWebView() { self.showSimpleAlert(title: "导出失败", message: "读取完整会话超时，请重试。") }
         }
         markdownExportTimeoutWorkItem = timeout
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15, execute: timeout)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 86, execute: timeout)
 
         let script = """
         const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -204,7 +281,7 @@ final class NativePerformanceCoordinator: NSObject {
         try {
           const exporter = await waitExporter();
           if (!exporter?.fullConversation) throw new Error('Markdown 导出模块未加载');
-          const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('读取完整会话超时')), 12000));
+          const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error('读取完整会话超时')), 82000));
           const result = await Promise.race([exporter.fullConversation(), timeout]);
           const markdown = String(result?.markdown || '');
           if (!markdown.trim()) throw new Error('没有可导出的 Markdown 内容');

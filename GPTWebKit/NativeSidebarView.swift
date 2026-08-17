@@ -30,6 +30,8 @@ enum NativeSidebarNavigationRouter {
 final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegate {
     var onSelect: ((NativeConversationItem) -> Void)?
     var onNewChat: (() -> Void)?
+    var onProjects: (() -> Void)?
+    var onAccount: (() -> Void)?
     var onClose: (() -> Void)?
     private(set) var isPresented = false
 
@@ -51,6 +53,27 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
 
     required init?(coder: NSCoder) { nil }
     deinit { emptyStateWorkItem?.cancel() }
+
+    private func makeShortcut(title: String, systemImage: String, selector: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        var config = UIButton.Configuration.plain()
+        config.title = title
+        config.image = UIImage(systemName: systemImage)
+        config.imagePadding = 12
+        config.baseForegroundColor = .label
+        config.contentInsets = NSDirectionalEdgeInsets(top: 0, leading: 18, bottom: 0, trailing: 12)
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { attributes in
+            var copy = attributes
+            copy.font = .systemFont(ofSize: 16, weight: .regular)
+            return copy
+        }
+        button.configuration = config
+        button.contentHorizontalAlignment = .leading
+        button.addTarget(self, action: selector, for: .touchUpInside)
+        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        return button
+    }
 
     private func configure() {
         translatesAutoresizingMaskIntoConstraints = false
@@ -88,6 +111,14 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         header.spacing = 8
         panel.addSubview(header)
 
+        let newChatShortcut = makeShortcut(title: "新聊天", systemImage: "square.and.pencil", selector: #selector(newChatTapped))
+        let projectsShortcut = makeShortcut(title: "项目", systemImage: "folder", selector: #selector(projectsTapped))
+        let shortcuts = UIStackView(arrangedSubviews: [newChatShortcut, projectsShortcut])
+        shortcuts.translatesAutoresizingMaskIntoConstraints = false
+        shortcuts.axis = .vertical
+        shortcuts.spacing = 0
+        panel.addSubview(shortcuts)
+
         tableView.translatesAutoresizingMaskIntoConstraints = false
         tableView.backgroundColor = .clear
         tableView.separatorStyle = .none
@@ -110,6 +141,14 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         emptyLabel.numberOfLines = 0
         panel.addSubview(emptyLabel)
 
+        let accountSeparator = UIView()
+        accountSeparator.translatesAutoresizingMaskIntoConstraints = false
+        accountSeparator.backgroundColor = .separator
+        panel.addSubview(accountSeparator)
+
+        let accountButton = makeShortcut(title: "我的账号", systemImage: "person.crop.circle", selector: #selector(accountTapped))
+        panel.addSubview(accountButton)
+
         let width = panel.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.86)
         width.priority = .required
         NSLayoutConstraint.activate([
@@ -125,16 +164,26 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
             header.leadingAnchor.constraint(equalTo: panel.safeAreaLayoutGuide.leadingAnchor, constant: 18),
             header.trailingAnchor.constraint(equalTo: panel.safeAreaLayoutGuide.trailingAnchor, constant: -12),
             header.topAnchor.constraint(equalTo: panel.safeAreaLayoutGuide.topAnchor, constant: 8),
+            shortcuts.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
+            shortcuts.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
+            shortcuts.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 2),
             tableView.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
             tableView.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
-            tableView.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 8),
-            tableView.bottomAnchor.constraint(equalTo: panel.bottomAnchor),
+            tableView.topAnchor.constraint(equalTo: shortcuts.bottomAnchor, constant: 2),
+            tableView.bottomAnchor.constraint(equalTo: accountSeparator.topAnchor, constant: -4),
             spinner.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
-            spinner.centerYAnchor.constraint(equalTo: panel.centerYAnchor),
+            spinner.centerYAnchor.constraint(equalTo: tableView.centerYAnchor),
             emptyLabel.centerXAnchor.constraint(equalTo: panel.centerXAnchor),
-            emptyLabel.centerYAnchor.constraint(equalTo: panel.centerYAnchor, constant: 34),
+            emptyLabel.centerYAnchor.constraint(equalTo: tableView.centerYAnchor, constant: 24),
             emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: panel.leadingAnchor, constant: 24),
-            emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: panel.trailingAnchor, constant: -24)
+            emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: panel.trailingAnchor, constant: -24),
+            accountSeparator.leadingAnchor.constraint(equalTo: panel.leadingAnchor, constant: 16),
+            accountSeparator.trailingAnchor.constraint(equalTo: panel.trailingAnchor, constant: -16),
+            accountSeparator.bottomAnchor.constraint(equalTo: accountButton.topAnchor, constant: -3),
+            accountSeparator.heightAnchor.constraint(equalToConstant: 0.5),
+            accountButton.leadingAnchor.constraint(equalTo: panel.leadingAnchor),
+            accountButton.trailingAnchor.constraint(equalTo: panel.trailingAnchor),
+            accountButton.bottomAnchor.constraint(equalTo: panel.safeAreaLayoutGuide.bottomAnchor, constant: -6)
         ])
 
         update(items: items, currentConversationID: currentConversationID, refreshing: items.isEmpty)
@@ -231,6 +280,16 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     @objc private func newChatTapped() {
         let handled = NativeSidebarNavigationRouter.openNewChat?() ?? false
         if !handled { onNewChat?() }
+        dismiss()
+    }
+
+    @objc private func projectsTapped() {
+        onProjects?()
+        dismiss()
+    }
+
+    @objc private func accountTapped() {
+        onAccount?()
         dismiss()
     }
 

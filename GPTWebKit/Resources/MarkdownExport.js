@@ -195,23 +195,51 @@
     return `## ${heading}\n\n${text}${sourceText}`;
   };
 
+  const decodeJWT = (token) => {
+    try {
+      const part = String(token || '').split('.')[1] || '';
+      const base64 = part.replace(/-/g, '+').replace(/_/g, '/').padEnd(Math.ceil(part.length / 4) * 4, '=');
+      return JSON.parse(decodeURIComponent(Array.from(atob(base64), (char) => `%${char.charCodeAt(0).toString(16).padStart(2, '0')}`).join('')));
+    } catch (_) {
+      return {};
+    }
+  };
+
+  const accountIdFromSession = (session, accessToken) => {
+    const claims = decodeJWT(accessToken);
+    const auth = claims?.['https://api.openai.com/auth'] || claims?.['https://openai.com/auth'] || {};
+    return String(session?.account?.id || session?.account_id || session?.user?.account_id || claims?.['https://api.openai.com/auth.chatgpt_account_id'] || claims?.['https://openai.com/auth.chatgpt_account_id'] || auth?.chatgpt_account_id || claims?.chatgpt_account_id || '').trim();
+  };
+
+  const fetchWithTimeout = async (url, init, timeoutMs, label) => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      if (error?.name === 'AbortError') throw new Error(`${label}超时`);
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
   const fetchFullConversationAuthenticated = async (id) => {
     const proxy = window.GPTWebKitTailProxy;
     const previous = proxy?.getSettings?.() || null;
     const target = `/backend-api/conversation/${encodeURIComponent(id)}`;
     try {
       if (proxy?.updateSettings) proxy.updateSettings({ enabled: false });
-      const sessionResponse = await fetch('/api/auth/session', { method: 'GET', credentials: 'include', cache: 'no-store' });
-      let accessToken = '';
-      if (sessionResponse.ok) {
-        try {
-          const session = await sessionResponse.json();
-          accessToken = String(session?.accessToken || session?.access_token || '');
-        } catch (_) {}
-      }
-      const headers = new Headers({ accept: 'application/json', 'x-openai-target-path': target });
-      if (accessToken) headers.set('authorization', `Bearer ${accessToken}`);
-      const response = await fetch(target, { method: 'GET', credentials: 'include', cache: 'no-store', headers });
+      const sessionResponse = await fetchWithTimeout('/api/auth/session', { method: 'GET', credentials: 'include', cache: 'no-store' }, 7000, '读取登录状态');
+      if (!sessionResponse.ok) throw new Error(`读取登录状态失败 (${sessionResponse.status})`);
+      let session = {};
+      try { session = await sessionResponse.json(); } catch (_) { throw new Error('登录状态返回内容不是 JSON'); }
+      const accessToken = String(session?.accessToken || session?.access_token || '');
+      if (!accessToken) throw new Error('未取得网页访问令牌');
+      const accountId = accountIdFromSession(session, accessToken);
+      const headers = new Headers({ accept: 'application/json', 'x-openai-target-path': target, authorization: `Bearer ${accessToken}` });
+      if (accountId) headers.set('chatgpt-account-id', accountId);
+      const response = await fetchWithTimeout(target, { method: 'GET', credentials: 'include', cache: 'no-store', headers, referrer: location.href }, 75000, '读取完整会话');
       if (!response.ok) throw new Error(`读取完整会话失败 (${response.status})`);
       const type = response.headers.get('content-type') || '';
       if (!/json/i.test(type)) throw new Error('完整会话返回内容不是 JSON');
@@ -223,12 +251,10 @@
 
   const fetchFullConversation = async (id) => {
     const proxy = window.GPTWebKitTailProxy;
-    if (!proxy?.fetchFullConversation) return fetchFullConversationAuthenticated(id);
-    try {
-      return await proxy.fetchFullConversation(id);
-    } catch (_) {
-      return await fetchFullConversationAuthenticated(id);
+    if (proxy?.fetchFullConversation) {
+      try { return await proxy.fetchFullConversation(id); } catch (_) {}
     }
+    return fetchFullConversationAuthenticated(id);
   };
 
   const fullConversation = async () => {
