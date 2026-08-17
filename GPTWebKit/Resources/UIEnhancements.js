@@ -5,8 +5,7 @@
 
   let uploadResumeTimer = 0;
   let sidebarInterceptUntil = 0;
-  let sidebarFetchBusy = false;
-  let sidebarHydrating = false;
+  let sidebarReadBusy = false;
 
   const removeLegacyOverlays = () => {
     document.getElementById('gptwebkit-inline-history')?.remove();
@@ -39,23 +38,23 @@
   const sidebarButtonForTarget = (target) => {
     const button = target?.closest?.('button');
     if (!(button instanceof HTMLElement)) return null;
-    if (button.matches('button[data-testid="open-sidebar-button"], button[data-testid*="sidebar" i], button[aria-label*="sidebar" i], button[title*="sidebar" i]')) return button;
+    if (button.matches('button[data-testid="open-sidebar-button"], button[data-testid="close-sidebar-button"], button[data-testid*="sidebar" i], button[aria-label*="sidebar" i], button[title*="sidebar" i]')) return button;
     const rect = button.getBoundingClientRect();
     if (rect.top > 120 || rect.left > innerWidth * 0.32) return null;
     const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.getAttribute('data-testid') || ''} ${button.textContent || ''}`;
-    return /侧边栏|侧栏|打开菜单|open menu|menu/i.test(label) ? button : null;
+    return /侧边栏|侧栏|打开菜单|关闭菜单|open menu|close menu|sidebar/i.test(label) ? button : null;
   };
 
-  const normalizeSidebarItems = (data) => {
-    const raw = Array.isArray(data?.items) ? data.items : (Array.isArray(data?.conversations) ? data.conversations : (Array.isArray(data?.data?.items) ? data.data.items : (Array.isArray(data) ? data : [])));
-    return raw.map((item) => {
-      const source = item?.conversation || item?.chat || item;
-      return {
-        id: String(source?.id || source?.conversation_id || source?.conversationId || item?.id || item?.conversation_id || item?.conversationId || '').trim(),
-        title: String(source?.title || source?.name || item?.title || item?.name || '新对话').trim() || '新对话',
-        updatedAt: Number(source?.update_time || source?.updated_at || source?.create_time || item?.update_time || item?.updated_at || item?.create_time || 0) || 0
-      };
-    }).filter((item) => item.id).slice(0, 60);
+  const originalSidebarToggle = () => {
+    const exact = document.querySelector('button[data-testid="open-sidebar-button"], button[data-testid="close-sidebar-button"], button[aria-label*="sidebar" i], button[title*="sidebar" i]');
+    if (exact instanceof HTMLElement) return exact;
+    for (const button of document.querySelectorAll('button')) {
+      const rect = button.getBoundingClientRect();
+      if (rect.top > 120 || rect.left > innerWidth * 0.32) continue;
+      const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.getAttribute('data-testid') || ''} ${button.textContent || ''}`;
+      if (/侧边栏|侧栏|打开菜单|关闭菜单|open menu|close menu|sidebar/i.test(label)) return button;
+    }
+    return null;
   };
 
   const sidebarDOMItems = () => {
@@ -77,18 +76,6 @@
     return items;
   };
 
-  const originalSidebarToggle = () => {
-    const exact = document.querySelector('button[data-testid="open-sidebar-button"], button[data-testid="close-sidebar-button"], button[aria-label*="sidebar" i], button[title*="sidebar" i]');
-    if (exact instanceof HTMLElement) return exact;
-    for (const button of document.querySelectorAll('button')) {
-      const rect = button.getBoundingClientRect();
-      if (rect.top > 120 || rect.left > innerWidth * 0.32) continue;
-      const label = `${button.getAttribute('aria-label') || ''} ${button.getAttribute('title') || ''} ${button.getAttribute('data-testid') || ''} ${button.textContent || ''}`;
-      if (/侧边栏|侧栏|打开菜单|关闭菜单|open menu|close menu|sidebar/i.test(label)) return button;
-    }
-    return null;
-  };
-
   const installHydrateStyle = () => {
     if (document.getElementById('gptwebkit-sidebar-hydrate-style')) return;
     const style = document.createElement('style');
@@ -97,90 +84,77 @@
     (document.head || document.documentElement).appendChild(style);
   };
 
+  const waitForSidebarItems = (timeout = 1300) => new Promise((resolve) => {
+    let finished = false;
+    let observer = null;
+    let timer = 0;
+    const finish = (items) => {
+      if (finished) return;
+      finished = true;
+      observer?.disconnect();
+      if (timer) clearTimeout(timer);
+      resolve(Array.isArray(items) ? items : []);
+    };
+    const inspect = () => {
+      const items = sidebarDOMItems();
+      if (items.length) finish(items);
+    };
+    inspect();
+    if (finished) return;
+    observer = new MutationObserver(inspect);
+    observer.observe(document.body || document.documentElement, { childList:true, subtree:true });
+    timer = setTimeout(() => finish(sidebarDOMItems()), timeout);
+  });
+
+  const closeOriginalSidebar = (openedToggle) => {
+    try {
+      const close = document.querySelector('button[data-testid="close-sidebar-button"], button[aria-label*="close sidebar" i], button[title*="close sidebar" i], button[aria-label*="关闭侧边栏" i], button[title*="关闭侧边栏" i]');
+      if (close instanceof HTMLElement) { close.click(); return; }
+      if (openedToggle?.isConnected) { openedToggle.click(); return; }
+      document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', code:'Escape', bubbles:true }));
+    } catch (_) {}
+  };
+
   const hydrateFromOriginalSidebar = async () => {
     const existing = sidebarDOMItems();
     if (existing.length) return existing;
-    if (sidebarHydrating) return [];
     const toggle = originalSidebarToggle();
     if (!(toggle instanceof HTMLElement)) return [];
 
-    sidebarHydrating = true;
     installHydrateStyle();
     document.documentElement.classList.add('gptwebkit-sidebar-hydrating');
-    let opened = false;
     try {
       toggle.click();
-      opened = true;
-      const started = performance.now();
-      while (performance.now() - started < 950) {
-        await new Promise((resolve) => setTimeout(resolve, 50));
-        const items = sidebarDOMItems();
-        if (items.length) return items;
-      }
-      return [];
+      return await waitForSidebarItems();
     } catch (_) {
       return [];
     } finally {
-      if (opened) {
-        try {
-          const close = document.querySelector('button[data-testid="close-sidebar-button"], button[aria-label*="close sidebar" i], button[title*="close sidebar" i]');
-          if (close instanceof HTMLElement) close.click();
-          else if (toggle.isConnected) toggle.click();
-          else document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', code:'Escape', bubbles:true }));
-        } catch (_) {}
-      }
+      closeOriginalSidebar(toggle);
       document.documentElement.classList.remove('gptwebkit-sidebar-hydrating');
-      sidebarHydrating = false;
     }
   };
 
-  const fetchSidebarItems = async () => {
-    const proxy = window.GPTWebKitTailProxy;
-    const previous = proxy?.getSettings?.() || null;
-    const restoreOptimize = previous?.optimizeSidebar === true;
-    if (restoreOptimize) proxy?.updateSettings?.({ optimizeSidebar:false });
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 650);
-    try {
-      const response = await fetch('/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false', {
-        method:'GET', credentials:'include', cache:'no-store', signal:controller.signal
-      });
-      if (!response.ok) return [];
-      return normalizeSidebarItems(await response.json());
-    } catch (_) {
-      return [];
-    } finally {
-      clearTimeout(timeout);
-      if (restoreOptimize) proxy?.updateSettings?.({ optimizeSidebar:true });
-    }
-  };
-
-  const firstNonEmpty = async (...promises) => new Promise((resolve) => {
-    let pending = promises.length;
-    let settled = false;
-    const finish = (items) => {
-      if (settled) return;
-      if (Array.isArray(items) && items.length) { settled = true; resolve(items); return; }
-      pending--;
-      if (pending <= 0) { settled = true; resolve([]); }
-    };
-    for (const promise of promises) Promise.resolve(promise).then(finish, () => finish([]));
-  });
-
-  const pushSidebarData = async () => {
+  const publishSidebarItems = (items) => {
+    if (!Array.isArray(items) || !items.length) return false;
     const handler = window.webkit?.messageHandlers?.sidebarData;
-    if (!handler || sidebarFetchBusy || document.visibilityState !== 'visible') return false;
-    sidebarFetchBusy = true;
+    if (!handler) return false;
     try {
-      let items = sidebarDOMItems();
-      if (!items.length) items = await firstNonEmpty(fetchSidebarItems(), hydrateFromOriginalSidebar());
-      if (!items.length) return false;
       handler.postMessage({ items, at:Date.now() });
       return true;
     } catch (_) {
       return false;
+    }
+  };
+
+  const pushSidebarData = async () => {
+    if (sidebarReadBusy || document.visibilityState !== 'visible') return false;
+    sidebarReadBusy = true;
+    try {
+      let items = sidebarDOMItems();
+      if (!items.length) items = await hydrateFromOriginalSidebar();
+      return publishSidebarItems(items);
     } finally {
-      sidebarFetchBusy = false;
+      sidebarReadBusy = false;
     }
   };
 
@@ -198,7 +172,8 @@
 
   const start = () => {
     removeLegacyOverlays();
-    setTimeout(pushSidebarData, 420);
+    setTimeout(pushSidebarData, 180);
+    setTimeout(pushSidebarData, 1200);
 
     document.addEventListener('touchstart', suspendForUploadMenu, { capture:true, passive:true });
     document.addEventListener('pointerdown', (event) => {
@@ -207,6 +182,7 @@
     }, true);
 
     document.addEventListener('click', (event) => {
+      if (!event.isTrusted) return;
       const sidebar = sidebarButtonForTarget(event.target);
       if (performance.now() >= sidebarInterceptUntil && !sidebar) return;
       const handler = window.webkit?.messageHandlers?.nativeSidebar;
@@ -217,12 +193,13 @@
     }, true);
 
     window.addEventListener('popstate', () => setTimeout(pushSidebarData, 120));
+    addEventListener('load', () => setTimeout(pushSidebarData, 80), { once:true });
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible') setTimeout(pushSidebarData, 180);
     });
   };
 
-  window.GPTWebKitNativeUI = { pushSidebarData, fetchSidebarItems, hydrateFromOriginalSidebar };
+  window.GPTWebKitNativeUI = { pushSidebarData, hydrateFromOriginalSidebar, sidebarDOMItems };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
   else start();
 })();
