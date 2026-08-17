@@ -31,6 +31,7 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     var onSelect: ((NativeConversationItem) -> Void)?
     var onNewChat: (() -> Void)?
     var onClose: (() -> Void)?
+    private(set) var isPresented = false
 
     private let dimControl = UIControl()
     private let panel = UIView()
@@ -39,8 +40,6 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
     private let emptyLabel = UILabel()
     private var items: [NativeConversationItem]
     private var currentConversationID: String?
-    private var isClosing = false
-    private var storeObserver: NSObjectProtocol?
     private var emptyStateWorkItem: DispatchWorkItem?
 
     init(items: [NativeConversationItem], currentConversationID: String?) {
@@ -48,20 +47,10 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         self.currentConversationID = currentConversationID
         super.init(frame: .zero)
         configure()
-        storeObserver = NotificationCenter.default.addObserver(forName: NativeConversationStore.didChangeNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            let latest = NativeConversationStore.load()
-            guard !latest.isEmpty, latest != self.items else { return }
-            self.update(items: latest, currentConversationID: self.currentConversationID, refreshing: false)
-        }
     }
 
     required init?(coder: NSCoder) { nil }
-
-    deinit {
-        emptyStateWorkItem?.cancel()
-        if let storeObserver { NotificationCenter.default.removeObserver(storeObserver) }
-    }
+    deinit { emptyStateWorkItem?.cancel() }
 
     private func configure() {
         translatesAutoresizingMaskIntoConstraints = false
@@ -151,12 +140,33 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         update(items: items, currentConversationID: currentConversationID, refreshing: items.isEmpty)
     }
 
-    func show(animated: Bool = true) {
+    func prewarm() {
+        guard !isPresented else { return }
+        isUserInteractionEnabled = false
+        isHidden = false
+        alpha = 0
+        panel.transform = .identity
+        dimControl.alpha = 0
         layoutIfNeeded()
+        tableView.layoutIfNeeded()
+        panel.transform = CGAffineTransform(translationX: -panel.bounds.width, y: 0)
+        alpha = 1
+        isHidden = true
+    }
+
+    func show(animated: Bool = true) {
+        guard !isPresented else { return }
+        isPresented = true
+        isHidden = false
+        isUserInteractionEnabled = true
+        superview?.bringSubviewToFront(self)
+        if panel.bounds.width <= 0 { layoutIfNeeded() }
+        panel.layer.removeAllAnimations()
+        dimControl.layer.removeAllAnimations()
         panel.transform = CGAffineTransform(translationX: -panel.bounds.width, y: 0)
         dimControl.alpha = 0
         guard animated else { panel.transform = .identity; dimControl.alpha = 1; return }
-        UIView.animate(withDuration: 0.13, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction]) {
             self.panel.transform = .identity
             self.dimControl.alpha = 1
         }
@@ -189,15 +199,28 @@ final class NativeSidebarView: UIView, UITableViewDataSource, UITableViewDelegat
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4, execute: work)
     }
 
+    func updateCurrentConversationID(_ id: String?) {
+        guard id != currentConversationID else { return }
+        currentConversationID = id
+        guard let rows = tableView.indexPathsForVisibleRows, !rows.isEmpty else { return }
+        tableView.reloadRows(at: rows, with: .none)
+    }
+
     func dismiss(animated: Bool = true) {
-        guard !isClosing else { return }
-        isClosing = true
+        guard isPresented else { return }
+        isPresented = false
         let completion: (Bool) -> Void = { _ in
-            self.removeFromSuperview()
+            self.isHidden = true
+            self.isUserInteractionEnabled = false
             self.onClose?()
         }
-        guard animated else { completion(true); return }
-        UIView.animate(withDuration: 0.12, delay: 0, options: [.curveEaseIn, .beginFromCurrentState, .allowUserInteraction], animations: {
+        guard animated else {
+            panel.transform = CGAffineTransform(translationX: -panel.bounds.width, y: 0)
+            dimControl.alpha = 0
+            completion(true)
+            return
+        }
+        UIView.animate(withDuration: 0.08, delay: 0, options: [.curveEaseIn, .beginFromCurrentState, .allowUserInteraction], animations: {
             self.panel.transform = CGAffineTransform(translationX: -self.panel.bounds.width, y: 0)
             self.dimControl.alpha = 0
         }, completion: completion)
