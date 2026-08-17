@@ -46,7 +46,7 @@
   };
 
   const normalizeSidebarItems = (data) => {
-    const raw = Array.isArray(data?.items) ? data.items : (Array.isArray(data?.conversations) ? data.conversations : (Array.isArray(data) ? data : []));
+    const raw = Array.isArray(data?.items) ? data.items : (Array.isArray(data?.conversations) ? data.conversations : (Array.isArray(data?.data?.items) ? data.data.items : (Array.isArray(data) ? data : [])));
     return raw.map((item) => ({
       id: String(item?.id || item?.conversation_id || '').trim(),
       title: String(item?.title || item?.name || '新对话').trim() || '新对话',
@@ -54,14 +54,39 @@
     })).filter((item) => item.id).slice(0, 60);
   };
 
+  const fetchSidebarItems = async () => {
+    const proxy = window.GPTWebKitTailProxy;
+    const previous = proxy?.getSettings?.() || null;
+    const restoreOptimize = previous?.optimizeSidebar === true;
+    if (restoreOptimize) proxy?.updateSettings?.({ optimizeSidebar:false });
+    const urls = [
+      '/backend-api/conversations?offset=0&limit=28&order=updated',
+      '/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false',
+      '/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false'
+    ];
+    try {
+      for (const url of urls) {
+        try {
+          const response = await fetch(url, { method:'GET', credentials:'include', cache:'no-store' });
+          if (!response.ok) continue;
+          const items = normalizeSidebarItems(await response.json());
+          if (items.length) return items;
+        } catch (_) {}
+      }
+      return [];
+    } finally {
+      if (restoreOptimize) proxy?.updateSettings?.({ optimizeSidebar:true });
+    }
+  };
+
   const pushSidebarData = async () => {
     const handler = window.webkit?.messageHandlers?.sidebarData;
     if (!handler || sidebarFetchBusy || document.visibilityState !== 'visible') return false;
     sidebarFetchBusy = true;
     try {
-      const response = await fetch('/backend-api/conversations?offset=0&limit=28&order=updated&is_archived=false&is_starred=false', { method: 'GET', credentials: 'include' });
-      if (!response.ok) return false;
-      handler.postMessage({ items: normalizeSidebarItems(await response.json()), at: Date.now() });
+      const items = await fetchSidebarItems();
+      if (!items.length) return false;
+      handler.postMessage({ items, at:Date.now() });
       return true;
     } catch (_) {
       return false;
@@ -77,16 +102,17 @@
     event.stopPropagation();
     event.stopImmediatePropagation();
     sidebarInterceptUntil = performance.now() + 700;
-    try { handler.postMessage({ href: location.href }); } catch (_) {}
+    try { handler.postMessage({ href:location.href }); } catch (_) {}
     setTimeout(pushSidebarData, 0);
     return true;
   };
 
   const start = () => {
     removeLegacyOverlays();
-    setTimeout(pushSidebarData, 500);
+    setTimeout(pushSidebarData, 80);
+    setTimeout(pushSidebarData, 1400);
 
-    document.addEventListener('touchstart', suspendForUploadMenu, { capture: true, passive: true });
+    document.addEventListener('touchstart', suspendForUploadMenu, { capture:true, passive:true });
     document.addEventListener('pointerdown', (event) => {
       if (interceptSidebar(event)) return;
       suspendForUploadMenu(event);
@@ -102,13 +128,13 @@
       event.stopImmediatePropagation();
     }, true);
 
-    window.addEventListener('popstate', () => setTimeout(pushSidebarData, 220));
+    window.addEventListener('popstate', () => setTimeout(pushSidebarData, 160));
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') setTimeout(pushSidebarData, 450);
+      if (document.visibilityState === 'visible') setTimeout(pushSidebarData, 220);
     });
   };
 
-  window.GPTWebKitNativeUI = { pushSidebarData };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once: true });
+  window.GPTWebKitNativeUI = { pushSidebarData, fetchSidebarItems };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
   else start();
 })();
