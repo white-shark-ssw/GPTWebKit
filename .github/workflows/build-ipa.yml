@@ -5,7 +5,12 @@ on:
     branches:
       - feat/initial-ios-shell
       - feat/0.2-native-recovery-exporter
+    paths-ignore:
+      - .github/latest-run-id
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -60,6 +65,15 @@ jobs:
           name: ChatGPT-Web-0.2.0-alpha28
           path: ChatGPT-Web-0.2.0-alpha28.ipa
           if-no-files-found: error
+
+      - name: Record workflow run id
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ID" > .github/latest-run-id
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/latest-run-id
+          git diff --cached --quiet || git commit -m "ci: record build run $GITHUB_RUN_ID [skip ci]"
+          git push
 
       - name: Upload build log on failure
         if: failure()
