@@ -1,6 +1,7 @@
 import PhotosUI
 import UIKit
 import UniformTypeIdentifiers
+import WebKit
 
 final class UploadPanelCoordinator: NSObject {
     private weak var presenter: UIViewController?
@@ -94,5 +95,94 @@ extension UploadPanelCoordinator: PHPickerViewControllerDelegate {
         }
 
         group.notify(queue: .main) { [weak self] in self?.finish(selectedURLs.isEmpty ? nil : selectedURLs) }
+    }
+}
+
+private enum WebDownloadRegistry {
+    private static var destinations: [ObjectIdentifier: URL] = [:]
+    private static let directory = FileManager.default.temporaryDirectory.appendingPathComponent("GPTWebKitDownloads", isDirectory: true)
+
+    static func destination(for download: WKDownload, suggestedFilename: String) throws -> URL {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let raw = suggestedFilename.trimmingCharacters(in: .whitespacesAndNewlines)
+        let invalid = CharacterSet(charactersIn: "/\\:*?\"<>|\n\r\t")
+        var name = raw.components(separatedBy: invalid).joined(separator: "_")
+        if name.isEmpty { name = "ChatGPT-Download" }
+        var destination = directory.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            let ext = destination.pathExtension
+            let base = destination.deletingPathExtension().lastPathComponent
+            let suffix = String(UUID().uuidString.prefix(8))
+            destination = directory.appendingPathComponent(ext.isEmpty ? "\(base)-\(suffix)" : "\(base)-\(suffix).\(ext)")
+        }
+        destinations[ObjectIdentifier(download)] = destination
+        return destination
+    }
+
+    static func takeDestination(for download: WKDownload) -> URL? { destinations.removeValue(forKey: ObjectIdentifier(download)) }
+    static func forget(_ download: WKDownload) { destinations.removeValue(forKey: ObjectIdentifier(download)) }
+}
+
+extension WebViewController {
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if navigationAction.shouldPerformDownload { decisionHandler(.download); return }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse, decisionHandler: @escaping (WKNavigationResponsePolicy) -> Void) {
+        let disposition = (navigationResponse.response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Disposition")?.lowercased() ?? ""
+        if disposition.contains("attachment") || !navigationResponse.canShowMIMEType { decisionHandler(.download); return }
+        decisionHandler(.allow)
+    }
+
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) { download.delegate = self }
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) { download.delegate = self }
+
+    func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration, for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
+        guard navigationAction.targetFrame == nil, let url = navigationAction.request.url else { return nil }
+        if url.scheme?.lowercased() == "blob" {
+            guard let data = try? JSONEncoder().encode(url.absoluteString), let literal = String(data: data, encoding: .utf8) else { return nil }
+            webView.evaluateJavaScript("location.href=\(literal); true", completionHandler: nil)
+        } else {
+            webView.load(navigationAction.request)
+        }
+        return nil
+    }
+
+    fileprivate func presentDownloadedFile(_ url: URL, attempt: Int = 0) {
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        guard presentedViewController == nil else {
+            guard attempt < 12 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in self?.presentDownloadedFile(url, attempt: attempt + 1) }
+            return
+        }
+        let activity = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        activity.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: url) }
+        if let popover = activity.popoverPresentationController { popover.sourceView = view; popover.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1) }
+        present(activity, animated: true)
+    }
+
+    fileprivate func presentDownloadError(_ error: Error) {
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: "下载失败", message: error.localizedDescription, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "确定", style: .default))
+        present(alert, animated: true)
+    }
+}
+
+extension WebViewController: WKDownloadDelegate {
+    func download(_ download: WKDownload, decideDestinationUsing response: URLResponse, suggestedFilename: String, completionHandler: @escaping (URL?) -> Void) {
+        do { completionHandler(try WebDownloadRegistry.destination(for: download, suggestedFilename: suggestedFilename)) }
+        catch { completionHandler(nil); presentDownloadError(error) }
+    }
+
+    func downloadDidFinish(_ download: WKDownload) {
+        guard let url = WebDownloadRegistry.takeDestination(for: download) else { return }
+        DispatchQueue.main.async { [weak self] in self?.presentDownloadedFile(url) }
+    }
+
+    func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {
+        WebDownloadRegistry.forget(download)
+        DispatchQueue.main.async { [weak self] in self?.presentDownloadError(error) }
     }
 }
