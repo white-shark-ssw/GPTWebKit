@@ -2,7 +2,9 @@
   'use strict';
 
   const LEGACY_BLOCK_STYLE_ID = 'gptwebkit-legacy-control-block';
-  const PREWARM_STYLE_ID = 'gptwebkit-official-sidebar-prewarm-style';
+  const SIDEBAR_SHELL_ID = 'gptwebkit-sidebar-launch-shell';
+  const SIDEBAR_GUARD_ID = 'gptwebkit-sidebar-tap-guard';
+
   const blockLegacyHistoryControl = () => {
     let style = document.getElementById(LEGACY_BLOCK_STYLE_ID);
     if (!style) {
@@ -25,35 +27,16 @@
   let lastSidebarItems = [];
   let sidebarObserver = null;
   let sidebarObserverTimer = 0;
-  let officialSidebarPrewarmState = 'idle';
-  let officialSidebarPrewarmCancelled = false;
-  let officialSidebarPrewarmTimer = 0;
-
-  const installPrewarmStyle = () => {
-    let style = document.getElementById(PREWARM_STYLE_ID);
-    if (!style) {
-      style = document.createElement('style');
-      style.id = PREWARM_STYLE_ID;
-      (document.head || document.documentElement)?.appendChild(style);
-    }
-    if (style) style.textContent = `
-      html.gptwebkit-sidebar-prewarming aside,
-      html.gptwebkit-sidebar-prewarming [data-testid*="sidebar" i],
-      html.gptwebkit-sidebar-prewarming [class*="sidebar" i] {
-        opacity:0!important;
-        transition:none!important;
-        animation:none!important;
-        pointer-events:none!important;
-      }
-    `;
-  };
+  let sidebarLaunchLockUntil = 0;
+  let sidebarLaunchMonitor = 0;
 
   const removeLegacyOverlays = () => {
     blockLegacyHistoryControl();
     document.getElementById('gptwebkit-conversation-limit')?.remove();
     document.getElementById('gptwebkit-ui-enhancements-style')?.remove();
     document.getElementById('gptwebkit-sidebar-hydrate-style')?.remove();
-    document.documentElement?.classList?.remove('gptwebkit-sidebar-hydrating');
+    document.getElementById('gptwebkit-official-sidebar-prewarm-style')?.remove();
+    document.documentElement?.classList?.remove('gptwebkit-sidebar-hydrating', 'gptwebkit-sidebar-prewarming');
   };
 
   const getLongConversation = () => window.GPTWebKitLongConversation;
@@ -234,99 +217,127 @@
     }, 4000);
   };
 
-  const closePrewarmedSidebar = async (openButton) => {
-    if (officialSidebarPrewarmCancelled) return;
-    const close = findCloseSidebarButton();
-    if (close) close.click();
-    else if (openButton && visible(openButton)) openButton.click();
-    else {
-      try { document.dispatchEvent(new KeyboardEvent('keydown', { key:'Escape', code:'Escape', bubbles:true, cancelable:true })); } catch (_) {}
+  const removeSidebarShell = (animated = true) => {
+    const shell = document.getElementById(SIDEBAR_SHELL_ID);
+    if (!shell) return;
+    const panel = shell.firstElementChild;
+    if (!animated) { shell.remove(); return; }
+    if (panel instanceof HTMLElement) panel.style.opacity = '0';
+    shell.style.opacity = '0';
+    setTimeout(() => shell.remove(), 80);
+  };
+
+  const installShortTapGuard = () => {
+    document.getElementById(SIDEBAR_GUARD_ID)?.remove();
+    const guard = document.createElement('div');
+    guard.id = SIDEBAR_GUARD_ID;
+    guard.style.cssText = 'position:fixed;left:0;top:0;width:94px;height:116px;z-index:2147483646;background:transparent;pointer-events:auto;touch-action:none;';
+    document.documentElement.appendChild(guard);
+    setTimeout(() => guard.remove(), 360);
+  };
+
+  const showSidebarShell = () => {
+    document.getElementById(SIDEBAR_SHELL_ID)?.remove();
+    const shell = document.createElement('div');
+    shell.id = SIDEBAR_SHELL_ID;
+    shell.style.cssText = 'position:fixed;inset:0;z-index:2147483645;pointer-events:auto;background:rgba(0,0,0,.08);opacity:1;transition:opacity 70ms linear;';
+    const panel = document.createElement('div');
+    const bg = getComputedStyle(document.body || document.documentElement).backgroundColor || 'rgb(255,255,255)';
+    panel.style.cssText = `position:absolute;left:0;top:0;bottom:0;width:min(64vw,360px);background:${bg};box-shadow:8px 0 24px rgba(0,0,0,.10);transform:translate3d(-102%,0,0);transition:transform 82ms cubic-bezier(.2,.8,.2,1),opacity 70ms linear;will-change:transform;`;
+    const skeleton = document.createElement('div');
+    skeleton.style.cssText = 'padding:calc(env(safe-area-inset-top) + 42px) 26px 20px;opacity:.22;';
+    for (const width of ['42%','70%','58%','76%','64%','72%']) {
+      const line = document.createElement('div');
+      line.style.cssText = `height:14px;width:${width};border-radius:7px;background:currentColor;margin:0 0 24px;`;
+      skeleton.appendChild(line);
     }
-    const deadline = performance.now() + 650;
-    while (!officialSidebarPrewarmCancelled && isOfficialSidebarOpen() && performance.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
+    panel.appendChild(skeleton);
+    shell.appendChild(panel);
+    document.documentElement.appendChild(shell);
+    requestAnimationFrame(() => { panel.style.transform = 'translate3d(0,0,0)'; });
   };
 
-  const prewarmOfficialSidebar = async () => {
-    if (officialSidebarPrewarmState !== 'idle' || officialSidebarPrewarmCancelled || document.visibilityState !== 'visible') return false;
-    const openButton = findOpenSidebarButton();
-    if (!openButton) return false;
-    if (isOfficialSidebarOpen()) { officialSidebarPrewarmState = 'ready'; return true; }
-
-    officialSidebarPrewarmState = 'opening';
-    installPrewarmStyle();
-    document.documentElement?.classList?.add('gptwebkit-sidebar-prewarming');
-    try {
-      openButton.click();
-      const deadline = performance.now() + 1500;
-      while (!officialSidebarPrewarmCancelled && !isOfficialSidebarOpen() && performance.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 25));
-      if (officialSidebarPrewarmCancelled) return false;
-      if (!isOfficialSidebarOpen()) { officialSidebarPrewarmState = 'idle'; return false; }
-      watchOfficialSidebar();
-      await new Promise((resolve) => setTimeout(resolve, 90));
-      await closePrewarmedSidebar(openButton);
-      pushSidebarData();
-      officialSidebarPrewarmState = 'ready';
-      return true;
-    } catch (_) {
-      officialSidebarPrewarmState = 'idle';
-      return false;
-    } finally {
-      document.documentElement?.classList?.remove('gptwebkit-sidebar-prewarming');
-    }
+  const monitorSidebarLaunch = () => {
+    if (sidebarLaunchMonitor) clearInterval(sidebarLaunchMonitor);
+    const started = performance.now();
+    sidebarLaunchMonitor = setInterval(() => {
+      if (isOfficialSidebarOpen()) {
+        clearInterval(sidebarLaunchMonitor);
+        sidebarLaunchMonitor = 0;
+        watchOfficialSidebar();
+        removeSidebarShell(true);
+        installShortTapGuard();
+        sidebarLaunchLockUntil = Math.max(sidebarLaunchLockUntil, performance.now() + 240);
+        return;
+      }
+      if (performance.now() - started > 1700) {
+        clearInterval(sidebarLaunchMonitor);
+        sidebarLaunchMonitor = 0;
+        removeSidebarShell(true);
+        sidebarLaunchLockUntil = 0;
+      }
+    }, 20);
   };
 
-  const scheduleOfficialSidebarPrewarm = () => {
-    if (officialSidebarPrewarmCancelled || officialSidebarPrewarmState === 'ready' || officialSidebarPrewarmTimer) return;
-    let attempts = 0;
-    const attempt = async () => {
-      officialSidebarPrewarmTimer = 0;
-      if (officialSidebarPrewarmCancelled || officialSidebarPrewarmState === 'ready') return;
-      attempts++;
-      const ok = await prewarmOfficialSidebar();
-      if (!ok && !officialSidebarPrewarmCancelled && attempts < 18) officialSidebarPrewarmTimer = setTimeout(attempt, 100);
-    };
-    officialSidebarPrewarmTimer = setTimeout(attempt, 40);
-  };
+  const fastOpenSidebarFromPointer = (event) => {
+    if (!event?.isTrusted || !looksLikeSidebarButton(event.target) || isOfficialSidebarOpen()) return false;
+    const now = performance.now();
+    event.preventDefault();
+    event.stopPropagation();
+    event.stopImmediatePropagation();
+    if (now < sidebarLaunchLockUntil) return true;
 
-  const cancelPrewarmForUser = (event) => {
-    if (!event?.isTrusted) return;
-    officialSidebarPrewarmCancelled = true;
-    if (officialSidebarPrewarmTimer) clearTimeout(officialSidebarPrewarmTimer);
-    officialSidebarPrewarmTimer = 0;
-    document.documentElement?.classList?.remove('gptwebkit-sidebar-prewarming');
+    const button = event.target?.closest?.('button') || findOpenSidebarButton();
+    if (!(button instanceof HTMLElement)) return false;
+    sidebarLaunchLockUntil = now + 900;
+    showSidebarShell();
+    watchOfficialSidebar();
+    monitorSidebarLaunch();
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        if (!isOfficialSidebarOpen()) button.click();
+      });
+    });
+    return true;
   };
 
   const openOfficialSidebar = () => {
-    officialSidebarPrewarmCancelled = true;
-    document.documentElement?.classList?.remove('gptwebkit-sidebar-prewarming');
     if (isOfficialSidebarOpen()) return true;
     const button = findOpenSidebarButton();
     if (!button) return false;
-    button.click();
-    watchOfficialSidebar();
+    sidebarLaunchLockUntil = performance.now() + 900;
+    showSidebarShell();
+    monitorSidebarLaunch();
+    requestAnimationFrame(() => requestAnimationFrame(() => button.click()));
     return true;
   };
 
   const start = () => {
     removeLegacyOverlays();
-    installPrewarmStyle();
     installPassiveHistoryCapture();
-    document.addEventListener('touchstart', (event) => { cancelPrewarmForUser(event); suspendForUploadMenu(event); }, { capture:true, passive:true });
+    document.addEventListener('touchstart', suspendForUploadMenu, { capture:true, passive:true });
     document.addEventListener('pointerdown', (event) => {
-      cancelPrewarmForUser(event);
+      if (fastOpenSidebarFromPointer(event)) return;
       if (event.isTrusted && looksLikeSidebarButton(event.target)) watchOfficialSidebar();
       suspendForUploadMenu(event);
     }, true);
     document.addEventListener('click', (event) => {
-      if (event.isTrusted && looksLikeSidebarButton(event.target)) watchOfficialSidebar();
+      if (!event.isTrusted || !looksLikeSidebarButton(event.target)) return;
+      if (performance.now() < sidebarLaunchLockUntil) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation();
+        return;
+      }
+      watchOfficialSidebar();
     }, true);
     addEventListener('pageshow', removeLegacyOverlays, { passive:true });
     setTimeout(removeLegacyOverlays, 120);
     setTimeout(pushSidebarData, 180);
-    scheduleOfficialSidebarPrewarm();
   };
 
-  window.GPTWebKitNativeUI = { pushSidebarData, sidebarDOMItems, removeLegacyOverlays, openOfficialSidebar, prewarmOfficialSidebar, isOfficialSidebarOpen };
+  window.GPTWebKitNativeUI = { pushSidebarData, sidebarDOMItems, removeLegacyOverlays, openOfficialSidebar, isOfficialSidebarOpen };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start, { once:true });
   else start();
 })();
