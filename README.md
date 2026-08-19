@@ -1,15 +1,18 @@
-# GPTWebKit
+# GPTWebKit / ChatGPT Markdown
 
-GPTWebKit is an iOS-focused ChatGPT web client built around `WKWebView`, with native bridges for capabilities that are awkward or restricted in mobile browsers.
+An iOS-native utility for browsing a signed-in ChatGPT account and exporting a selected conversation to Markdown.
 
-Initial goals:
+Current 0.3 goals:
 
-- Keep the normal ChatGPT web experience and account/session flow.
-- Allow native document picking without an app-side extension whitelist.
-- Allow picking both photos and videos from the iOS photo library.
-- Improve stability and responsiveness in very long conversations.
-- Detect and recover from WebKit content-process termination / blank-page failures.
-- Export conversations to Markdown, including a future path for exporting directly from conversation history without opening the chat first.
-- Build an unsigned device IPA in GitHub Actions for development and sideloading workflows.
+- Native UIKit UI only for normal use.
+- Projects are shown above recent conversations, directly below native search.
+- Open a project to browse all conversations in that project.
+- Tap a conversation to confirm export, then rename the Markdown file.
+- Long-press a conversation to skip the first confirmation and go directly to rename/export.
+- Fetch conversation JSON directly by conversation ID; never render the selected conversation page.
+- Keep a small native catalog cache so the app can show the last synced project/conversation list immediately on launch.
+- WKWebView exists only to establish/reuse ChatGPT login state. It is not used as the product UI after login.
 
-> This is an independent client project and is not affiliated with or endorsed by OpenAI.
+The 0.2 web-client features (chat UI, long-conversation rebase, native/web sidebars, upload/download bridges, web recovery UI) have been removed from the 0.3 target.
+
+> This is an independent utility and is not affiliated with or endorsed by OpenAI. It uses undocumented ChatGPT web endpoints that may change.
