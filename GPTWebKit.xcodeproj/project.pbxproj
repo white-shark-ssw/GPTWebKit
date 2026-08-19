@@ -8,30 +8,30 @@
 /* Begin PBXBuildFile section */
 		A001 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B001 /* AppDelegate.swift */; };
 		A002 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = B002 /* SceneDelegate.swift */; };
-		A003 /* WebViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B003 /* WebViewController.swift */; };
-		A004 /* UploadPanelCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B004 /* UploadPanelCoordinator.swift */; };
-		A005 /* LongConversation.js in Resources */ = {isa = PBXBuildFile; fileRef = B005 /* LongConversation.js */; };
-		A006 /* MarkdownExport.js in Resources */ = {isa = PBXBuildFile; fileRef = B006 /* MarkdownExport.js */; };
-		A007 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B007 /* Assets.xcassets */; };
-		A008 /* UIEnhancements.js in Resources */ = {isa = PBXBuildFile; fileRef = B008 /* UIEnhancements.js */; };
-		A009 /* NativeSidebarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B009 /* NativeSidebarView.swift */; };
-		A010 /* NativePerformanceCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B010 /* NativePerformanceCoordinator.swift */; };
-		A011 /* NativePerformancePanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B011 /* NativePerformancePanels.swift */; };
+		A003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = B003 /* Models.swift */; };
+		A004 /* ChatGPTClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = B004 /* ChatGPTClient.swift */; };
+		A005 /* CatalogStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B005 /* CatalogStore.swift */; };
+		A006 /* MarkdownExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = B006 /* MarkdownExporter.swift */; };
+		A007 /* ConversationExportCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = B007 /* ConversationExportCoordinator.swift */; };
+		A008 /* HomeViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B008 /* HomeViewController.swift */; };
+		A009 /* ProjectConversationsViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B009 /* ProjectConversationsViewController.swift */; };
+		A010 /* LoginViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = B010 /* LoginViewController.swift */; };
+		A011 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B011 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		B000 /* GPTWebKit.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = GPTWebKit.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B001 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		B002 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
-		B003 /* WebViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WebViewController.swift; sourceTree = "<group>"; };
-		B004 /* UploadPanelCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UploadPanelCoordinator.swift; sourceTree = "<group>"; };
-		B005 /* LongConversation.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = LongConversation.js; sourceTree = "<group>"; };
-		B006 /* MarkdownExport.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = MarkdownExport.js; sourceTree = "<group>"; };
-		B007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B008 /* UIEnhancements.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = UIEnhancements.js; sourceTree = "<group>"; };
-		B009 /* NativeSidebarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeSidebarView.swift; sourceTree = "<group>"; };
-		B010 /* NativePerformanceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePerformanceCoordinator.swift; sourceTree = "<group>"; };
-		B011 /* NativePerformancePanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativePerformancePanels.swift; sourceTree = "<group>"; };
+		B003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatGPT/Models.swift; sourceTree = "<group>"; };
+		B004 /* ChatGPTClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChatGPT/ChatGPTClient.swift; sourceTree = "<group>"; };
+		B005 /* CatalogStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Storage/CatalogStore.swift; sourceTree = "<group>"; };
+		B006 /* MarkdownExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Export/MarkdownExporter.swift; sourceTree = "<group>"; };
+		B007 /* ConversationExportCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Export/ConversationExportCoordinator.swift; sourceTree = "<group>"; };
+		B008 /* HomeViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/HomeViewController.swift; sourceTree = "<group>"; };
+		B009 /* ProjectConversationsViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/ProjectConversationsViewController.swift; sourceTree = "<group>"; };
+		B010 /* LoginViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UI/LoginViewController.swift; sourceTree = "<group>"; };
+		B011 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -40,9 +40,8 @@
 
 /* Begin PBXGroup section */
 		D000 = {isa = PBXGroup; children = (D001 /* GPTWebKit */, D002 /* Products */); sourceTree = "<group>"; };
-		D001 /* GPTWebKit */ = {isa = PBXGroup; path = GPTWebKit; sourceTree = "<group>"; children = (B001, B002, B003, B004, B009, B010, B011, B007, D003 /* Resources */); };
+		D001 /* GPTWebKit */ = {isa = PBXGroup; path = GPTWebKit; sourceTree = "<group>"; children = (B001, B002, B003, B004, B005, B006, B007, B008, B009, B010, B011); };
 		D002 /* Products */ = {isa = PBXGroup; children = (B000); name = Products; sourceTree = "<group>"; };
-		D003 /* Resources */ = {isa = PBXGroup; path = Resources; sourceTree = "<group>"; children = (B005, B006, B008); };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -54,18 +53,18 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		C003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A005, A006, A008, A007); runOnlyForDeploymentPostprocessing = 0; };
+		C003 = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A011); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		C002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A001, A002, A003, A004, A009, A010, A011); runOnlyForDeploymentPostprocessing = 0; };
+		C002 = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A001, A002, A003, A004, A005, A006, A007, A008, A009, A010); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
 		G001 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Debug; };
 		G002 = {isa = XCBuildConfiguration; buildSettings = {ALWAYS_SEARCH_USER_PATHS = NO; CLANG_ENABLE_MODULES = YES; ENABLE_STRICT_OBJC_MSGSEND = YES; GCC_C_LANGUAGE_STANDARD = gnu17; IPHONEOS_DEPLOYMENT_TARGET = 17.0; SDKROOT = iphoneos; SWIFT_VERSION = 5.0; }; name = Release; };
-		G003 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 28; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
-		G004 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 28; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.2.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
+		G003 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.3.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Debug; };
+		G004 = {isa = XCBuildConfiguration; buildSettings = {ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon; CODE_SIGN_STYLE = Automatic; CURRENT_PROJECT_VERSION = 1; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = GPTWebKit/Info.plist; IPHONEOS_DEPLOYMENT_TARGET = 17.0; MARKETING_VERSION = 0.3.0; PRODUCT_BUNDLE_IDENTIFIER = com.whitesharkssw.GPTWebKit; PRODUCT_NAME = "$(TARGET_NAME)"; SUPPORTED_PLATFORMS = "iphoneos iphonesimulator"; SUPPORTS_MACCATALYST = NO; SWIFT_EMIT_LOC_STRINGS = YES; SWIFT_VERSION = 5.0; TARGETED_DEVICE_FAMILY = 1; }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
