@@ -60,14 +60,14 @@ jobs:
           test -d "$APP_PATH"
           mkdir -p Payload
           cp -R "$APP_PATH" Payload/
-          ditto -c -k --sequesterRsrc --keepParent Payload ChatGPT-MD-0.3.0-alpha1.ipa
-          ls -lh ChatGPT-MD-0.3.0-alpha1.ipa
+          ditto -c -k --sequesterRsrc --keepParent Payload ChatGPT-MD-0.3.0-alpha2.ipa
+          ls -lh ChatGPT-MD-0.3.0-alpha2.ipa
 
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPT-MD-0.3.0-alpha1
-          path: ChatGPT-MD-0.3.0-alpha1.ipa
+          name: ChatGPT-MD-0.3.0-alpha2
+          path: ChatGPT-MD-0.3.0-alpha2.ipa
           if-no-files-found: error
 
       - name: Upload build log on failure
