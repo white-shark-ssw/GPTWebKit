@@ -7,9 +7,9 @@ final class ConversationExportCoordinator {
     private var activeTask: Task<Data, Error>?
     private var generation = 0
 
-    init(presenter: UIViewController, client: ChatGPTClient = .shared) {
+    init(presenter: UIViewController) {
         self.presenter = presenter
-        self.client = client
+        self.client = .shared
         MarkdownExporter.cleanupOldExports()
     }
 
