@@ -21,6 +21,15 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Record workflow run id
+        run: |
+          printf '%s\n' "$GITHUB_RUN_ID" > .github/latest-run-id
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/latest-run-id
+          git diff --cached --quiet || git commit -m "ci: record build run $GITHUB_RUN_ID [skip ci]"
+          git push
+
       - name: Show Xcode version
         run: xcodebuild -version
 
@@ -59,15 +68,6 @@ jobs:
           name: ChatGPT-MD-0.3.0-alpha1
           path: ChatGPT-MD-0.3.0-alpha1.ipa
           if-no-files-found: error
-
-      - name: Record workflow run id
-        run: |
-          printf '%s\n' "$GITHUB_RUN_ID" > .github/latest-run-id
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/latest-run-id
-          git diff --cached --quiet || git commit -m "ci: record build run $GITHUB_RUN_ID [skip ci]"
-          git push
 
       - name: Upload build log on failure
         if: failure()
