@@ -201,7 +201,10 @@ final class ChatGPTClient: NSObject {
         var lastError: Error = ClientError.invalidResponse("请求失败。")
         for attempt in 0..<2 {
             do {
-                let credential = attempt == 0 ? (credentials ?? (try await refreshCredentials())) : try await refreshCredentials()
+                let credential: Credentials
+                if attempt == 0, let cached = credentials { credential = cached }
+                else { credential = try await refreshCredentials() }
+
                 let cookie = await chatGPTCookieHeader()
                 var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
                 request.httpMethod = "GET"
@@ -226,7 +229,7 @@ final class ChatGPTClient: NSObject {
                 throw error
             } catch {
                 lastError = error
-                if attempt == 0, (error as? ClientError) == nil {
+                if attempt == 0 && !(error is ClientError) {
                     credentials = nil
                     continue
                 }
