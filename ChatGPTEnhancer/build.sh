@@ -20,6 +20,7 @@ while IFS= read -r source; do SOURCES+=("$source"); done < <(find "$ROOT/Sources
   -framework Foundation \
   -framework UIKit \
   -framework QuartzCore \
+  -framework CoreGraphics \
   -Wl,-install_name,@rpath/ChatGPTEnhancer.dylib \
   "${SOURCES[@]}" \
   -o "$BUILD/ChatGPTEnhancer.dylib"
