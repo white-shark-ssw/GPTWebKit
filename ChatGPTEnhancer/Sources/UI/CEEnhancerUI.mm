@@ -45,18 +45,21 @@ static BOOL CELooksLikeConversationMenu(NSArray<UIMenuElement *> *elements) {
     return score >= 2;
 }
 
+static NSArray<CEConversationRecord *> *CECandidatesForSourceView(UIView *sourceView) {
+    UIView *view = sourceView ?: CELastTouchedView;
+    return view ? [[CECatalog shared] candidatesForView:view] : @[];
+}
+
 static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) {
     if (CEMenuBuildGuard || CEHasExtensionSection(children) || !CELooksLikeConversationMenu(children)) return children;
-    if (!CELastTouchedView || !CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 3.0) return children;
-    NSArray<CEConversationRecord *> *candidates = [[CECatalog shared] candidatesForView:CELastTouchedView];
-    if (!candidates.count) return children;
+    if (!CELastTouchedView || !CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 4.0) return children;
 
     __weak UIView *sourceView = CELastTouchedView;
     UIAction *rename = [UIAction actionWithTitle:@"重命名会话" image:[UIImage systemImageNamed:@"square.and.pencil"] identifier:@"com.whiteshark.chatgptenhancer.rename" handler:^(__unused UIAction *action) {
-        [CEFeatures renameCandidates:candidates sourceView:sourceView];
+        [CEFeatures renameCandidates:CECandidatesForSourceView(sourceView) sourceView:sourceView];
     }];
     UIAction *exportMD = [UIAction actionWithTitle:@"导出 Markdown" image:[UIImage systemImageNamed:@"doc.text"] identifier:@"com.whiteshark.chatgptenhancer.export" handler:^(__unused UIAction *action) {
-        [CEFeatures exportCandidates:candidates fromContextMenu:YES];
+        [CEFeatures exportCandidates:CECandidatesForSourceView(sourceView) fromContextMenu:YES];
     }];
 
     CEMenuBuildGuard = YES;
@@ -71,9 +74,7 @@ static void CEResolveConversationFromView(UIView *view) {
     if (candidates.count != 1) return;
     CEConversationRecord *record = candidates.firstObject;
     if (!record.conversationID.length) return;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [[CEConversationContext shared] setConversationID:record.conversationID title:record.title];
-    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [[CEConversationContext shared] setConversationID:record.conversationID title:record.title]; });
 }
 
 @implementation UIWindow (ChatGPTEnhancerTouch)
@@ -83,10 +84,7 @@ static void CEResolveConversationFromView(UIView *view) {
         if (touch.phase != UITouchPhaseBegan) continue;
         CGPoint point = [touch locationInView:self];
         UIView *hit = [self hitTest:point withEvent:event];
-        if (hit) {
-            CELastTouchedView = hit; CELastTouchDate = [NSDate date];
-            CEResolveConversationFromView(hit);
-        }
+        if (hit) { CELastTouchedView = hit; CELastTouchDate = [NSDate date]; CEResolveConversationFromView(hit); }
         if ([CEConversationContext shared].conversationID.length && point.x < 28) {
             NSDate *token = [NSDate date];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -109,6 +107,11 @@ static void CEResolveConversationFromView(UIView *view) {
     if ([identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:children];
     return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:CEAugmentedChildren(children)];
 }
++ (instancetype)ce_menuWithTitle:(NSString *)title subtitle:(NSString *)subtitle image:(UIImage *)image identifier:(UIMenuIdentifier)identifier options:(UIMenuOptions)options children:(NSArray<UIMenuElement *> *)children API_AVAILABLE(ios(15.0)) {
+    if (CEMenuBuildGuard) return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:children];
+    if ([identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:children];
+    return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:CEAugmentedChildren(children)];
+}
 @end
 
 @interface CEFloatingButtonController : NSObject
@@ -121,6 +124,7 @@ static void CEResolveConversationFromView(UIView *view) {
 + (instancetype)shared { static CEFloatingButtonController *v; static dispatch_once_t once; dispatch_once(&once, ^{ v = [CEFloatingButtonController new]; }); return v; }
 - (void)start {
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(contextChanged:) name:CEConversationContextDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(contextChanged:) name:CECatalogDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardChanged:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(keyboardHidden:) name:UIKeyboardWillHideNotification object:nil];
     [self contextChanged:nil];
@@ -181,6 +185,8 @@ static void CEResolveConversationFromView(UIView *view) {
         CESwizzleInstanceMethod(UIWindow.class, @selector(sendEvent:), @selector(ce_sendEvent:));
         CESwizzleClassMethod(UIMenu.class, @selector(menuWithTitle:children:), @selector(ce_menuWithTitle:children:));
         CESwizzleClassMethod(UIMenu.class, @selector(menuWithTitle:image:identifier:options:children:), @selector(ce_menuWithTitle:image:identifier:options:children:));
+        SEL modern = @selector(menuWithTitle:subtitle:image:identifier:options:children:);
+        if ([UIMenu respondsToSelector:modern]) CESwizzleClassMethod(UIMenu.class, modern, @selector(ce_menuWithTitle:subtitle:image:identifier:options:children:));
         [[CEFloatingButtonController shared] start];
     });
 }
