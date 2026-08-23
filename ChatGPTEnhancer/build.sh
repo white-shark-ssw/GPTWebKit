@@ -6,7 +6,8 @@ rm -rf "$BUILD"
 mkdir -p "$BUILD/package"
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos -f clang++)"
-mapfile -t SOURCES < <(find "$ROOT/Sources" -name '*.mm' -type f | sort)
+SOURCES=()
+while IFS= read -r source; do SOURCES+=("$source"); done < <(find "$ROOT/Sources" -name '*.mm' -type f | sort)
 "$CLANG" \
   -isysroot "$SDK" \
   -target arm64-apple-ios17.0 \
