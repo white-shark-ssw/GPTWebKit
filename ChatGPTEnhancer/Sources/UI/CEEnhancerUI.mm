@@ -6,6 +6,7 @@
 
 static __weak UIView *CELastTouchedView = nil;
 static NSDate *CELastTouchDate = nil;
+static NSString *CELastTouchedTitle = nil;
 static BOOL CEMenuBuildGuard = NO;
 static NSString * const CEExtensionMenuIdentifier = @"com.whiteshark.chatgptenhancer.section";
 
@@ -78,6 +79,66 @@ static NSString *CEBestTitleFromView(UIView *view) {
     return nil;
 }
 
+static NSString *CECatalogTitleFromAccessibilityText(NSString *text) {
+    NSString *trim = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (trim.length < 2 || trim.length > 240) return nil;
+    if ([[CECatalog shared] recordsMatchingTitle:trim].count) return trim;
+    NSString *quoted = CEQuotedConversationTitle(trim);
+    if (quoted.length && [[CECatalog shared] recordsMatchingTitle:quoted].count) return quoted;
+    NSArray<NSString *> *suffixes = @[@"，按钮", @", button", @" 按钮"];
+    for (NSString *suffix in suffixes) {
+        if (![trim.lowercaseString hasSuffix:suffix.lowercaseString] || trim.length <= suffix.length) continue;
+        NSString *candidate = [[trim substringToIndex:trim.length - suffix.length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (candidate.length && [[CECatalog shared] recordsMatchingTitle:candidate].count) return candidate;
+    }
+    return nil;
+}
+
+static void CEConsiderAccessibilityObject(id object, CGPoint screenPoint, NSString **bestTitle, CGFloat *bestScore) {
+    if (!object) return;
+    CGRect frame = CGRectNull;
+    @try {
+        if ([object respondsToSelector:@selector(accessibilityFrame)]) frame = [object accessibilityFrame];
+    } @catch (__unused NSException *exception) {}
+    if (CGRectIsNull(frame) || CGRectIsInfinite(frame) || CGRectIsEmpty(frame)) return;
+
+    CGFloat distanceY = 0;
+    if (screenPoint.y < CGRectGetMinY(frame)) distanceY = CGRectGetMinY(frame) - screenPoint.y;
+    else if (screenPoint.y > CGRectGetMaxY(frame)) distanceY = screenPoint.y - CGRectGetMaxY(frame);
+    BOOL near = CGRectContainsPoint(CGRectInset(frame, -12, -8), screenPoint) || distanceY <= 12;
+    if (!near) return;
+
+    NSArray<NSString *> *texts = @[
+        [object respondsToSelector:@selector(accessibilityLabel)] ? ([object accessibilityLabel] ?: @"") : @"",
+        [object respondsToSelector:@selector(accessibilityValue)] ? ([object accessibilityValue] ?: @"") : @"",
+        [object respondsToSelector:@selector(accessibilityIdentifier)] ? ([object accessibilityIdentifier] ?: @"") : @""
+    ];
+    for (NSString *text in texts) {
+        NSString *title = CECatalogTitleFromAccessibilityText(text);
+        if (!title.length) continue;
+        CGFloat area = MAX(frame.size.width * frame.size.height, 1);
+        CGFloat score = CGRectContainsPoint(frame, screenPoint) ? (1000000.0 - MIN(area, 900000.0)) : (1000.0 - distanceY * 20.0);
+        if (!*bestTitle || score > *bestScore) { *bestTitle = title; *bestScore = score; }
+    }
+}
+
+static void CEFindAccessibilityTitleRecursive(UIView *view, CGPoint screenPoint, NSUInteger depth, NSString **bestTitle, CGFloat *bestScore) {
+    if (!view || depth > 14 || view.hidden || view.alpha < 0.01) return;
+    CEConsiderAccessibilityObject(view, screenPoint, bestTitle, bestScore);
+    NSArray *elements = nil;
+    @try { elements = view.accessibilityElements; } @catch (__unused NSException *exception) {}
+    for (id element in elements ?: @[]) CEConsiderAccessibilityObject(element, screenPoint, bestTitle, bestScore);
+    for (UIView *child in view.subviews) CEFindAccessibilityTitleRecursive(child, screenPoint, depth + 1, bestTitle, bestScore);
+}
+
+static NSString *CEAccessibilityConversationTitleAtPoint(UIWindow *window, CGPoint point) {
+    if (!window) return nil;
+    CGPoint screenPoint = [window convertPoint:point toWindow:nil];
+    NSString *bestTitle = nil; CGFloat bestScore = -CGFLOAT_MAX;
+    CEFindAccessibilityTitleRecursive(window, screenPoint, 0, &bestTitle, &bestScore);
+    return bestTitle;
+}
+
 static void CECollectTopLabels(UIView *view, UIWindow *window, NSUInteger depth, NSMutableArray<UILabel *> *out) {
     if (!view || depth > 12 || view.hidden || view.alpha < 0.02) return;
     if ([view isKindOfClass:UILabel.class]) {
@@ -107,28 +168,33 @@ static NSString *CEBestVisibleConversationTitle(void) {
     return [best.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
 }
 
-static NSArray<CEConversationRecord *> *CECandidatesForSourceView(UIView *sourceView, NSString *identifierText) {
+static NSArray<CEConversationRecord *> *CECandidatesForSourceView(UIView *sourceView, NSString *identifierText, NSString *titleHint) {
     NSString *cid = CEExtractConversationIDFromString(identifierText ?: @"");
     if (cid.length) {
         CEConversationRecord *record = [[CECatalog shared] recordForID:cid];
         if (record) return @[record];
-        CEConversationRecord *fallback = [CEConversationRecord new]; fallback.conversationID = cid; fallback.title = CEBestTitleFromView(sourceView) ?: @"当前会话"; return @[fallback];
+        CEConversationRecord *fallback = [CEConversationRecord new]; fallback.conversationID = cid; fallback.title = titleHint ?: CEBestTitleFromView(sourceView) ?: @"当前会话"; return @[fallback];
+    }
+    if (titleHint.length) {
+        NSArray<CEConversationRecord *> *matches = [[CECatalog shared] recordsMatchingTitle:titleHint];
+        if (matches.count) return matches;
     }
     UIView *view = sourceView ?: CELastTouchedView;
     return view ? [[CECatalog shared] candidatesForView:view] : @[];
 }
 
-static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *identifierText) {
+static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *identifierText, NSString *titleHint) {
     if (CEMenuBuildGuard || CEHasExtensionSection(children) || !CELooksLikeConversationMenu(children)) return children;
-    if (!sourceView && (!CELastTouchedView || !CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 6.0)) return children;
+    if (!sourceView && (!CELastTouchedView || !CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 20.0)) return children;
 
     __weak UIView *weakSource = sourceView ?: CELastTouchedView;
     NSString *capturedIdentifier = [identifierText copy];
+    NSString *capturedTitle = titleHint.length ? [titleHint copy] : ((CELastTouchDate && [[NSDate date] timeIntervalSinceDate:CELastTouchDate] <= 20.0) ? [CELastTouchedTitle copy] : nil);
     UIAction *rename = [UIAction actionWithTitle:@"重命名会话" image:[UIImage systemImageNamed:@"square.and.pencil"] identifier:@"com.whiteshark.chatgptenhancer.rename" handler:^(__unused UIAction *action) {
-        [CEFeatures renameCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier) sourceView:weakSource];
+        [CEFeatures renameCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier, capturedTitle) sourceView:weakSource];
     }];
     UIAction *exportMD = [UIAction actionWithTitle:@"导出 Markdown" image:[UIImage systemImageNamed:@"doc.text"] identifier:@"com.whiteshark.chatgptenhancer.export" handler:^(__unused UIAction *action) {
-        [CEFeatures exportCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier) fromContextMenu:YES];
+        [CEFeatures exportCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier, capturedTitle) fromContextMenu:YES];
     }];
 
     CEMenuBuildGuard = YES;
@@ -137,10 +203,18 @@ static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElem
     return [children arrayByAddingObject:section];
 }
 
-static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) { return CEAugmentedChildrenForSource(children, CELastTouchedView, nil); }
+static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) { return CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil); }
 
 static void CEResolveConversationFromView(UIView *view) {
     if (!view) return;
+    if (CELastTouchedTitle.length) {
+        NSArray<CEConversationRecord *> *titleMatches = [[CECatalog shared] recordsMatchingTitle:CELastTouchedTitle];
+        if (titleMatches.count == 1) {
+            CEConversationRecord *record = titleMatches.firstObject;
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [[CEConversationContext shared] setConversationID:record.conversationID title:record.title]; });
+            return;
+        }
+    }
     NSArray<CEConversationRecord *> *candidates = [[CECatalog shared] candidatesForView:view];
     if (candidates.count != 1) return;
     CEConversationRecord *record = candidates.firstObject;
@@ -155,7 +229,11 @@ static void CEResolveConversationFromView(UIView *view) {
         if (touch.phase != UITouchPhaseBegan) continue;
         CGPoint point = [touch locationInView:self];
         UIView *hit = [self hitTest:point withEvent:event];
-        if (hit) { CELastTouchedView = hit; CELastTouchDate = [NSDate date]; CEResolveConversationFromView(hit); }
+        if (hit) {
+            CELastTouchedView = hit; CELastTouchDate = [NSDate date];
+            CELastTouchedTitle = CEAccessibilityConversationTitleAtPoint(self, point);
+            CEResolveConversationFromView(hit);
+        }
         if ([CEConversationContext shared].conversationID.length && point.x < 28) {
             NSDate *token = [NSDate date];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
@@ -183,17 +261,26 @@ static void CEResolveConversationFromView(UIView *view) {
     if ([identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:children];
     return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:CEAugmentedChildren(children)];
 }
+- (UIMenu *)ce_menuByReplacingChildren:(NSArray<UIMenuElement *> *)children {
+    if (CEMenuBuildGuard || [self.identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuByReplacingChildren:children];
+    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil);
+    return [self ce_menuByReplacingChildren:augmented];
+}
 @end
 
 @implementation UIContextMenuConfiguration (ChatGPTEnhancerContextMenu)
 + (instancetype)ce_configurationWithIdentifier:(id<NSCopying>)identifier previewProvider:(UIContextMenuContentPreviewProvider)previewProvider actionProvider:(UIContextMenuActionProvider)actionProvider {
     __weak UIView *sourceView = CELastTouchedView;
     NSString *identifierText = [(id)identifier description];
+    NSString *titleHint = [CELastTouchedTitle copy];
     UIContextMenuActionProvider wrappedProvider = ^UIMenu *(NSArray<UIMenuElement *> *suggestedActions) {
         UIMenu *menu = actionProvider ? actionProvider(suggestedActions) : [UIMenu menuWithTitle:@"" children:suggestedActions];
         if (!menu) return nil;
-        NSArray<UIMenuElement *> *children = CEAugmentedChildrenForSource(menu.children, sourceView, identifierText);
-        return [menu menuByReplacingChildren:children];
+        NSArray<UIMenuElement *> *children = CEAugmentedChildrenForSource(menu.children, sourceView, identifierText, titleHint);
+        CEMenuBuildGuard = YES;
+        UIMenu *result = [menu menuByReplacingChildren:children];
+        CEMenuBuildGuard = NO;
+        return result;
     };
     return [self ce_configurationWithIdentifier:identifier previewProvider:previewProvider actionProvider:wrappedProvider];
 }
@@ -274,6 +361,7 @@ static void CEResolveConversationFromView(UIView *view) {
         CESwizzleClassMethod(UIMenu.class, @selector(menuWithTitle:image:identifier:options:children:), @selector(ce_menuWithTitle:image:identifier:options:children:));
         SEL modern = @selector(menuWithTitle:subtitle:image:identifier:options:children:);
         if ([UIMenu respondsToSelector:modern]) CESwizzleClassMethod(UIMenu.class, modern, @selector(ce_menuWithTitle:subtitle:image:identifier:options:children:));
+        if ([UIMenu instancesRespondToSelector:@selector(menuByReplacingChildren:)]) CESwizzleInstanceMethod(UIMenu.class, @selector(menuByReplacingChildren:), @selector(ce_menuByReplacingChildren:));
         SEL contextFactory = @selector(configurationWithIdentifier:previewProvider:actionProvider:);
         if ([UIContextMenuConfiguration respondsToSelector:contextFactory]) CESwizzleClassMethod(UIContextMenuConfiguration.class, contextFactory, @selector(ce_configurationWithIdentifier:previewProvider:actionProvider:));
         [[CEFloatingButtonController shared] start];
