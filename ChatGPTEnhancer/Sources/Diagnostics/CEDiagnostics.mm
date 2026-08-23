@@ -5,10 +5,6 @@
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
 
-static NSString *CEString(id value) {
-    return [value isKindOfClass:NSString.class] ? value : nil;
-}
-
 static void CEAppendAccessibilityValue(NSMutableOrderedSet<NSString *> *out, id object) {
     if (!object || out.count >= 400) return;
     NSString *identifier = nil, *label = nil, *value = nil;
@@ -26,8 +22,7 @@ static void CEAppendAccessibilityValue(NSMutableOrderedSet<NSString *> *out, id 
 static void CECollectAccessibility(UIView *view, NSUInteger depth, NSMutableOrderedSet<NSString *> *out) {
     if (!view || depth > 14 || out.count >= 400) return;
     CEAppendAccessibilityValue(out, view);
-    NSArray *elements = nil;
-    @try { elements = view.accessibilityElements; } @catch (__unused NSException *exception) {}
+    NSArray *elements = nil; @try { elements = view.accessibilityElements; } @catch (__unused NSException *exception) {}
     for (id element in elements ?: @[]) CEAppendAccessibilityValue(out, element);
     for (UIView *child in view.subviews) CECollectAccessibility(child, depth + 1, out);
 }
@@ -83,7 +78,7 @@ static NSArray<NSString *> *CEInterestingRuntimeClasses(void) {
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     NSString *bundlePath = NSBundle.mainBundle.bundlePath ?: @"";
     NSArray<NSString *> *needles = @[@"conversation", @"message", @"project", @"thread", @"sidebar", @"history", @"chat", @"network", @"api", @"gpt"];
-    for (int i = 0; i < count && out.count < 160; i++) {
+    for (int i = 0; i < count && out.count < 180; i++) {
         Class cls = classes[i];
         const char *rawName = class_getName(cls); const char *rawImage = class_getImageName(cls);
         if (!rawName || !rawImage) continue;
@@ -96,6 +91,50 @@ static NSArray<NSString *> *CEInterestingRuntimeClasses(void) {
     }
     free(classes);
     return [out sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
+static NSArray<NSString *> *CERuntimeDetails(void) {
+    int count = objc_getClassList(NULL, 0);
+    if (count <= 0) return @[];
+    Class *classes = (Class *)calloc((size_t)count, sizeof(Class));
+    count = objc_getClassList(classes, count);
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    for (int i = 0; i < count && out.count < 220; i++) {
+        Class cls = classes[i];
+        const char *rawName = class_getName(cls); if (!rawName) continue;
+        NSString *name = [NSString stringWithUTF8String:rawName];
+        NSString *lower = name.lowercaseString;
+        BOOL target = [lower containsString:@"oaiapi"] || [lower containsString:@"conversationfinalstream"] || [lower containsString:@"conversationcoordinator"] || [lower containsString:@"conversationsrepository"];
+        if (!target) continue;
+        [out addObject:[NSString stringWithFormat:@"CLASS %@", name]];
+
+        unsigned int methodCount = 0;
+        Method *methods = class_copyMethodList(cls, &methodCount);
+        for (unsigned int m = 0; m < methodCount && m < 40 && out.count < 220; m++) {
+            SEL sel = method_getName(methods[m]);
+            const char *types = method_getTypeEncoding(methods[m]);
+            [out addObject:[NSString stringWithFormat:@"  - %@ | %s", NSStringFromSelector(sel), types ?: ""]];
+        }
+        free(methods);
+
+        Class meta = object_getClass(cls);
+        methodCount = 0; methods = class_copyMethodList(meta, &methodCount);
+        for (unsigned int m = 0; m < methodCount && m < 24 && out.count < 220; m++) {
+            SEL sel = method_getName(methods[m]); const char *types = method_getTypeEncoding(methods[m]);
+            [out addObject:[NSString stringWithFormat:@"  + %@ | %s", NSStringFromSelector(sel), types ?: ""]];
+        }
+        free(methods);
+
+        unsigned int ivarCount = 0;
+        Ivar *ivars = class_copyIvarList(cls, &ivarCount);
+        for (unsigned int v = 0; v < ivarCount && v < 32 && out.count < 220; v++) {
+            const char *n = ivar_getName(ivars[v]); const char *t = ivar_getTypeEncoding(ivars[v]);
+            [out addObject:[NSString stringWithFormat:@"  ivar %s | %s", n ?: "", t ?: ""]];
+        }
+        free(ivars);
+    }
+    free(classes);
+    return out;
 }
 
 static NSArray<NSString *> *CEBundledImages(void) {
@@ -134,7 +173,11 @@ NSString *CEDiagnosticsReport(UIView *sourceView, NSString *contextIdentifier) {
     NSDictionary *additional = session.configuration.HTTPAdditionalHeaders;
     NSArray *additionalKeys = [[additional allKeys] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
     NSMutableArray *protocols = [NSMutableArray array]; for (Class cls in session.configuration.protocolClasses ?: @[]) [protocols addObject:NSStringFromClass(cls)];
-    [report appendFormat:@"[Network]\nhasUsableTemplate=%@\ntemplateURL=%@\nheaderKeys=%@\nrequestSession=%@\nsessionIdentifier=%@\nHTTPAdditionalHeaderKeys=%@\nprotocolClasses=%@\nbaseOrigin=%@\n\n", observer.hasUsableTemplate ? @"YES" : @"NO", request.URL.absoluteString ?: @"<nil>", headerKeys ?: @[], session ? NSStringFromClass(session.class) : @"<nil>", session.configuration.identifier ?: @"<nil>", additionalKeys ?: @[], protocols, observer.baseOrigin ?: @"<nil>"];
+    [report appendFormat:@"[Network]\nhasUsableTemplate=%@\ntemplateScore=%ld\ntemplateMethod=%@\ntemplateURL=%@\nheaderKeys=%@\nrequestSession=%@\nsessionIdentifier=%@\nHTTPAdditionalHeaderKeys=%@\nprotocolClasses=%@\nbaseOrigin=%@\n\n", observer.hasUsableTemplate ? @"YES" : @"NO", (long)observer.templateScore, request.HTTPMethod ?: @"<nil>", request.URL.absoluteString ?: @"<nil>", headerKeys ?: @[], session ? NSStringFromClass(session.class) : @"<nil>", session.configuration.identifier ?: @"<nil>", additionalKeys ?: @[], protocols, observer.baseOrigin ?: @"<nil>"];
+
+    [report appendString:@"[Recent network events]\n"];
+    for (NSString *event in observer.recentEvents) [report appendFormat:@"%@\n", event];
+    [report appendString:@"\n"];
 
     [report appendFormat:@"[Catalog]\n%@\nknownProjectIDs=%lu\n\n", CESafeCatalogStats(), (unsigned long)observer.knownProjectIDs.count];
 
@@ -157,6 +200,8 @@ NSString *CEDiagnosticsReport(UIView *sourceView, NSString *contextIdentifier) {
     for (NSString *line in CEBundledImages()) [report appendFormat:@"%@\n", line];
     [report appendString:@"\n[Interesting runtime classes]\n"];
     for (NSString *line in CEInterestingRuntimeClasses()) [report appendFormat:@"%@\n", line];
+    [report appendString:@"\n[Target runtime details]\n"];
+    for (NSString *line in CERuntimeDetails()) [report appendFormat:@"%@\n", line];
 
     return report;
 }
