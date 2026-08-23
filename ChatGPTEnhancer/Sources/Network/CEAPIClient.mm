@@ -25,14 +25,14 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
 }
 
 - (NSMutableURLRequest *)requestForMethod:(NSString *)method path:(NSString *)path body:(NSData *)body {
-    CENetworkObserver *observer = [CENetworkObserver shared]; NSURLRequest *template = observer.requestTemplate;
+    CENetworkObserver *observer = [CENetworkObserver shared]; NSURLRequest *requestTemplate = observer.requestTemplate;
     NSString *origin = observer.baseOrigin.length ? observer.baseOrigin : @"https://chatgpt.com";
     NSURL *url = [NSURL URLWithString:path relativeToURL:[NSURL URLWithString:[origin stringByAppendingString:@"/"]]];
     if ([path hasPrefix:@"/"]) url = [NSURL URLWithString:[origin stringByAppendingString:path]];
     if (!url) return nil;
     NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url cachePolicy:NSURLRequestReloadIgnoringLocalCacheData timeoutInterval:180];
     request.HTTPMethod = method; request.HTTPBody = body;
-    NSDictionary *sourceHeaders = template.allHTTPHeaderFields ?: @{};
+    NSDictionary *sourceHeaders = requestTemplate.allHTTPHeaderFields ?: @{};
     for (NSString *key in sourceHeaders) {
         NSString *lower = key.lowercaseString;
         if ([lower isEqualToString:@"content-length"] || [lower isEqualToString:@"host"] || [lower isEqualToString:@"accept-encoding"]) continue;
