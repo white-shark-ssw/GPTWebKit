@@ -3,11 +3,22 @@
 #import <objc/runtime.h>
 
 static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
+static const void *CEInternalTaskKey = &CEInternalTaskKey;
+
+static void CEMarkInternalTask(NSURLSessionTask *task) {
+    if (task) objc_setAssociatedObject(task, CEInternalTaskKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static BOOL CEIsInternalTask(NSURLSessionTask *task) {
+    return [objc_getAssociatedObject(task, CEInternalTaskKey) boolValue];
+}
 
 @interface CENetworkObserver ()
 @property (nonatomic, strong, nullable) NSURLRequest *requestTemplate;
 @property (nonatomic, copy, nullable) NSString *baseOrigin;
 @property (nonatomic, strong) NSMutableSet<NSString *> *mutableProjectIDs;
+- (NSURLRequest *)cleanInternalRequestIfNeeded:(NSURLRequest *)request internal:(BOOL *)internal;
+- (void)observeRequest:(NSURLRequest *)request;
 @end
 
 @implementation CENetworkObserver
@@ -27,15 +38,18 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
     dispatch_once(&once, ^{
         CESwizzleInstanceMethod(NSURLSession.class, @selector(dataTaskWithRequest:completionHandler:), @selector(ce_dataTaskWithRequest:completionHandler:));
         CESwizzleInstanceMethod(NSURLSession.class, @selector(dataTaskWithRequest:), @selector(ce_dataTaskWithRequest:));
+        CESwizzleInstanceMethod(NSURLSession.class, @selector(dataTaskWithURL:completionHandler:), @selector(ce_dataTaskWithURL:completionHandler:));
+        CESwizzleInstanceMethod(NSURLSession.class, @selector(dataTaskWithURL:), @selector(ce_dataTaskWithURL:));
         CESwizzleInstanceMethod(NSURLSession.class, @selector(uploadTaskWithRequest:fromData:completionHandler:), @selector(ce_uploadTaskWithRequest:fromData:completionHandler:));
         CESwizzleInstanceMethod(NSURLSession.class, @selector(uploadTaskWithRequest:fromData:), @selector(ce_uploadTaskWithRequest:fromData:));
+        CESwizzleInstanceMethod(NSURLSessionTask.class, @selector(resume), @selector(ce_resume));
     });
 }
 
 - (BOOL)isChatGPTRequest:(NSURLRequest *)request {
     NSString *host = request.URL.host.lowercaseString ?: @"";
     if (![host containsString:@"chatgpt"] && ![host containsString:@"openai"]) return NO;
-    NSString *path = request.URL.path ?: @"";
+    NSString *path = request.URL.path.lowercaseString ?: @"";
     return [path containsString:@"backend-api"] || [path containsString:@"conversation"] || [path containsString:@"gizmo"];
 }
 
@@ -50,9 +64,8 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
     if (![self isChatGPTRequest:request]) return;
     NSURL *url = request.URL; if (!url) return;
     NSString *path = url.path ?: @"";
-    NSString *method = request.HTTPMethod.uppercaseString ?: @"GET";
 
-    if ([path containsString:@"/backend-api/"] || [path containsString:@"/conversation"]) {
+    if ([path containsString:@"/backend-api/"] || [path.lowercaseString containsString:@"conversation"]) {
         NSURLComponents *components = [NSURLComponents componentsWithURL:url resolvingAgainstBaseURL:NO];
         if (components.scheme.length && components.host.length) self.baseOrigin = [NSString stringWithFormat:@"%@://%@%@", components.scheme, components.host, components.port ? [NSString stringWithFormat:@":%@", components.port] : @""];
         NSDictionary *headers = request.allHTTPHeaderFields ?: @{};
@@ -68,7 +81,7 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
         }
     }
 
-    if ([method isEqualToString:@"GET"] && [path rangeOfString:@"/conversation/"].location != NSNotFound && [path rangeOfString:@"gen_title"].location == NSNotFound) {
+    if ([path.lowercaseString containsString:@"conversation"] && [path rangeOfString:@"gen_title" options:NSCaseInsensitiveSearch].location == NSNotFound) {
         NSString *cid = CEExtractConversationIDFromString(url.absoluteString);
         if (cid.length) [[CEConversationContext shared] setConversationID:cid title:nil];
     }
@@ -86,21 +99,49 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
 - (NSURLSessionDataTask *)ce_dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
     if (!internal) [[CENetworkObserver shared] observeRequest:clean];
-    return [self ce_dataTaskWithRequest:clean completionHandler:completionHandler];
+    NSURLSessionDataTask *task = [self ce_dataTaskWithRequest:clean completionHandler:completionHandler];
+    if (internal) CEMarkInternalTask(task);
+    return task;
 }
 - (NSURLSessionDataTask *)ce_dataTaskWithRequest:(NSURLRequest *)request {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
     if (!internal) [[CENetworkObserver shared] observeRequest:clean];
-    return [self ce_dataTaskWithRequest:clean];
+    NSURLSessionDataTask *task = [self ce_dataTaskWithRequest:clean];
+    if (internal) CEMarkInternalTask(task);
+    return task;
+}
+- (NSURLSessionDataTask *)ce_dataTaskWithURL:(NSURL *)url completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
+    NSURLRequest *request = [NSURLRequest requestWithURL:url];
+    [[CENetworkObserver shared] observeRequest:request];
+    return [self ce_dataTaskWithURL:url completionHandler:completionHandler];
+}
+- (NSURLSessionDataTask *)ce_dataTaskWithURL:(NSURL *)url {
+    NSURLRequest *request = [NSURLRequest requestWithURL:url];
+    [[CENetworkObserver shared] observeRequest:request];
+    return [self ce_dataTaskWithURL:url];
 }
 - (NSURLSessionUploadTask *)ce_uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
     if (!internal) [[CENetworkObserver shared] observeRequest:clean];
-    return [self ce_uploadTaskWithRequest:clean fromData:bodyData completionHandler:completionHandler];
+    NSURLSessionUploadTask *task = [self ce_uploadTaskWithRequest:clean fromData:bodyData completionHandler:completionHandler];
+    if (internal) CEMarkInternalTask(task);
+    return task;
 }
 - (NSURLSessionUploadTask *)ce_uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
     if (!internal) [[CENetworkObserver shared] observeRequest:clean];
-    return [self ce_uploadTaskWithRequest:clean fromData:bodyData];
+    NSURLSessionUploadTask *task = [self ce_uploadTaskWithRequest:clean fromData:bodyData];
+    if (internal) CEMarkInternalTask(task);
+    return task;
+}
+@end
+
+@implementation NSURLSessionTask (ChatGPTEnhancerNetworkTask)
+- (void)ce_resume {
+    if (!CEIsInternalTask(self)) {
+        NSURLRequest *request = self.currentRequest ?: self.originalRequest;
+        if (request) [[CENetworkObserver shared] observeRequest:request];
+    }
+    [self ce_resume];
 }
 @end
