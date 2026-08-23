@@ -1,0 +1,34 @@
+name: Build ChatGPTEnhancer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feat/chatgpt-enhancer-v0.1
+    paths:
+      - 'ChatGPTEnhancer/**'
+      - '.github/workflows/build-enhancer.yml'
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Show Xcode version
+        run: xcodebuild -version
+      - name: Build
+        run: ./ChatGPTEnhancer/build.sh
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPTEnhancer-0.1.0-alpha1
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha1.zip
+          if-no-files-found: error
+      - name: Upload dylib
+        uses: actions/upload-artifact@v4
+        with:
+          name: ChatGPTEnhancer-0.1.0-alpha1-dylib
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
+          if-no-files-found: error
