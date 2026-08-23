@@ -4,10 +4,13 @@
 #import <string.h>
 #import "../Core/CECore.h"
 #import "../Storage/CECatalog.h"
+#import "../Network/CEAPIClient.h"
 #import "../Features/CEFeatures.h"
 
 static CEConversationRecord *CEGenericResolvedRecord = nil;
 static NSDate *CEGenericResolvedAt = nil;
+static NSArray<NSString *> *CEGenericCandidateIDs = nil;
+static NSDate *CEGenericCandidateAt = nil;
 static NSString *CEGenericLastReport = nil;
 
 static BOOL CEGenericMallocInfo(const void *pointer, size_t *sizeOut) {
@@ -85,6 +88,51 @@ static CEConversationRecord *CEGenericRecordForID(NSString *conversationID) {
     record = [CEConversationRecord new]; record.conversationID = conversationID; record.title = @"当前会话"; return record;
 }
 
+static void CEGenericAppendReport(NSString *text) {
+    if (!text.length) return;
+    @synchronized (NSObject.class) { CEGenericLastReport = [NSString stringWithFormat:@"%@%@%@", CEGenericLastReport ?: @"", CEGenericLastReport.length ? @"\n" : @"", text]; }
+}
+
+static NSDictionary *CEGenericConversationContainer(NSData *data) {
+    if (!data.length) return nil;
+    id root = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil]; if (![root isKindOfClass:NSDictionary.class]) return nil;
+    NSDictionary *dict = (NSDictionary *)root;
+    if ([dict[@"mapping"] isKindOfClass:NSDictionary.class] && dict[@"current_node"]) return dict;
+    NSDictionary *conversation = [dict[@"conversation"] isKindOfClass:NSDictionary.class] ? dict[@"conversation"] : nil;
+    return ([conversation[@"mapping"] isKindOfClass:NSDictionary.class] && conversation[@"current_node"]) ? conversation : nil;
+}
+
+static CEConversationRecord *CEGenericValidatedRecord(NSString *conversationID, NSData *data, NSHTTPURLResponse *response, NSError *error, NSString **lineOut) {
+    NSDictionary *container = (!error && response.statusCode >= 200 && response.statusCode < 300) ? CEGenericConversationContainer(data) : nil;
+    NSString *returnedID = [container[@"conversation_id"] isKindOfClass:NSString.class] ? container[@"conversation_id"] : [container[@"id"] isKindOfClass:NSString.class] ? container[@"id"] : nil;
+    BOOL valid = container && (!returnedID.length || [returnedID caseInsensitiveCompare:conversationID] == NSOrderedSame);
+    NSString *title = [container[@"title"] isKindOfClass:NSString.class] ? [container[@"title"] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet] : nil;
+    if (lineOut) *lineOut = [NSString stringWithFormat:@"validate %@ status=%ld valid=%@ title=%@ error=%@", conversationID, (long)response.statusCode, valid ? @"YES" : @"NO", title.length ? title : @"<nil>", error ? error.localizedDescription : @"<nil>"];
+    if (!valid) return nil;
+    CEConversationRecord *record = CEGenericRecordForID(conversationID); if (title.length) { record.title = title; [[CECatalog shared] updateTitle:title forConversationID:conversationID]; }
+    if (data.length && response.URL) [[CECatalog shared] ingestResponseData:data requestURL:response.URL];
+    return record;
+}
+
+static void CEGenericValidateCandidateIDs(NSArray<NSString *> *candidateIDs, void (^completion)(CEConversationRecord *record)) {
+    NSMutableOrderedSet<NSString *> *unique = [NSMutableOrderedSet orderedSet]; for (NSString *candidateID in candidateIDs ?: @[]) if (candidateID.length) [unique addObject:candidateID.lowercaseString];
+    NSArray<NSString *> *ids = unique.array; if (!ids.count || ![CEAPIClient shared].isReady) { if (completion) completion(nil); return; }
+    if (ids.count > 3) ids = [ids subarrayWithRange:NSMakeRange(0, 3)];
+    __block NSUInteger pending = ids.count; __block NSMutableArray<CEConversationRecord *> *validRecords = [NSMutableArray array]; __block NSMutableArray<NSString *> *lines = [NSMutableArray array];
+    for (NSString *conversationID in ids) {
+        NSString *escaped = [conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]; NSString *path = [NSString stringWithFormat:@"/backend-api/conversation/%@", escaped];
+        [[CEAPIClient shared] getPath:path progress:nil completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
+            NSString *line = nil; CEConversationRecord *record = CEGenericValidatedRecord(conversationID, data, response, error, &line); if (record) [validRecords addObject:record]; if (line.length) [lines addObject:line];
+            if (--pending) return;
+            CEConversationRecord *resolved = validRecords.count == 1 ? validRecords.firstObject : nil;
+            if (resolved) { @synchronized (NSObject.class) { CEGenericResolvedRecord = resolved; CEGenericResolvedAt = [NSDate date]; } }
+            NSMutableString *validation = [NSMutableString stringWithFormat:@"[Conversation API validation]\ncandidates=%@\n", [ids componentsJoinedByString:@", "]]; for (NSString *entry in lines) [validation appendFormat:@"%@\n", entry];
+            if (resolved) [validation appendFormat:@"RESULT resolvedID=%@ title=%@", resolved.conversationID, resolved.title ?: @""]; else [validation appendFormat:@"RESULT unresolved validCount=%lu", (unsigned long)validRecords.count];
+            CEGenericAppendReport(validation); if (completion) completion(resolved);
+        }];
+    }
+}
+
 static void CEGenericResolveMenu(UIMenu *menu, NSString *reason) {
     if (!menu) return;
     NSMutableArray<UIAction *> *actions = [NSMutableArray array]; CEGenericCollectActions(menu.children, actions); if (!CEGenericLooksLikeHistoryMenu(actions)) return;
@@ -116,13 +164,18 @@ static void CEGenericResolveMenu(UIMenu *menu, NSString *reason) {
     NSString *winner = ranked.firstObject; NSInteger winnerScore = winner ? [scores[winner] integerValue] : 0; NSInteger winnerSupport = winner ? [supports[winner] integerValue] : 0; NSInteger secondScore = ranked.count > 1 ? [scores[ranked[1]] integerValue] : 0; NSInteger secondSupport = ranked.count > 1 ? [supports[ranked[1]] integerValue] : 0;
     BOOL supportStrong = winnerSupport >= 2 || (officialActionCount == 1 && winnerSupport == 1); BOOL marginStrong = ranked.count <= 1 || winnerScore - secondScore >= 4 || winnerSupport - secondSupport >= 2;
     CEConversationRecord *resolved = (winner.length && winnerScore >= 12 && supportStrong && marginStrong) ? CEGenericRecordForID(winner) : nil;
+    NSMutableArray<NSString *> *validationIDs = [NSMutableArray array]; for (NSString *cid in ranked) { if ([scores[cid] integerValue] < 8 || [supports[cid] integerValue] < 2) continue; [validationIDs addObject:cid]; if (validationIDs.count >= 3) break; }
     if (resolved) [report appendFormat:@"CONSENSUS resolvedID=%@ title=%@ score=%ld support=%ld\n", resolved.conversationID, resolved.title ?: @"", (long)winnerScore, (long)winnerSupport];
-    else [report appendFormat:@"CONSENSUS unresolved topScore=%ld topSupport=%ld secondScore=%ld secondSupport=%ld\n", (long)winnerScore, (long)winnerSupport, (long)secondScore, (long)secondSupport];
-    @synchronized (NSObject.class) { CEGenericResolvedRecord = resolved; CEGenericResolvedAt = [NSDate date]; CEGenericLastReport = report; }
+    else [report appendFormat:@"CONSENSUS unresolved topScore=%ld topSupport=%ld secondScore=%ld secondSupport=%ld validationCandidates=%@\n", (long)winnerScore, (long)winnerSupport, (long)secondScore, (long)secondSupport, [validationIDs componentsJoinedByString:@", "]];
+    @synchronized (NSObject.class) { CEGenericResolvedRecord = resolved; CEGenericResolvedAt = resolved ? [NSDate date] : nil; CEGenericCandidateIDs = [validationIDs copy]; CEGenericCandidateAt = validationIDs.count ? [NSDate date] : nil; CEGenericLastReport = report; }
 }
 
 static CEConversationRecord *CEGenericFreshRecord(void) {
     @synchronized (NSObject.class) { return (CEGenericResolvedRecord && CEGenericResolvedAt && [[NSDate date] timeIntervalSinceDate:CEGenericResolvedAt] <= 20.0) ? CEGenericResolvedRecord : nil; }
+}
+
+static NSArray<NSString *> *CEGenericFreshCandidateIDs(void) {
+    @synchronized (NSObject.class) { return (CEGenericCandidateIDs.count && CEGenericCandidateAt && [[NSDate date] timeIntervalSinceDate:CEGenericCandidateAt] <= 20.0) ? [CEGenericCandidateIDs copy] : @[]; }
 }
 
 @implementation UIContextMenuConfiguration (ChatGPTEnhancerGenericUUID)
@@ -137,8 +190,18 @@ static CEConversationRecord *CEGenericFreshRecord(void) {
 @end
 
 @implementation CEFeatures (ChatGPTEnhancerGenericUUID)
-+ (void)cegeneric_exportCandidates:(NSArray<CEConversationRecord *> *)candidates fromContextMenu:(BOOL)fromContextMenu { CEConversationRecord *record = candidates.count ? nil : CEGenericFreshRecord(); [self cegeneric_exportCandidates:record ? @[record] : candidates fromContextMenu:fromContextMenu]; }
-+ (void)cegeneric_renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView { CEConversationRecord *record = candidates.count ? nil : CEGenericFreshRecord(); [self cegeneric_renameCandidates:record ? @[record] : candidates sourceView:sourceView]; }
++ (void)cegeneric_exportCandidates:(NSArray<CEConversationRecord *> *)candidates fromContextMenu:(BOOL)fromContextMenu {
+    if (candidates.count) { [self cegeneric_exportCandidates:candidates fromContextMenu:fromContextMenu]; return; }
+    CEConversationRecord *record = CEGenericFreshRecord(); if (record) { [self cegeneric_exportCandidates:@[record] fromContextMenu:fromContextMenu]; return; }
+    NSArray<NSString *> *ids = CEGenericFreshCandidateIDs(); if (!ids.count || ![CEAPIClient shared].isReady) { [self cegeneric_exportCandidates:candidates fromContextMenu:fromContextMenu]; return; }
+    CEShowToast(@"正在识别会话…"); CEGenericValidateCandidateIDs(ids, ^(CEConversationRecord *validated) { [self cegeneric_exportCandidates:validated ? @[validated] : candidates fromContextMenu:fromContextMenu]; });
+}
++ (void)cegeneric_renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
+    if (candidates.count) { [self cegeneric_renameCandidates:candidates sourceView:sourceView]; return; }
+    CEConversationRecord *record = CEGenericFreshRecord(); if (record) { [self cegeneric_renameCandidates:@[record] sourceView:sourceView]; return; }
+    NSArray<NSString *> *ids = CEGenericFreshCandidateIDs(); if (!ids.count || ![CEAPIClient shared].isReady) { [self cegeneric_renameCandidates:candidates sourceView:sourceView]; return; }
+    CEShowToast(@"正在识别会话…"); CEGenericValidateCandidateIDs(ids, ^(CEConversationRecord *validated) { [self cegeneric_renameCandidates:validated ? @[validated] : candidates sourceView:sourceView]; });
+}
 @end
 
 @implementation UIAlertAction (ChatGPTEnhancerGenericUUIDDiagnostics)
