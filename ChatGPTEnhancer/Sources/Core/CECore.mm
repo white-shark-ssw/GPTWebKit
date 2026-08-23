@@ -58,7 +58,7 @@ static UIViewController *CETopFrom(UIViewController *vc) {
     if (vc.presentedViewController && !vc.presentedViewController.isBeingDismissed) return CETopFrom(vc.presentedViewController);
     if ([vc isKindOfClass:UINavigationController.class]) return CETopFrom(((UINavigationController *)vc).visibleViewController);
     if ([vc isKindOfClass:UITabBarController.class]) return CETopFrom(((UITabBarController *)vc).selectedViewController);
-    for (UIViewController *child in vc.children.reverseObjectEnumerator) if (child.viewIfLoaded.window) return CETopFrom(child);
+    for (UIViewController *child in vc.childViewControllers.reverseObjectEnumerator) if (child.viewIfLoaded.window) return CETopFrom(child);
     return vc;
 }
 UIViewController *CETopViewController(void) { return CETopFrom(CEKeyWindow().rootViewController); }
