@@ -15,6 +15,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (instancetype)shared;
 - (void)start;
 - (void)refreshIfPossible;
+- (void)ingestResponseData:(NSData *)data requestURL:(nullable NSURL *)requestURL;
+- (nullable NSData *)conversationDataForID:(NSString *)conversationID;
 - (nullable CEConversationRecord *)recordForID:(NSString *)conversationID;
 - (NSArray<CEConversationRecord *> *)recordsMatchingTitle:(NSString *)title;
 - (NSArray<CEConversationRecord *> *)candidatesForView:(UIView *)view;
