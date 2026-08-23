@@ -11,6 +11,9 @@ static void CEStartEnhancer(void) {
         [[CENetworkObserver shared] start];
         [[CECatalog shared] start];
         [[CEEnhancerUI shared] start];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            CEShowToast([NSString stringWithFormat:@"ChatGPTEnhancer %@ 已加载", CEVersion]);
+        });
         NSLog(@"[ChatGPTEnhancer] %@ started for %@ %@", CEVersion, NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
     } @catch (NSException *exception) {
         NSLog(@"[ChatGPTEnhancer] startup exception: %@", exception);
