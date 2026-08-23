@@ -62,8 +62,8 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
             if ([lower isEqualToString:@"authorization"] || [lower isEqualToString:@"chatgpt-account-id"] || [lower isEqualToString:@"cookie"]) { useful = YES; break; }
         }
         if (useful) {
-            NSMutableURLRequest *template = [request mutableCopy]; template.HTTPBody = nil;
-            self.requestTemplate = template;
+            NSMutableURLRequest *requestTemplateCopy = [request mutableCopy]; requestTemplateCopy.HTTPBody = nil;
+            self.requestTemplate = requestTemplateCopy;
             [[NSNotificationCenter defaultCenter] postNotificationName:CENetworkTemplateDidChangeNotification object:self];
         }
     }
