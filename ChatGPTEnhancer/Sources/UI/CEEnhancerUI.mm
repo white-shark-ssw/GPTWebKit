@@ -65,6 +65,17 @@ static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *c
     return [children arrayByAddingObject:section];
 }
 
+static void CEResolveConversationFromView(UIView *view) {
+    if (!view) return;
+    NSArray<CEConversationRecord *> *candidates = [[CECatalog shared] candidatesForView:view];
+    if (candidates.count != 1) return;
+    CEConversationRecord *record = candidates.firstObject;
+    if (!record.conversationID.length) return;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [[CEConversationContext shared] setConversationID:record.conversationID title:record.title];
+    });
+}
+
 @implementation UIWindow (ChatGPTEnhancerTouch)
 - (void)ce_sendEvent:(UIEvent *)event {
     NSSet<UITouch *> *touches = event.allTouches;
@@ -72,7 +83,10 @@ static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *c
         if (touch.phase != UITouchPhaseBegan) continue;
         CGPoint point = [touch locationInView:self];
         UIView *hit = [self hitTest:point withEvent:event];
-        if (hit) { CELastTouchedView = hit; CELastTouchDate = [NSDate date]; }
+        if (hit) {
+            CELastTouchedView = hit; CELastTouchDate = [NSDate date];
+            CEResolveConversationFromView(hit);
+        }
         if ([CEConversationContext shared].conversationID.length && point.x < 28) {
             NSDate *token = [NSDate date];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
