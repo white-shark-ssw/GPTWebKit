@@ -2,6 +2,7 @@
 #import "../Core/CECore.h"
 #import "../Network/CEAPIClient.h"
 #import "../Export/CEMarkdownExporter.h"
+#import "../Diagnostics/CEDiagnostics.h"
 
 @interface CEExportJob : NSObject
 @property (nonatomic, strong) CEConversationRecord *record;
@@ -16,9 +17,59 @@
 @end
 @implementation CEExportJob @end
 
+static void CEFeatureAddAccessibilityText(NSMutableOrderedSet<NSString *> *out, id object) {
+    if (!object || out.count >= 400) return;
+    NSString *identifier = nil, *label = nil, *value = nil;
+    @try {
+        if ([object respondsToSelector:@selector(accessibilityIdentifier)]) identifier = [object accessibilityIdentifier];
+        if ([object respondsToSelector:@selector(accessibilityLabel)]) label = [object accessibilityLabel];
+        if ([object respondsToSelector:@selector(accessibilityValue)]) value = [object accessibilityValue];
+    } @catch (__unused NSException *exception) {}
+    for (NSString *text in @[identifier ?: @"", label ?: @"", value ?: @""]) {
+        NSString *trim = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (trim.length && trim.length <= 500) [out addObject:trim];
+    }
+}
+
+static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMutableOrderedSet<NSString *> *out) {
+    if (!view || depth > 14 || out.count >= 400) return;
+    CEFeatureAddAccessibilityText(out, view);
+    NSArray *elements = nil; @try { elements = view.accessibilityElements; } @catch (__unused NSException *exception) {}
+    for (id element in elements ?: @[]) CEFeatureAddAccessibilityText(out, element);
+    for (UIView *child in view.subviews) CEFeatureCollectAccessibility(child, depth + 1, out);
+}
+
 @implementation CEFeatures
 
 + (BOOL)isPlaceholderTitle:(NSString *)title { return !title.length || [title isEqualToString:@"当前会话"] || [title isEqualToString:@"ChatGPT Conversation"]; }
+
++ (NSString *)titleFromVisibleUI {
+    UIWindow *window = CEKeyWindow(); if (!window) return nil;
+    NSMutableOrderedSet<NSString *> *strings = [NSMutableOrderedSet orderedSet];
+    CEFeatureCollectAccessibility(window, 0, strings);
+    for (NSString *text in CECollectVisibleStrings(window, 12)) if (text.length) [strings addObject:text];
+
+    static NSArray<NSRegularExpression *> *patterns; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        NSMutableArray *compiled = [NSMutableArray array];
+        NSArray *raw = @[
+            @"给\\s*[“\\\"「『]\\s*(.{2,160}?)\\s*[”\\\"」』]\\s*(?:发送消息|发消息)",
+            @"Message\\s*[“\\\"]\\s*(.{2,160}?)\\s*[”\\\"]"
+        ];
+        for (NSString *pattern in raw) { NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:nil]; if (re) [compiled addObject:re]; }
+        patterns = compiled;
+    });
+
+    for (NSString *text in strings) {
+        for (NSRegularExpression *re in patterns) {
+            NSTextCheckingResult *match = [re firstMatchInString:text options:0 range:NSMakeRange(0, text.length)];
+            if (match.numberOfRanges < 2) continue;
+            NSString *title = [[text substringWithRange:[match rangeAtIndex:1]] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (title.length >= 2 && title.length <= 160) return title;
+        }
+    }
+    return nil;
+}
 
 + (NSString *)titleFromConversationData:(NSData *)data {
     if (!data.length) return nil;
@@ -35,12 +86,21 @@
     if (catalog && ![self isPlaceholderTitle:catalog.title]) return catalog;
     NSData *cached = [[CECatalog shared] conversationDataForID:record.conversationID];
     NSString *title = [self titleFromConversationData:cached];
+    if (!title.length && [[[CEConversationContext shared] conversationID] isEqualToString:record.conversationID]) title = [self titleFromVisibleUI];
     if (title.length) { record.title = title; [[CECatalog shared] updateTitle:title forConversationID:record.conversationID]; }
     return record;
 }
 
++ (void)showUnresolvedDiagnostics {
+    UIViewController *vc = CETopViewController(); if (!vc) return;
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"暂时无法识别这个会话" message:@"当前版本已经成功接入官方长按菜单，但还没有拿到这条列表项对应的 conversation ID。可以复制一份不含 Token/Cookie 值的诊断信息给我。" preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(CEKeyWindow(), nil); }]];
+    [vc presentViewController:alert animated:YES completion:nil];
+}
+
 + (void)chooseFromCandidates:(NSArray<CEConversationRecord *> *)candidates title:(NSString *)title completion:(void (^)(CEConversationRecord *record))completion {
-    if (!candidates.count) { CEShowToast(@"暂时无法识别这个会话，请先点开一次该会话后再试。"); return; }
+    if (!candidates.count) { [self showUnresolvedDiagnostics]; return; }
     if (candidates.count == 1) { completion([self resolvedRecord:candidates.firstObject]); return; }
     UIViewController *vc = CETopViewController(); if (!vc) return;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:title message:@"存在同名会话，请选择要操作的一项。" preferredStyle:UIAlertControllerStyleActionSheet];
@@ -100,7 +160,7 @@
     }
 
     UIViewController *vc = CETopViewController(); if (!vc) return;
-    UIAlertController *rename = [UIAlertController alertControllerWithTitle:@"重命名 Markdown" message:cached.length ? @"已读取当前会话，可直接导出。" : @"完整会话已在后台开始读取。" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *rename = [UIAlertController alertControllerWithTitle:@"重命名 Markdown" message:cached.length ? @"已读取当前会话，可直接导出。" : @"正在尝试取得当前完整会话。" preferredStyle:UIAlertControllerStyleAlert];
     job.renameAlert = rename;
     [rename addTextFieldWithConfigurationHandler:^(UITextField *field) {
         field.text = job.filename; field.clearButtonMode = UITextFieldViewModeWhileEditing; field.autocorrectionType = UITextAutocorrectionTypeNo; field.spellCheckingType = UITextSpellCheckingTypeNo;
@@ -148,6 +208,7 @@
     UIViewController *vc = CETopViewController(); if (!vc) return;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导出失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(CEKeyWindow(), nil); }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self beginExportRecord:record]; }]];
     [vc presentViewController:alert animated:YES completion:nil];
 }
@@ -177,6 +238,7 @@
             UIViewController *vc = CETopViewController(); if (!vc) return;
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
             [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+            [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(sourceView ?: CEKeyWindow(), nil); }]];
             [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self performRenameRecord:record newTitle:newTitle sourceView:sourceView]; }]];
             [vc presentViewController:alert animated:YES completion:nil]; return;
         }
