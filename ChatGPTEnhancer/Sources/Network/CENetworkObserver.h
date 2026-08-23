@@ -7,6 +7,8 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, weak, nullable, readonly) NSURLSession *requestSession;
 @property (nonatomic, copy, nullable, readonly) NSString *baseOrigin;
 @property (nonatomic, copy, readonly) NSSet<NSString *> *knownProjectIDs;
+@property (nonatomic, copy, readonly) NSArray<NSString *> *recentEvents;
+@property (nonatomic, readonly) NSInteger templateScore;
 + (instancetype)shared;
 - (void)start;
 - (BOOL)hasUsableTemplate;
