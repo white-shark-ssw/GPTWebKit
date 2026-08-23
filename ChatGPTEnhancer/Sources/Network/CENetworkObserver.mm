@@ -1,17 +1,13 @@
 #import "CENetworkObserver.h"
 #import "../Core/CECore.h"
+#import "../Storage/CECatalog.h"
 #import <objc/runtime.h>
 
 static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
 static const void *CEInternalTaskKey = &CEInternalTaskKey;
 
-static void CEMarkInternalTask(NSURLSessionTask *task) {
-    if (task) objc_setAssociatedObject(task, CEInternalTaskKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
-}
-
-static BOOL CEIsInternalTask(NSURLSessionTask *task) {
-    return [objc_getAssociatedObject(task, CEInternalTaskKey) boolValue];
-}
+static void CEMarkInternalTask(NSURLSessionTask *task) { if (task) objc_setAssociatedObject(task, CEInternalTaskKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+static BOOL CEIsInternalTask(NSURLSessionTask *task) { return [objc_getAssociatedObject(task, CEInternalTaskKey) boolValue]; }
 
 @interface CENetworkObserver ()
 @property (nonatomic, strong, nullable) NSURLRequest *requestTemplate;
@@ -19,6 +15,7 @@ static BOOL CEIsInternalTask(NSURLSessionTask *task) {
 @property (nonatomic, strong) NSMutableSet<NSString *> *mutableProjectIDs;
 - (NSURLRequest *)cleanInternalRequestIfNeeded:(NSURLRequest *)request internal:(BOOL *)internal;
 - (void)observeRequest:(NSURLRequest *)request;
+- (void)observeResponseData:(NSData *)data response:(NSURLResponse *)response request:(NSURLRequest *)request;
 @end
 
 @implementation CENetworkObserver
@@ -88,10 +85,14 @@ static BOOL CEIsInternalTask(NSURLSessionTask *task) {
 
     static NSRegularExpression *projectRE; static dispatch_once_t once; dispatch_once(&once, ^{ projectRE = [NSRegularExpression regularExpressionWithPattern:@"/gizmos/(g-p-[^/]+)/conversations" options:NSRegularExpressionCaseInsensitive error:nil]; });
     NSTextCheckingResult *m = [projectRE firstMatchInString:path options:0 range:NSMakeRange(0, path.length)];
-    if (m.numberOfRanges > 1) {
-        NSString *pid = [path substringWithRange:[m rangeAtIndex:1]];
-        @synchronized (self) { [self.mutableProjectIDs addObject:pid]; }
-    }
+    if (m.numberOfRanges > 1) { NSString *pid = [path substringWithRange:[m rangeAtIndex:1]]; @synchronized (self) { [self.mutableProjectIDs addObject:pid]; } }
+}
+
+- (void)observeResponseData:(NSData *)data response:(NSURLResponse *)response request:(NSURLRequest *)request {
+    if (!data.length || ![self isChatGPTRequest:request]) return;
+    NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *)response : nil;
+    if (http && (http.statusCode < 200 || http.statusCode >= 300)) return;
+    [[CECatalog shared] ingestResponseData:data requestURL:(response.URL ?: request.URL)];
 }
 @end
 
@@ -99,7 +100,11 @@ static BOOL CEIsInternalTask(NSURLSessionTask *task) {
 - (NSURLSessionDataTask *)ce_dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
     if (!internal) [[CENetworkObserver shared] observeRequest:clean];
-    NSURLSessionDataTask *task = [self ce_dataTaskWithRequest:clean completionHandler:completionHandler];
+    void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!internal && !error) [[CENetworkObserver shared] observeResponseData:data response:response request:clean];
+        if (completionHandler) completionHandler(data, response, error);
+    };
+    NSURLSessionDataTask *task = [self ce_dataTaskWithRequest:clean completionHandler:wrapped];
     if (internal) CEMarkInternalTask(task);
     return task;
 }
@@ -113,7 +118,11 @@ static BOOL CEIsInternalTask(NSURLSessionTask *task) {
 - (NSURLSessionDataTask *)ce_dataTaskWithURL:(NSURL *)url completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     NSURLRequest *request = [NSURLRequest requestWithURL:url];
     [[CENetworkObserver shared] observeRequest:request];
-    return [self ce_dataTaskWithURL:url completionHandler:completionHandler];
+    void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!error) [[CENetworkObserver shared] observeResponseData:data response:response request:request];
+        if (completionHandler) completionHandler(data, response, error);
+    };
+    return [self ce_dataTaskWithURL:url completionHandler:wrapped];
 }
 - (NSURLSessionDataTask *)ce_dataTaskWithURL:(NSURL *)url {
     NSURLRequest *request = [NSURLRequest requestWithURL:url];
@@ -123,7 +132,11 @@ static BOOL CEIsInternalTask(NSURLSessionTask *task) {
 - (NSURLSessionUploadTask *)ce_uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
     if (!internal) [[CENetworkObserver shared] observeRequest:clean];
-    NSURLSessionUploadTask *task = [self ce_uploadTaskWithRequest:clean fromData:bodyData completionHandler:completionHandler];
+    void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (!internal && !error) [[CENetworkObserver shared] observeResponseData:data response:response request:clean];
+        if (completionHandler) completionHandler(data, response, error);
+    };
+    NSURLSessionUploadTask *task = [self ce_uploadTaskWithRequest:clean fromData:bodyData completionHandler:wrapped];
     if (internal) CEMarkInternalTask(task);
     return task;
 }
