@@ -25,16 +25,19 @@ static id CEIdentityValueForKey(id object, NSString *key) {
 }
 
 static void CEIdentityAddString(NSMutableOrderedSet<NSString *> *strings, NSString *text) {
-    if (![text isKindOfClass:NSString.class] || strings.count >= 1200) return;
+    if (![text isKindOfClass:NSString.class] || strings.count >= 800) return;
     NSString *trim = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (trim.length && trim.length <= 1200) [strings addObject:trim];
 }
 
+static BOOL CEIdentityShouldInspectIvars(id object) {
+    NSString *name = NSStringFromClass([object class]);
+    return [name containsString:@"SwiftUI"] || [name containsString:@"ChatGPT"] || [name containsString:@"Conversation"] || [name containsString:@"History"] || [name containsString:@"ContextMenu"];
+}
+
 static void CEIdentityCollectObject(id object, NSUInteger depth, NSMutableSet<NSValue *> *visited, NSMutableOrderedSet<NSString *> *strings) {
-    if (!object || depth > 6 || visited.count >= 1200 || strings.count >= 1200) return;
-    NSValue *key = [NSValue valueWithPointer:(__bridge const void *)object];
-    if ([visited containsObject:key]) return;
-    [visited addObject:key];
+    if (!object || depth > 6 || visited.count >= 800 || strings.count >= 800) return;
+    NSValue *key = [NSValue valueWithPointer:(__bridge const void *)object]; if ([visited containsObject:key]) return; [visited addObject:key];
 
     if ([object isKindOfClass:NSString.class]) { CEIdentityAddString(strings, object); return; }
     if ([object isKindOfClass:NSUUID.class]) { CEIdentityAddString(strings, [object UUIDString]); return; }
@@ -47,6 +50,9 @@ static void CEIdentityCollectObject(id object, NSUInteger depth, NSMutableSet<NS
         for (id child in [(NSDictionary *)object allValues]) CEIdentityCollectObject(child, depth + 1, visited, strings);
         return;
     }
+    if ([object isKindOfClass:UIAction.class]) {
+        UIAction *action = object; CEIdentityAddString(strings, action.title); CEIdentityAddString(strings, action.identifier); CEIdentityAddString(strings, action.discoverabilityTitle); return;
+    }
 
     CEIdentityAddString(strings, CEIdentityTrimmedDescription(object));
     NSArray<NSString *> *knownKeys = @[@"base", @"sourceIndexPath", @"itemList", @"_itemList", @"id", @"menuChangeDetector", @"viewIdentity", @"kind"];
@@ -54,12 +60,12 @@ static void CEIdentityCollectObject(id object, NSUInteger depth, NSMutableSet<NS
         id value = CEIdentityValueForKey(object, knownKey);
         if (value && value != object) CEIdentityCollectObject(value, depth + 1, visited, strings);
     }
+    if (!CEIdentityShouldInspectIvars(object)) return;
 
     for (Class cls = object_getClass(object); cls && cls != NSObject.class; cls = class_getSuperclass(cls)) {
         unsigned int count = 0; Ivar *ivars = class_copyIvarList(cls, &count);
-        for (unsigned int i = 0; i < count && visited.count < 1200; i++) {
-            Ivar ivar = ivars[i]; const char *type = ivar_getTypeEncoding(ivar);
-            if (!type || type[0] != '@') continue;
+        for (unsigned int i = 0; i < count && visited.count < 800; i++) {
+            Ivar ivar = ivars[i]; const char *type = ivar_getTypeEncoding(ivar); if (!type || type[0] != '@') continue;
             id value = nil; @try { value = object_getIvar(object, ivar); } @catch (__unused NSException *exception) {}
             if (value && value != object) CEIdentityCollectObject(value, depth + 1, visited, strings);
         }
@@ -69,17 +75,13 @@ static void CEIdentityCollectObject(id object, NSUInteger depth, NSMutableSet<NS
 
 static CEConversationRecord *CEIdentityRecordForID(NSString *conversationID) {
     if (!conversationID.length) return nil;
-    CEConversationRecord *record = [[CECatalog shared] recordForID:conversationID];
-    if (record) return record;
+    CEConversationRecord *record = [[CECatalog shared] recordForID:conversationID]; if (record) return record;
     CEConversationRecord *fallback = [CEConversationRecord new]; fallback.conversationID = conversationID; fallback.title = @"当前会话"; return fallback;
 }
 
 static NSArray<CEConversationRecord *> *CEIdentityCandidatesFromStrings(NSArray<NSString *> *strings) {
     NSMutableOrderedSet<NSString *> *ids = [NSMutableOrderedSet orderedSet];
-    for (NSString *text in strings) {
-        NSString *cid = CEExtractConversationIDFromString(text);
-        if (cid.length) [ids addObject:cid];
-    }
+    for (NSString *text in strings) { NSString *cid = CEExtractConversationIDFromString(text); if (cid.length) [ids addObject:cid]; }
     if (ids.count == 1) { CEConversationRecord *record = CEIdentityRecordForID(ids.firstObject); return record ? @[record] : @[]; }
     if (ids.count > 1) {
         NSMutableArray<CEConversationRecord *> *records = [NSMutableArray array];
@@ -124,14 +126,13 @@ static void CEIdentityResolveNow(void) {
     if (!CEIdentityLastIdentifier) { CEIdentityLastCandidates = nil; return; }
     NSMutableOrderedSet<NSString *> *strings = [NSMutableOrderedSet orderedSet]; NSMutableSet<NSValue *> *visited = [NSMutableSet set];
     CEIdentityCollectObject(CEIdentityLastIdentifier, 0, visited, strings);
-    UIView *marking = CEIdentityMarkingView(CEIdentityLastTouchedView);
-    if (marking) CEIdentityCollectObject(marking, 0, visited, strings);
+    UIView *marking = CEIdentityMarkingView(CEIdentityLastTouchedView); id viewIdentity = CEIdentityValueForKey(marking, @"viewIdentity");
+    if (viewIdentity) CEIdentityCollectObject(viewIdentity, 0, visited, strings);
     CEIdentityLastCandidates = CEIdentityCandidatesFromStrings(strings.array);
 
     id base = CEIdentityValueForKey(CEIdentityLastIdentifier, @"base");
     id responderID = CEIdentityValueForKey(base, @"id");
     id itemList = CEIdentityValueForKey(base, @"itemList") ?: CEIdentityValueForKey(base, @"_itemList");
-    id viewIdentity = CEIdentityValueForKey(marking, @"viewIdentity");
     NSMutableString *debug = [NSMutableString stringWithString:@"[Context identity]\n"];
     [debug appendFormat:@"resolvedCandidates=%lu\n", (unsigned long)CEIdentityLastCandidates.count];
     if (CEIdentityLastCandidates.count == 1) [debug appendFormat:@"resolvedID=%@\nresolvedTitle=%@\n", CEIdentityLastCandidates.firstObject.conversationID ?: @"<nil>", CEIdentityLastCandidates.firstObject.title ?: @"<nil>"];
@@ -155,8 +156,7 @@ static NSArray<CEConversationRecord *> *CEIdentityFreshCandidates(void) {
 - (void)ceid_sendEvent:(UIEvent *)event {
     for (UITouch *touch in event.allTouches) {
         if (touch.phase != UITouchPhaseBegan) continue;
-        CGPoint point = [touch locationInView:self]; UIView *hit = [self hitTest:point withEvent:event];
-        if (hit) CEIdentityLastTouchedView = hit;
+        CGPoint point = [touch locationInView:self]; UIView *hit = [self hitTest:point withEvent:event]; if (hit) CEIdentityLastTouchedView = hit;
     }
     [self ceid_sendEvent:event];
 }
@@ -171,12 +171,10 @@ static NSArray<CEConversationRecord *> *CEIdentityFreshCandidates(void) {
 
 @implementation CEFeatures (ChatGPTEnhancerContextIdentityResolver)
 + (void)ceid_exportCandidates:(NSArray<CEConversationRecord *> *)candidates fromContextMenu:(BOOL)fromContextMenu {
-    NSArray<CEConversationRecord *> *identity = CEIdentityFreshCandidates();
-    [self ceid_exportCandidates:identity.count ? identity : candidates fromContextMenu:fromContextMenu];
+    NSArray<CEConversationRecord *> *identity = CEIdentityFreshCandidates(); [self ceid_exportCandidates:identity.count ? identity : candidates fromContextMenu:fromContextMenu];
 }
 + (void)ceid_renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
-    NSArray<CEConversationRecord *> *identity = CEIdentityFreshCandidates();
-    [self ceid_renameCandidates:identity.count ? identity : candidates sourceView:sourceView];
+    NSArray<CEConversationRecord *> *identity = CEIdentityFreshCandidates(); [self ceid_renameCandidates:identity.count ? identity : candidates sourceView:sourceView];
 }
 @end
 
@@ -184,10 +182,8 @@ static NSArray<CEConversationRecord *> *CEIdentityFreshCandidates(void) {
 + (instancetype)ceid_actionWithTitle:(NSString *)title style:(UIAlertActionStyle)style handler:(void (^ _Nullable)(UIAlertAction *action))handler {
     if (![title isEqualToString:@"复制诊断"]) return [self ceid_actionWithTitle:title style:style handler:handler];
     void (^wrapped)(UIAlertAction *) = ^(UIAlertAction *action) {
-        if (handler) handler(action);
-        if (!CEIdentityLastDebug.length) return;
-        NSString *base = UIPasteboard.generalPasteboard.string ?: @"";
-        if ([base containsString:@"[Context identity]"]) return;
+        if (handler) handler(action); if (!CEIdentityLastDebug.length) return;
+        NSString *base = UIPasteboard.generalPasteboard.string ?: @""; if ([base containsString:@"[Context identity]"]) return;
         UIPasteboard.generalPasteboard.string = [NSString stringWithFormat:@"%@\n\n%@", base, CEIdentityLastDebug];
     };
     return [self ceid_actionWithTitle:title style:style handler:wrapped];
