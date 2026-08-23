@@ -4,6 +4,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface CENetworkObserver : NSObject
 @property (nonatomic, strong, nullable, readonly) NSURLRequest *requestTemplate;
+@property (nonatomic, weak, nullable, readonly) NSURLSession *requestSession;
 @property (nonatomic, copy, nullable, readonly) NSString *baseOrigin;
 @property (nonatomic, copy, readonly) NSSet<NSString *> *knownProjectIDs;
 + (instancetype)shared;
