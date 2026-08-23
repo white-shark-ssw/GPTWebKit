@@ -30,7 +30,8 @@ static BOOL CEHasExtensionSection(NSArray<UIMenuElement *> *elements) {
 static BOOL CELooksLikeConversationMenu(NSArray<UIMenuElement *> *elements) {
     NSMutableArray<NSString *> *titles = [NSMutableArray array]; CECollectMenuTitles(elements, titles);
     NSArray<NSArray<NSString *> *> *signals = @[
-        @[@"rename", @"重命名", @"重新命名"], @[@"archive", @"归档"], @[@"delete", @"删除"], @[@"move", @"移至", @"移动"], @[@"share", @"共享", @"分享"]
+        @[@"rename", @"重命名", @"重新命名"], @[@"archive", @"归档"], @[@"delete", @"删除"],
+        @[@"move", @"移至", @"移动", @"移除"], @[@"share", @"共享", @"分享"], @[@"pin", @"置顶"]
     ];
     NSUInteger score = 0;
     for (NSArray<NSString *> *group in signals) {
@@ -45,21 +46,89 @@ static BOOL CELooksLikeConversationMenu(NSArray<UIMenuElement *> *elements) {
     return score >= 2;
 }
 
-static NSArray<CEConversationRecord *> *CECandidatesForSourceView(UIView *sourceView) {
+static NSString *CEQuotedConversationTitle(NSString *text) {
+    if (!text.length) return nil;
+    NSArray<NSArray<NSString *> *> *pairs = @[
+        @[@"给“", @"”发送消息"], @[@"给\"", @"\"发送消息"], @[@"给「", @"」发送消息"],
+        @[@"Message “", @"”"], @[@"Message \"", @"\""]
+    ];
+    for (NSArray<NSString *> *pair in pairs) {
+        NSRange start = [text rangeOfString:pair[0]]; if (start.location == NSNotFound) continue;
+        NSUInteger bodyStart = NSMaxRange(start);
+        NSRange search = NSMakeRange(bodyStart, text.length - bodyStart);
+        NSRange end = [text rangeOfString:pair[1] options:0 range:search];
+        if (end.location == NSNotFound || end.location <= bodyStart) continue;
+        NSString *title = [[text substringWithRange:NSMakeRange(bodyStart, end.location - bodyStart)] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (title.length >= 2 && title.length <= 160) return title;
+    }
+    return nil;
+}
+
+static NSString *CEBestTitleFromView(UIView *view) {
+    if (!view) return nil;
+    NSArray<NSString *> *strings = CECollectVisibleStrings(view, 5);
+    for (NSString *text in strings) { NSString *title = CEQuotedConversationTitle(text); if (title.length) return title; }
+    for (NSString *text in strings) {
+        NSString *trim = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (trim.length < 2 || trim.length > 120 || [trim containsString:@"\n"]) continue;
+        NSString *lower = trim.lowercaseString;
+        if ([lower isEqualToString:@"chatgpt"] || [trim isEqualToString:@"聊天"] || [trim isEqualToString:@"新聊天"] || [trim isEqualToString:@"重命名"] || [trim isEqualToString:@"删除"] || [trim isEqualToString:@"归档"] || [trim isEqualToString:@"置顶"]) continue;
+        return trim;
+    }
+    return nil;
+}
+
+static void CECollectTopLabels(UIView *view, UIWindow *window, NSUInteger depth, NSMutableArray<UILabel *> *out) {
+    if (!view || depth > 12 || view.hidden || view.alpha < 0.02) return;
+    if ([view isKindOfClass:UILabel.class]) {
+        CGRect frame = [view convertRect:view.bounds toView:window];
+        if (CGRectGetMinY(frame) >= window.safeAreaInsets.top - 8 && CGRectGetMaxY(frame) <= window.safeAreaInsets.top + 150) [out addObject:(UILabel *)view];
+    }
+    for (UIView *child in view.subviews) CECollectTopLabels(child, window, depth + 1, out);
+}
+
+static NSString *CEBestVisibleConversationTitle(void) {
+    UIWindow *window = CEKeyWindow(); if (!window) return nil;
+    NSArray<NSString *> *strings = CECollectVisibleStrings(window, 5);
+    for (NSString *text in strings) { NSString *title = CEQuotedConversationTitle(text); if (title.length) return title; }
+
+    NSMutableArray<UILabel *> *labels = [NSMutableArray array]; CECollectTopLabels(window, window, 0, labels);
+    UILabel *best = nil; CGFloat bestScore = -CGFLOAT_MAX;
+    for (UILabel *label in labels) {
+        NSString *text = [label.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (text.length < 2 || text.length > 120 || [text containsString:@"\n"]) continue;
+        NSString *lower = text.lowercaseString;
+        if ([lower isEqualToString:@"chatgpt"] || [text isEqualToString:@"聊天"] || [text isEqualToString:@"新聊天"]) continue;
+        CGRect frame = [label convertRect:label.bounds toView:window];
+        CGFloat centerPenalty = fabs(CGRectGetMidX(frame) - CGRectGetMidX(window.bounds)) * 0.04;
+        CGFloat score = label.font.pointSize * 2.0 - centerPenalty + MIN((CGFloat)text.length, 30.0) * 0.15;
+        if (score > bestScore) { best = label; bestScore = score; }
+    }
+    return [best.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+}
+
+static NSArray<CEConversationRecord *> *CECandidatesForSourceView(UIView *sourceView, NSString *identifierText) {
+    NSString *cid = CEExtractConversationIDFromString(identifierText ?: @"");
+    if (cid.length) {
+        CEConversationRecord *record = [[CECatalog shared] recordForID:cid];
+        if (record) return @[record];
+        CEConversationRecord *fallback = [CEConversationRecord new]; fallback.conversationID = cid; fallback.title = CEBestTitleFromView(sourceView) ?: @"当前会话"; return @[fallback];
+    }
     UIView *view = sourceView ?: CELastTouchedView;
     return view ? [[CECatalog shared] candidatesForView:view] : @[];
 }
 
-static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) {
+static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *identifierText) {
     if (CEMenuBuildGuard || CEHasExtensionSection(children) || !CELooksLikeConversationMenu(children)) return children;
-    if (!CELastTouchedView || !CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 4.0) return children;
+    if (!sourceView && (!CELastTouchedView || !CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 6.0)) return children;
 
-    __weak UIView *sourceView = CELastTouchedView;
+    __weak UIView *weakSource = sourceView ?: CELastTouchedView;
+    NSString *capturedIdentifier = [identifierText copy];
     UIAction *rename = [UIAction actionWithTitle:@"重命名会话" image:[UIImage systemImageNamed:@"square.and.pencil"] identifier:@"com.whiteshark.chatgptenhancer.rename" handler:^(__unused UIAction *action) {
-        [CEFeatures renameCandidates:CECandidatesForSourceView(sourceView) sourceView:sourceView];
+        [CEFeatures renameCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier) sourceView:weakSource];
     }];
     UIAction *exportMD = [UIAction actionWithTitle:@"导出 Markdown" image:[UIImage systemImageNamed:@"doc.text"] identifier:@"com.whiteshark.chatgptenhancer.export" handler:^(__unused UIAction *action) {
-        [CEFeatures exportCandidates:CECandidatesForSourceView(sourceView) fromContextMenu:YES];
+        [CEFeatures exportCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier) fromContextMenu:YES];
     }];
 
     CEMenuBuildGuard = YES;
@@ -67,6 +136,8 @@ static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *c
     CEMenuBuildGuard = NO;
     return [children arrayByAddingObject:section];
 }
+
+static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) { return CEAugmentedChildrenForSource(children, CELastTouchedView, nil); }
 
 static void CEResolveConversationFromView(UIView *view) {
     if (!view) return;
@@ -114,6 +185,20 @@ static void CEResolveConversationFromView(UIView *view) {
 }
 @end
 
+@implementation UIContextMenuConfiguration (ChatGPTEnhancerContextMenu)
++ (instancetype)ce_configurationWithIdentifier:(id<NSCopying>)identifier previewProvider:(UIContextMenuContentPreviewProvider)previewProvider actionProvider:(UIContextMenuActionProvider)actionProvider {
+    __weak UIView *sourceView = CELastTouchedView;
+    NSString *identifierText = [(id)identifier description];
+    UIContextMenuActionProvider wrappedProvider = ^UIMenu *(NSArray<UIMenuElement *> *suggestedActions) {
+        UIMenu *menu = actionProvider ? actionProvider(suggestedActions) : [UIMenu menuWithTitle:@"" children:suggestedActions];
+        if (!menu) return nil;
+        NSArray<UIMenuElement *> *children = CEAugmentedChildrenForSource(menu.children, sourceView, identifierText);
+        return [menu menuByReplacingChildren:children];
+    };
+    return [self ce_configurationWithIdentifier:identifier previewProvider:previewProvider actionProvider:wrappedProvider];
+}
+@end
+
 @interface CEFloatingButtonController : NSObject
 @property (nonatomic, strong) UIButton *button;
 @property (nonatomic, weak) UIWindow *window;
@@ -158,7 +243,9 @@ static void CEResolveConversationFromView(UIView *view) {
     NSString *cid = [CEConversationContext shared].conversationID; if (!cid.length) return;
     CEConversationRecord *record = [[CECatalog shared] recordForID:cid] ?: [CEConversationRecord new];
     if (!record.conversationID.length) record.conversationID = cid;
-    if (!record.title.length) record.title = [CEConversationContext shared].title ?: @"当前会话";
+    NSString *visibleTitle = CEBestVisibleConversationTitle();
+    if (visibleTitle.length) { record.title = visibleTitle; [[CECatalog shared] updateTitle:visibleTitle forConversationID:cid]; }
+    if (!record.title.length || [record.title isEqualToString:@"当前会话"]) record.title = [CEConversationContext shared].title ?: @"ChatGPT Conversation";
     [CEFeatures exportRecord:record requireConfirmation:YES];
 }
 - (void)pan:(UIPanGestureRecognizer *)pan {
@@ -187,6 +274,8 @@ static void CEResolveConversationFromView(UIView *view) {
         CESwizzleClassMethod(UIMenu.class, @selector(menuWithTitle:image:identifier:options:children:), @selector(ce_menuWithTitle:image:identifier:options:children:));
         SEL modern = @selector(menuWithTitle:subtitle:image:identifier:options:children:);
         if ([UIMenu respondsToSelector:modern]) CESwizzleClassMethod(UIMenu.class, modern, @selector(ce_menuWithTitle:subtitle:image:identifier:options:children:));
+        SEL contextFactory = @selector(configurationWithIdentifier:previewProvider:actionProvider:);
+        if ([UIContextMenuConfiguration respondsToSelector:contextFactory]) CESwizzleClassMethod(UIContextMenuConfiguration.class, contextFactory, @selector(ce_configurationWithIdentifier:previewProvider:actionProvider:));
         [[CEFloatingButtonController shared] start];
     });
 }
