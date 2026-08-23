@@ -30,7 +30,7 @@ jobs:
       - name: Show Xcode version
         run: xcodebuild -version
       - name: Build
-        run: ./ChatGPTEnhancer/build.sh
+        run: bash ./ChatGPTEnhancer/build.sh
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
