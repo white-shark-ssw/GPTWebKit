@@ -34,12 +34,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha8
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha8.zip
+          name: ChatGPTEnhancer-0.1.0-alpha9
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha9.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha8-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha9-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
