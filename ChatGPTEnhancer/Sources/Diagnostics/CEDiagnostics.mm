@@ -7,6 +7,7 @@
 #import "../Storage/CECatalog.h"
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
+#import <malloc/malloc.h>
 
 static void CEAppendAccessibilityValue(NSMutableOrderedSet<NSString *> *out, id object) {
     if (!object || out.count >= 400) return;
@@ -238,6 +239,139 @@ static NSArray<NSString *> *CENavigationRouterClasses(void) {
     return [out sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
 }
 
+
+static id CEHeapObjectPointer(uintptr_t bits) {
+    if (!bits || (bits & (sizeof(void *) - 1)) != 0) return nil;
+    void *ptr = (void *)bits;
+    if (!malloc_zone_from_ptr(ptr)) return nil;
+    Class cls = object_getClass((__bridge id)ptr);
+    if (!cls || !class_getName(cls)) return nil;
+    return (__bridge id)ptr;
+}
+
+static BOOL CEFocusedName(NSString *name) {
+    NSString *lower = name.lowercaseString;
+    NSArray<NSString *> *needles = @[@"viewmodel", @"coordinator", @"conversation", @"repository", @"stream", @"resume", @"recover", @"refresh", @"reload", @"fetch", @"load", @"reset", @"manager", @"router", @"route", @"state", @"api", @"service", @"provider"];
+    for (NSString *needle in needles) if ([lower containsString:needle]) return YES;
+    return NO;
+}
+
+static void CEAppendFocusedClass(NSMutableArray<NSString *> *out, Class cls, id object, NSString *label) {
+    if (!cls || out.count >= 340) return;
+    [out addObject:[NSString stringWithFormat:@"%@ class=%@ ptr=%p size=%zu", label ?: @"OBJECT", NSStringFromClass(cls), object, class_getInstanceSize(cls)]];
+    unsigned int methodCount = 0;
+    Method *methods = class_copyMethodList(cls, &methodCount);
+    for (unsigned int i = 0; i < methodCount && out.count < 340; i++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[i]));
+        if (!CEFocusedName(name)) continue;
+        const char *types = method_getTypeEncoding(methods[i]);
+        [out addObject:[NSString stringWithFormat:@"  - %@ | %s", name, types ?: ""]];
+    }
+    free(methods);
+
+    unsigned int propertyCount = 0;
+    objc_property_t *properties = class_copyPropertyList(cls, &propertyCount);
+    for (unsigned int i = 0; i < propertyCount && out.count < 340; i++) {
+        const char *raw = property_getName(properties[i]); if (!raw) continue;
+        NSString *name = [NSString stringWithUTF8String:raw];
+        if (!CEFocusedName(name)) continue;
+        const char *attrs = property_getAttributes(properties[i]);
+        [out addObject:[NSString stringWithFormat:@"  property %@ | %s", name, attrs ?: ""]];
+    }
+    free(properties);
+
+    unsigned int ivarCount = 0;
+    Ivar *ivars = class_copyIvarList(cls, &ivarCount);
+    NSMutableArray<NSValue *> *ivarValues = [NSMutableArray arrayWithCapacity:ivarCount];
+    for (unsigned int i = 0; i < ivarCount; i++) [ivarValues addObject:[NSValue valueWithPointer:ivars[i]]];
+    [ivarValues sortUsingComparator:^NSComparisonResult(NSValue *a, NSValue *b) {
+        ptrdiff_t oa = ivar_getOffset([a pointerValue]), ob = ivar_getOffset([b pointerValue]);
+        return oa < ob ? NSOrderedAscending : (oa > ob ? NSOrderedDescending : NSOrderedSame);
+    }];
+    for (NSUInteger i = 0; i < ivarValues.count && out.count < 340; i++) {
+        Ivar ivar = [ivarValues[i] pointerValue];
+        const char *rawName = ivar_getName(ivar); if (!rawName) continue;
+        NSString *name = [NSString stringWithUTF8String:rawName];
+        if (!CEFocusedName(name)) continue;
+        ptrdiff_t offset = ivar_getOffset(ivar);
+        ptrdiff_t next = (i + 1 < ivarValues.count) ? ivar_getOffset([ivarValues[i + 1] pointerValue]) : (ptrdiff_t)class_getInstanceSize(cls);
+        ptrdiff_t span = next > offset ? next - offset : 0;
+        const char *type = ivar_getTypeEncoding(ivar);
+        NSString *extra = @"";
+        if (object && span >= (ptrdiff_t)sizeof(uintptr_t)) {
+            uintptr_t bits = 0; memcpy(&bits, (uint8_t *)(__bridge void *)object + offset, sizeof(bits));
+            id candidate = CEHeapObjectPointer(bits);
+            if (candidate) extra = [NSString stringWithFormat:@" raw=0x%llx objectClass=%@ object=%@", (unsigned long long)bits, NSStringFromClass([candidate class]), CECompactObjectDescription(candidate)];
+            else extra = [NSString stringWithFormat:@" raw=0x%llx", (unsigned long long)bits];
+        }
+        [out addObject:[NSString stringWithFormat:@"  ivar %@ | %s offset=0x%tx span=%td%@", name, type ?: "", offset, span, extra]];
+    }
+    free(ivars);
+}
+
+static id CEObjectField(id object, const char *fieldName) {
+    if (!object || !fieldName) return nil;
+    Ivar ivar = class_getInstanceVariable([object class], fieldName);
+    if (!ivar) return nil;
+    ptrdiff_t offset = ivar_getOffset(ivar);
+    uintptr_t bits = 0; memcpy(&bits, (uint8_t *)(__bridge void *)object + offset, sizeof(bits));
+    return CEHeapObjectPointer(bits);
+}
+
+static NSArray<Class> *CEFocusedRuntimeClasses(void) {
+    int count = objc_getClassList(NULL, 0);
+    if (count <= 0) return @[];
+    Class *classes = (Class *)calloc((size_t)count, sizeof(Class));
+    count = objc_getClassList(classes, count);
+    NSMutableArray *out = [NSMutableArray array];
+    NSString *bundlePath = NSBundle.mainBundle.bundlePath ?: @"";
+    NSArray<NSString *> *needles = @[@"messagesviewmodel", @"conversationrootviewmodel", @"conversationcoordinator", @"conversationstateresetmanager", @"projectconversationscreenviewmodel", @"conversationfinalstream"];
+    for (int i = 0; i < count; i++) {
+        Class cls = classes[i]; const char *rawName = class_getName(cls); const char *rawImage = class_getImageName(cls);
+        if (!rawName || !rawImage) continue;
+        NSString *name = [NSString stringWithUTF8String:rawName];
+        NSString *image = [NSString stringWithUTF8String:rawImage];
+        if (bundlePath.length && ![image hasPrefix:bundlePath]) continue;
+        NSString *lower = name.lowercaseString; BOOL match = NO;
+        for (NSString *needle in needles) if ([lower containsString:needle]) { match = YES; break; }
+        if (match) [out addObject:cls];
+    }
+    free(classes);
+    [out sortUsingComparator:^NSComparisonResult(Class a, Class b) { return [NSStringFromClass(a) compare:NSStringFromClass(b) options:NSCaseInsensitiveSearch]; }];
+    return out;
+}
+
+static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    UIViewController *messages = CEFindViewControllerContainingClassName(CEKeyWindow().rootViewController, @"ChatGPTMessages.MessagesViewController", 0);
+    if (!messages) { [out addObject:@"messages=<nil>"]; return out; }
+    [out addObject:[NSString stringWithFormat:@"messages=%@ ptr=%p", NSStringFromClass(messages.class), messages]];
+
+    Ivar vmIvar = class_getInstanceVariable(messages.class, "viewModel");
+    if (vmIvar) {
+        ptrdiff_t offset = ivar_getOffset(vmIvar); uintptr_t bits = 0;
+        memcpy(&bits, (uint8_t *)(__bridge void *)messages + offset, sizeof(bits));
+        id vm = CEHeapObjectPointer(bits);
+        [out addObject:[NSString stringWithFormat:@"messages.viewModel offset=0x%tx raw=0x%llx resolved=%@ ptr=%p", offset, (unsigned long long)bits, vm ? NSStringFromClass([vm class]) : @"<nil>", vm]];
+        if (vm) {
+            CEAppendFocusedClass(out, [vm class], vm, @"MESSAGES-VM");
+            NSArray<NSString *> *childNames = @[@"coordinator", @"conversationCoordinator", @"repository", @"conversationRepository", @"conversation", @"state", @"stream", @"finalStream", @"rootViewModel", @"conversationRootViewModel", @"resetManager"];
+            NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+            for (NSString *childName in childNames) {
+                id child = CEObjectField(vm, childName.UTF8String);
+                if (!child) continue;
+                NSValue *key = [NSValue valueWithPointer:(__bridge const void *)child]; if ([seen containsObject:key]) continue; [seen addObject:key];
+                [out addObject:[NSString stringWithFormat:@"MESSAGES-VM.%@ -> %@ ptr=%p", childName, NSStringFromClass([child class]), child]];
+                CEAppendFocusedClass(out, [child class], child, [@"CHILD-" stringByAppendingString:childName]);
+            }
+        }
+    }
+
+    [out addObject:@"-- focused loaded classes --"];
+    for (Class cls in CEFocusedRuntimeClasses()) CEAppendFocusedClass(out, cls, nil, [@"CLASS-" stringByAppendingString:NSStringFromClass(cls)]);
+    return out;
+}
+
 static NSArray<NSString *> *CEActiveConversationRuntimeDetails(void) {
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     UIWindow *window = CEKeyWindow();
@@ -383,6 +517,9 @@ NSString *CEDiagnosticsReport(UIView *sourceView, NSString *contextIdentifier) {
 
     [report appendString:@"\n[Active conversation runtime]\n"];
     for (NSString *line in CEActiveConversationRuntimeDetails()) [report appendFormat:@"%@\n", line];
+    [report appendString:@"\n[Focused active conversation internals]\n"];
+    for (NSString *line in CEFocusedActiveConversationDetails()) [report appendFormat:@"%@\n", line];
+
     [report appendString:@"\n[Navigation/router runtime classes]\n"];
     for (NSString *line in CENavigationRouterClasses()) [report appendFormat:@"%@\n", line];
 
