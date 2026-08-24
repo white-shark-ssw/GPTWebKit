@@ -235,8 +235,8 @@ static void CERecoveryCheckServer(NSString *conversationID, NSDate *cutoff, BOOL
 }
 @end
 
-void CEPullLatestConversationResult(NSString *conversationID) {
-    CERecoveryDiagnosticMark(@"MANUAL PULL LATEST");
+static void CEPullLatestConversationResultFullFallback(NSString *conversationID) {
+    CERecoveryDiagnosticMark(@"MANUAL PULL LATEST FULL FALLBACK");
     CERecoveryDiagnosticLog(@"PULL", @"start conversation=%@ appState=%ld apiReady=%@ session=%@ template=%@", conversationID ?: @"<nil>", (long)UIApplication.sharedApplication.applicationState, [[CEAPIClient shared] isReady] ? @"YES" : @"NO", [CENetworkObserver shared].requestSession ? NSStringFromClass([CENetworkObserver shared].requestSession.class) : @"<nil>", [CENetworkObserver shared].hasUsableTemplate ? @"YES" : @"NO");
     if (!conversationID.length) { CERecoveryDiagnosticLog(@"PULL", @"abort missing conversation id"); CEShowMessage(@"无法识别当前会话。"); return; }
     if (![[CEAPIClient shared] isReady]) { CERecoveryDiagnosticLog(@"PULL", @"abort API client not ready"); CEShowMessage(@"官方网络会话尚未就绪。"); return; }
@@ -325,6 +325,20 @@ static void CERecoveryInstall(void) {
         NSLog(@"[ChatGPTEnhancer] foreground stream recovery installed");
     });
 }
+
+void CEPullLatestConversationResult(NSString *conversationID) {
+    CERecoveryDiagnosticMark(@"MANUAL PULL LATEST");
+    CERecoveryDiagnosticLog(@"PULL", @"lightweight-first start conversation=%@ appState=%ld", conversationID ?: @"<nil>", (long)UIApplication.sharedApplication.applicationState);
+    if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
+    CEShowMessage(@"正在拉取最新消息…");
+    CEOrphanRefreshConversation(conversationID, ^(BOOL success) {
+        CERecoveryDiagnosticLog(@"PULL", @"lightweight-first result=%@", success ? @"YES" : @"NO");
+        if (success) { CEShowMessage(@"已触发官方最新消息同步。"); return; }
+        CERecoveryDiagnosticLog(@"PULL", @"lightweight-first unavailable; falling back to full conversation fetch");
+        CEPullLatestConversationResultFullFallback(conversationID);
+    });
+}
+
 
 NSString *CEForegroundStreamRecoveryDiagnosticsSnapshot(void) {
     NSMutableString *out = [NSMutableString string];
