@@ -78,6 +78,7 @@ UIViewController *CETopViewController(void) { return CETopFrom(CEKeyWindow().roo
 @property (nonatomic, strong) CEMessageLabel *label;
 @property (nonatomic, weak) UIWindow *window;
 @property (nonatomic) NSUInteger generation;
+@property (nonatomic, strong) NSArray<NSLayoutConstraint *> *messageConstraints;
 + (instancetype)shared;
 - (void)showMessage:(NSString *)message;
 @end
@@ -98,14 +99,15 @@ UIViewController *CETopViewController(void) { return CETopFrom(CEKeyWindow().roo
     NSUInteger generation = ++self.generation;
     CEMessageLabel *label = self.label; label.text = message;
     if (label.superview != window) { [label removeFromSuperview]; [window addSubview:label]; self.window = window; }
-    [NSLayoutConstraint deactivateConstraints:label.constraints];
+    if (self.messageConstraints.count) [NSLayoutConstraint deactivateConstraints:self.messageConstraints];
     CGFloat upward = -MIN(MAX(CGRectGetHeight(window.bounds) * 0.08, 40.0), 75.0);
-    [NSLayoutConstraint activateConstraints:@[
+    self.messageConstraints = @[
         [label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor],
         [label.centerYAnchor constraintEqualToAnchor:window.centerYAnchor constant:upward],
         [label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.84],
         [label.heightAnchor constraintGreaterThanOrEqualToConstant:40]
-    ]];
+    ];
+    [NSLayoutConstraint activateConstraints:self.messageConstraints];
     [window bringSubviewToFront:label];
     [label.layer removeAllAnimations]; label.alpha = 1.0;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.65 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
