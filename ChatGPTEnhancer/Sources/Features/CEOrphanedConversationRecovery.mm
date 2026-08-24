@@ -5,6 +5,7 @@
 #import <malloc/malloc.h>
 #import <string.h>
 #import <math.h>
+#import <float.h>
 #import "../Core/CECore.h"
 #import "../Network/CEAPIClient.h"
 #import "../Network/CENetworkObserver.h"
@@ -396,16 +397,17 @@ void CEOrphanRefreshConversation(NSString *conversationID, void (^completion)(BO
     CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"invoke conversation=%@ index=%ld:%ld source=%@", conversationID, (long)target.section, (long)target.item, source ?: @"<nil>");
     ((void (*)(id, SEL, id, id))objc_msgSend)(history, selectSelector, collection, target);
     __block NSUInteger verifyGeneration = ++CEOrphanManualReloadGeneration;
-    void (^verify)(NSUInteger) = ^(NSUInteger pass) {
-        if (verifyGeneration != CEOrphanManualReloadGeneration) return;
+    __block void (^verify)(NSUInteger) = nil;
+    verify = ^(NSUInteger pass) {
+        if (verifyGeneration != CEOrphanManualReloadGeneration) { verify = nil; return; }
         BOOL requestSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
         CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"verify pass=%lu requestSeen=%@", (unsigned long)pass, requestSeen ? @"YES" : @"NO");
-        if (requestSeen) { CEOrphanLastSoftRefreshState = @"success: official detail request observed"; if (completion) completion(YES); return; }
-        if (pass >= 2) { CEOrphanLastSoftRefreshState = @"failed: no official detail request"; if (completion) completion(NO); return; }
+        if (requestSeen) { CEOrphanLastSoftRefreshState = @"success: official detail request observed"; if (completion) completion(YES); verify = nil; return; }
+        if (pass >= 2) { CEOrphanLastSoftRefreshState = @"failed: no official detail request"; if (completion) completion(NO); verify = nil; return; }
         NSTimeInterval delay = pass == 0 ? 0.55 : 0.85;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ verify(pass + 1); });
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (verify) verify(pass + 1); });
     };
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ verify(0); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (verify) verify(0); });
 }
 
 static void CEOrphanManualReloadAttempt(NSString *conversationID, NSUInteger generation, NSUInteger attempt, void (^completion)(BOOL success)) {
