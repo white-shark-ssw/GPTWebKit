@@ -3,6 +3,8 @@
 #import "../Network/CEAPIClient.h"
 #import "../Export/CEMarkdownExporter.h"
 #import "../Diagnostics/CEDiagnostics.h"
+#import "CEForegroundStreamRecovery.h"
+#import "CEOrphanedConversationRecovery.h"
 
 @interface CEExportJob : NSObject
 @property (nonatomic, strong) CEConversationRecord *record;
@@ -11,6 +13,7 @@
 @property (nonatomic, strong, nullable) NSError *error;
 @property (nonatomic) BOOL fetchFinished;
 @property (nonatomic) BOOL userConfirmed;
+@property (nonatomic) BOOL userCancelled;
 @property (nonatomic, weak, nullable) UIAlertController *progressAlert;
 @property (nonatomic, weak, nullable) UIAlertController *renameAlert;
 @property (nonatomic, copy, nullable) NSString *progressMessage;
@@ -155,7 +158,7 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
             if (job.progressAlert) job.progressAlert.message = [NSString stringWithFormat:@"%@\n\n", message];
         } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
             job.fetchFinished = YES; job.data = data; job.error = error; [self applyFetchedTitleForJob:job];
-            if (job.userConfirmed) [self finishExportJob:job];
+            if (job.userConfirmed && !job.userCancelled) [self finishExportJob:job];
         }];
     }
 
@@ -180,10 +183,12 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
     UIAlertController *progress = [UIAlertController alertControllerWithTitle:@"正在导出…" message:[NSString stringWithFormat:@"%@\n\n", message] preferredStyle:UIAlertControllerStyleAlert];
     UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium]; spinner.translatesAutoresizingMaskIntoConstraints = NO; [spinner startAnimating];
     [progress.view addSubview:spinner]; [NSLayoutConstraint activateConstraints:@[[spinner.centerXAnchor constraintEqualToAnchor:progress.view.centerXAnchor], [spinner.bottomAnchor constraintEqualToAnchor:progress.view.bottomAnchor constant:-18]]];
+    [progress addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *action) { job.userCancelled = YES; job.progressAlert = nil; }]];
     job.progressAlert = progress; [vc presentViewController:progress animated:YES completion:nil];
 }
 
 + (void)finishExportJob:(CEExportJob *)job {
+    if (job.userCancelled) return;
     if (job.error || !job.data.length) {
         NSError *failure = job.error ?: [NSError errorWithDomain:@"ChatGPTEnhancer" code:-70 userInfo:@{NSLocalizedDescriptionKey:@"完整会话没有返回数据。"}];
         void (^showError)(void) = ^{ [self showExportError:failure record:job.record filename:job.filename]; };
@@ -211,6 +216,19 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
     [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(CEKeyWindow(), nil); }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self beginExportRecord:record]; }]];
     [vc presentViewController:alert animated:YES completion:nil];
+}
+
++ (void)pullLatestCurrentConversation {
+    NSString *conversationID = [CEConversationContext shared].conversationID;
+    if (!conversationID.length) { CEShowToast(@"无法识别当前会话。"); return; }
+    CEPullLatestConversationResult(conversationID);
+}
+
++ (void)reloadCurrentConversation {
+    NSString *conversationID = [CEConversationContext shared].conversationID;
+    if (!conversationID.length) { CEShowToast(@"无法识别当前会话。"); return; }
+    CEShowToast(@"正在重载当前会话…");
+    if (!CEOrphanForceReloadConversation(conversationID)) CEShowToast(@"当前会话暂时无法重载，请稍后再试。");
 }
 
 + (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
