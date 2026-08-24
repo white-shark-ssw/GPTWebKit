@@ -133,20 +133,26 @@ static BOOL CERecoveryHasActiveTrackedStream(void) {
 
 static void CERecoveryForceConversationReloadAttempt(NSString *conversationID, NSUInteger generation, NSUInteger attempt) {
     if (generation != CERecoveryGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) { CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"skip generation=%lu currentGeneration=%lu appState=%ld", (unsigned long)generation, (unsigned long)CERecoveryGeneration, (long)UIApplication.sharedApplication.applicationState); return; }
-    CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"attempt=%lu conversation=%@", (unsigned long)attempt, conversationID);
+    CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"attempt=%lu conversation=%@ phase=soft-refresh", (unsigned long)attempt, conversationID);
     NSString *currentID = [CEConversationContext shared].conversationID;
     if (currentID.length && ![currentID isEqualToString:conversationID]) return;
-    if (CEOrphanReselectConversation(conversationID)) {
-        CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"reselect invoked successfully conversation=%@", conversationID);
-        NSLog(@"[ChatGPTEnhancer] foreground recovery forced completed conversation reload for %@", conversationID);
-        return;
-    }
-    CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"reselect returned NO conversation=%@ attempt=%lu", conversationID, (unsigned long)attempt);
-    if (attempt >= 1) {
-        NSLog(@"[ChatGPTEnhancer] foreground recovery could not reselect completed conversation %@", conversationID);
-        return;
-    }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CERecoveryForceConversationReloadAttempt(conversationID, generation, attempt + 1); });
+    CEOrphanRefreshConversation(conversationID, ^(BOOL success) {
+        if (generation != CERecoveryGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
+        if (success) {
+            CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"soft refresh triggered official request conversation=%@", conversationID);
+            NSLog(@"[ChatGPTEnhancer] foreground recovery triggered lightweight refresh for %@", conversationID);
+            return;
+        }
+        CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"soft refresh unavailable; trying full history replay conversation=%@", conversationID);
+        if (CEOrphanReselectConversation(conversationID)) {
+            CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"full replay invoked conversation=%@", conversationID);
+            NSLog(@"[ChatGPTEnhancer] foreground recovery forced completed conversation reload for %@", conversationID);
+            return;
+        }
+        CERecoveryDiagnosticLog(@"AUTO-RELOAD", @"full replay returned NO conversation=%@ attempt=%lu", conversationID, (unsigned long)attempt);
+        if (attempt >= 1) { NSLog(@"[ChatGPTEnhancer] foreground recovery could not refresh completed conversation %@", conversationID); return; }
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.8 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CERecoveryForceConversationReloadAttempt(conversationID, generation, attempt + 1); });
+    });
 }
 
 static void CERecoveryForceConversationReload(NSString *conversationID, NSUInteger generation, NSTimeInterval delay) {
