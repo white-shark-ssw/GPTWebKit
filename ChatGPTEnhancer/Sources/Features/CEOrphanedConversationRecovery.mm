@@ -38,6 +38,9 @@ static BOOL CEOrphanConfirmedHistoryStrong = NO;
 static NSString *CEOrphanLastNativeReplayState = nil;
 static NSUInteger CEOrphanNativeReplayGeneration = 0;
 
+static BOOL CEOrphanRecentDetailRequestForConversationSince(NSString *conversationID, NSDate *date);
+static BOOL CEOrphanRecentResumeRequestSince(NSDate *date);
+
 static NSString *CEOrphanSafeDescription(id object) {
     if (!object) return @"<nil>";
     NSString *value = nil; @try { value = [object description]; } @catch (__unused NSException *exception) {}
