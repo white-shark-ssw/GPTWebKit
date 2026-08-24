@@ -10,16 +10,17 @@
 static IMP CEOrphanOriginalHistoryDidSelectIMP = NULL;
 static BOOL CEOrphanHistorySelectionHookInstalled = NO;
 static NSUInteger CEOrphanHistorySelectionGeneration = 0;
+static NSUInteger CEOrphanManualReloadGeneration = 0;
 static NSString *CEOrphanConfirmedHistoryConversationID = nil;
 static NSIndexPath *CEOrphanConfirmedHistoryIndexPath = nil;
 static NSDate *CEOrphanConfirmedHistoryAt = nil;
 static UICollectionView *CEOrphanConfirmedHistoryCollection = nil;
 static NSString *CEOrphanConfirmedHistorySource = nil;
 static BOOL CEOrphanConfirmedHistoryStrong = NO;
-static NSString *CEOrphanLastManualReloadState = nil;
+static NSString *CEOrphanLastManualReloadState = @"ready: exact current conversation custom route";
 static NSString *CEOrphanLastSoftRefreshState = nil;
-static NSString *CEOrphanLastNativeReplayState = @"disabled: navigation safety guard";
-static NSString *CEOrphanLastTargetSource = @"disabled: no programmatic navigation";
+static NSString *CEOrphanLastNativeReplayState = @"ready: com.openai.chat exact conversation route";
+static NSString *CEOrphanLastTargetSource = @"exact current conversation only";
 static NSString *CEOrphanLastSidebarCandidate = @"disabled: no sidebar automation";
 
 static NSString *CEOrphanIndexPathsDescription(NSArray<NSIndexPath *> *paths) {
@@ -121,6 +122,45 @@ static void CEOrphanInstallHistorySelectionCapture(NSUInteger attempt) {
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanInstallHistorySelectionCapture(attempt + 1); });
 }
 
+static NSURL *CEOrphanExactConversationRouteURL(NSString *conversationID) {
+    if (!conversationID.length) return nil;
+    NSString *escaped = [conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet];
+    return [NSURL URLWithString:[NSString stringWithFormat:@"com.openai.chat://chatgpt.com/c/%@/", escaped]];
+}
+
+static void CEOrphanVerifyExactConversationReload(NSString *conversationID, NSDate *startedAt, NSUInteger generation, NSUInteger attempt, void (^completion)(BOOL success)) {
+    if (generation != CEOrphanManualReloadGeneration) return;
+    NSString *current = [CEConversationContext shared].conversationID;
+    if (current.length && ![current isEqualToString:conversationID]) {
+        CEOrphanLastManualReloadState = [NSString stringWithFormat:@"failed safety: context changed to %@", current];
+        CEOrphanLastNativeReplayState = @"failed: exact route changed conversation unexpectedly";
+        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL safety context changed expected=%@ actual=%@", conversationID, current);
+        if (completion) completion(NO);
+        return;
+    }
+    BOOL detailSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
+    BOOL resumeSeen = CEOrphanRecentResumeRequestSince(startedAt);
+    CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"verify attempt=%lu conversation=%@ detailSeen=%@ resumeSeen=%@ context=%@", (unsigned long)attempt, conversationID, detailSeen ? @"YES" : @"NO", resumeSeen ? @"YES" : @"NO", current ?: @"<nil>");
+    if (detailSeen || resumeSeen) {
+        CEOrphanLastManualReloadState = detailSeen ? @"success: official detail request observed" : @"success: official resume request observed";
+        CEOrphanLastNativeReplayState = @"success: exact current conversation route delivered and native reload observed";
+        CEOrphanLastTargetSource = @"com.openai.chat://chatgpt.com/c/<current>/";
+        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"SUCCESS conversation=%@ source=%@", conversationID, detailSeen ? @"detail GET" : @"resume POST");
+        if (completion) completion(YES);
+        return;
+    }
+    NSArray<NSNumber *> *intervals = @[@0.25, @0.35, @0.50, @0.75, @1.00, @1.30, @1.60];
+    if (attempt >= intervals.count) {
+        CEOrphanLastManualReloadState = @"failed: route delivered but no official reload request observed";
+        CEOrphanLastNativeReplayState = @"failed: exact route produced no detail/resume request";
+        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL no native detail/resume request conversation=%@", conversationID);
+        if (completion) completion(NO);
+        return;
+    }
+    NSTimeInterval delay = intervals[attempt].doubleValue;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanVerifyExactConversationReload(conversationID, startedAt, generation, attempt + 1, completion); });
+}
+
 BOOL CEOrphanReselectConversation(NSString *conversationID) {
     CEOrphanLastSoftRefreshState = @"blocked: programmatic history reselect disabled";
     CERecoveryDiagnosticMark(@"NAVIGATION SAFETY GUARD");
@@ -129,17 +169,55 @@ BOOL CEOrphanReselectConversation(NSString *conversationID) {
 }
 
 void CEOrphanRefreshConversation(NSString *conversationID, void (^completion)(BOOL success)) {
-    CEOrphanLastSoftRefreshState = @"blocked: route/history refresh disabled";
+    CEOrphanLastSoftRefreshState = @"blocked: automatic route/history refresh disabled";
     CERecoveryDiagnosticMark(@"NAVIGATION SAFETY GUARD");
     CERecoveryDiagnosticLog(@"NAV-GUARD", @"blocked CEOrphanRefreshConversation conversation=%@", conversationID ?: @"<nil>");
     if (completion) completion(NO);
 }
 
 void CEOrphanForceReloadConversation(NSString *conversationID, void (^completion)(BOOL success)) {
-    CEOrphanLastManualReloadState = @"blocked: destructive full reload disabled";
-    CERecoveryDiagnosticMark(@"NAVIGATION SAFETY GUARD");
-    CERecoveryDiagnosticLog(@"NAV-GUARD", @"blocked CEOrphanForceReloadConversation conversation=%@", conversationID ?: @"<nil>");
-    if (completion) completion(NO);
+    NSString *current = [CEConversationContext shared].conversationID;
+    if (!conversationID.length || !current.length || ![current isEqualToString:conversationID]) {
+        CEOrphanLastManualReloadState = @"failed safety: requested conversation is not exact current conversation";
+        CERecoveryDiagnosticMark(@"MANUAL EXACT CONVERSATION RELOAD BLOCKED");
+        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"BLOCK requested=%@ current=%@", conversationID ?: @"<nil>", current ?: @"<nil>");
+        if (completion) completion(NO);
+        return;
+    }
+    if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) {
+        CEOrphanLastManualReloadState = @"failed safety: app is not active";
+        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"BLOCK appState=%ld conversation=%@", (long)UIApplication.sharedApplication.applicationState, conversationID);
+        if (completion) completion(NO);
+        return;
+    }
+    NSURL *route = CEOrphanExactConversationRouteURL(conversationID);
+    if (!route) {
+        CEOrphanLastManualReloadState = @"failed: could not build exact conversation route";
+        if (completion) completion(NO);
+        return;
+    }
+    NSUInteger generation = ++CEOrphanManualReloadGeneration;
+    NSDate *startedAt = NSDate.date;
+    CEOrphanLastManualReloadState = @"opening exact current conversation native route";
+    CEOrphanLastNativeReplayState = @"opening com.openai.chat exact conversation route";
+    CEOrphanLastTargetSource = @"com.openai.chat://chatgpt.com/c/<current>/";
+    CERecoveryDiagnosticMark(@"MANUAL EXACT CURRENT CONVERSATION RELOAD");
+    CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"OPEN generation=%lu conversation=%@ route=%@", (unsigned long)generation, conversationID, route.absoluteString);
+    [UIApplication.sharedApplication openURL:route options:@{} completionHandler:^(BOOL opened) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (generation != CEOrphanManualReloadGeneration) return;
+            if (!opened) {
+                CEOrphanLastManualReloadState = @"failed: com.openai.chat route was not opened";
+                CEOrphanLastNativeReplayState = @"failed: custom route rejected by UIApplication";
+                CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL UIApplication rejected exact route conversation=%@", conversationID);
+                if (completion) completion(NO);
+                return;
+            }
+            CEOrphanLastManualReloadState = @"route delivered; waiting for official conversation reload request";
+            CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"DELIVERED generation=%lu conversation=%@", (unsigned long)generation, conversationID);
+            CEOrphanVerifyExactConversationReload(conversationID, startedAt, generation, 0, completion);
+        });
+    }];
 }
 
 NSString *CEOrphanedConversationRecoveryDiagnosticsSnapshot(void) {
@@ -148,9 +226,10 @@ NSString *CEOrphanedConversationRecoveryDiagnosticsSnapshot(void) {
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     id dataSource = collection.dataSource;
     NSMutableString *out = [NSMutableString string];
-    [out appendFormat:@"navigationRecoveryEnabled=NO\nrouteReplayEnabled=NO\nhistoryReplayEnabled=NO\nsidebarAutomationEnabled=NO\nhookInstalled=%@ originalIMP=%p\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastNativeReplayState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedSource=%@\nconfirmedStrong=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
+    [out appendFormat:@"navigationRecoveryEnabled=NO\nautomaticRouteReplayEnabled=NO\nmanualExactRouteReloadEnabled=YES\nhistoryReplayEnabled=NO\nsidebarAutomationEnabled=NO\nhookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastNativeReplayState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedSource=%@\nconfirmedStrong=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
         CEOrphanHistorySelectionHookInstalled ? @"YES" : @"NO",
         CEOrphanOriginalHistoryDidSelectIMP,
+        (unsigned long)CEOrphanManualReloadGeneration,
         CEOrphanLastManualReloadState ?: @"<nil>",
         CEOrphanLastSoftRefreshState ?: @"<nil>",
         CEOrphanLastNativeReplayState ?: @"<nil>",
@@ -179,7 +258,7 @@ __attribute__((constructor)) static void CEOrphanedConversationRecoveryEntry(voi
         if (!CETargetApp()) return;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             CEOrphanInstallHistorySelectionCapture(0);
-            CERecoveryDiagnosticLog(@"NAV-GUARD", @"programmatic route/history/sidebar recovery permanently disabled");
+            CERecoveryDiagnosticLog(@"NAV-GUARD", @"automatic route/history/sidebar recovery disabled; manual exact-current custom-route reload enabled");
         });
     }
 }
