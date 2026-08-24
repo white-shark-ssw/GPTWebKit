@@ -8,6 +8,7 @@
 #import "../Core/CECore.h"
 #import "../Network/CEAPIClient.h"
 #import "../Network/CENetworkObserver.h"
+#import "../Diagnostics/CERecoveryDiagnostics.h"
 #import "CEOrphanedConversationRecovery.h"
 
 static NSDate *CEOrphanBackgroundDate = nil;
@@ -24,6 +25,24 @@ static BOOL CEOrphanHistorySelectionHookInstalled = NO;
 static id CEOrphanConfirmedHistoryIdentifier = nil;
 static NSIndexPath *CEOrphanConfirmedHistoryIndexPath = nil;
 static NSString *CEOrphanConfirmedHistoryConversationID = nil;
+static NSString *CEOrphanLastManualReloadState = nil;
+static NSString *CEOrphanLastSidebarCandidate = nil;
+
+static NSString *CEOrphanSafeDescription(id object) {
+    if (!object) return @"<nil>";
+    NSString *value = nil; @try { value = [object description]; } @catch (__unused NSException *exception) {}
+    if (!value.length) value = [NSString stringWithFormat:@"<%@>", NSStringFromClass([object class])];
+    value = [value stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    if (value.length > 420) value = [[value substringToIndex:420] stringByAppendingString:@"…"];
+    return value;
+}
+
+static NSString *CEOrphanIndexPathsDescription(NSArray<NSIndexPath *> *paths) {
+    if (!paths.count) return @"()";
+    NSMutableArray<NSString *> *values = [NSMutableArray array];
+    for (NSIndexPath *path in paths) [values addObject:[NSString stringWithFormat:@"%ld:%ld", (long)path.section, (long)path.item]];
+    return [NSString stringWithFormat:@"(%@)", [values componentsJoinedByString:@", "]];
+}
 
 static BOOL CEOrphanConversationFinished(NSData *data) {
     if (!data.length) return NO;
@@ -155,18 +174,23 @@ static id CEOrphanHistoryItemIdentifier(UICollectionView *collection, NSIndexPat
 }
 
 static void CEOrphanConfirmHistorySelection(id identifier, NSIndexPath *indexPath, NSDate *selectedAt, NSUInteger generation) {
-    if (generation != CEOrphanHistorySelectionGeneration || !identifier || !indexPath || !selectedAt) return;
+    if (generation != CEOrphanHistorySelectionGeneration || !identifier || !indexPath || !selectedAt) { CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"confirm skipped generation=%lu current=%lu identifier=%@ index=%@", (unsigned long)generation, (unsigned long)CEOrphanHistorySelectionGeneration, identifier ? @"YES" : @"NO", indexPath ?: (id)@"<nil>"); return; }
     NSString *conversationID = [[CEConversationContext shared].conversationID copy];
-    if (!conversationID.length || !CEOrphanRecentDetailRequestForConversationSince(conversationID, selectedAt)) return;
+    BOOL requestSeen = conversationID.length && CEOrphanRecentDetailRequestForConversationSince(conversationID, selectedAt);
+    CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"confirm check index=%ld:%ld context=%@ requestSeen=%@ identifierClass=%@ identifier=%@", (long)indexPath.section, (long)indexPath.item, conversationID ?: @"<nil>", requestSeen ? @"YES" : @"NO", NSStringFromClass([identifier class]), CEOrphanSafeDescription(identifier));
+    if (!conversationID.length || !requestSeen) return;
     CEOrphanConfirmedHistoryIdentifier = identifier;
     CEOrphanConfirmedHistoryIndexPath = [indexPath copy];
     CEOrphanConfirmedHistoryConversationID = conversationID;
+    CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"CONFIRMED conversation=%@ index=%ld:%ld", conversationID, (long)indexPath.section, (long)indexPath.item);
     NSLog(@"[ChatGPTEnhancer] captured exact history selection for %@ section=%ld item=%ld identifierClass=%@", conversationID, (long)indexPath.section, (long)indexPath.item, NSStringFromClass([identifier class]));
 }
 
 static void CEOrphanHistoryDidSelect(id self, SEL _cmd, UICollectionView *collection, NSIndexPath *indexPath) {
     id identifier = CEOrphanHistoryItemIdentifier(collection, indexPath);
     NSDate *selectedAt = NSDate.date; NSUInteger generation = ++CEOrphanHistorySelectionGeneration;
+    CERecoveryDiagnosticMark(@"OFFICIAL HISTORY ROW SELECTED");
+    CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"didSelect index=%ld:%ld contextBefore=%@ collection=%@ dataSource=%@ identifierClass=%@ identifier=%@", (long)indexPath.section, (long)indexPath.item, [CEConversationContext shared].conversationID ?: @"<nil>", NSStringFromClass(collection.class), collection.dataSource ? NSStringFromClass([(id)collection.dataSource class]) : @"<nil>", identifier ? NSStringFromClass([identifier class]) : @"<nil>", CEOrphanSafeDescription(identifier));
     if (CEOrphanOriginalHistoryDidSelectIMP) ((void (*)(id, SEL, id, id))CEOrphanOriginalHistoryDidSelectIMP)(self, _cmd, collection, indexPath);
     for (NSNumber *delayValue in @[@0.20, @0.55, @1.10, @1.80]) {
         NSTimeInterval delay = delayValue.doubleValue;
@@ -183,10 +207,11 @@ static void CEOrphanInstallHistorySelectionCapture(NSUInteger attempt) {
         CEOrphanOriginalHistoryDidSelectIMP = method_getImplementation(method);
         method_setImplementation(method, (IMP)CEOrphanHistoryDidSelect);
         CEOrphanHistorySelectionHookInstalled = YES;
+        CERecoveryDiagnosticLog(@"HISTORY-HOOK", @"installed class=%@ selector=%@ originalIMP=%p", NSStringFromClass(cls), NSStringFromSelector(selector), CEOrphanOriginalHistoryDidSelectIMP);
         NSLog(@"[ChatGPTEnhancer] exact history selection capture installed");
         return;
     }
-    if (attempt >= 20) { NSLog(@"[ChatGPTEnhancer] exact history selection capture unavailable"); return; }
+    if (attempt >= 20) { CERecoveryDiagnosticLog(@"HISTORY-HOOK", @"unavailable after %lu attempts class=%@ method=%@", (unsigned long)attempt, cls ? @"YES" : @"NO", method ? @"YES" : @"NO"); NSLog(@"[ChatGPTEnhancer] exact history selection capture unavailable"); return; }
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanInstallHistorySelectionCapture(attempt + 1); });
 }
 
@@ -209,11 +234,13 @@ static UICollectionView *CEOrphanFindHistoryCollection(UIView *view, NSUInteger 
 }
 
 static BOOL CEOrphanReselectConversationInternal(NSString *conversationID, BOOL bypassCooldown) {
-    if (!conversationID.length || (!bypassCooldown && CEOrphanLastReselectAt && [NSDate.date timeIntervalSinceDate:CEOrphanLastReselectAt] < 20.0)) return NO;
+    if (!conversationID.length || (!bypassCooldown && CEOrphanLastReselectAt && [NSDate.date timeIntervalSinceDate:CEOrphanLastReselectAt] < 20.0)) { CERecoveryDiagnosticLog(@"RESELECT-SCAN", @"skip conversation=%@ bypass=%@ lastReselect=%@", conversationID ?: @"<nil>", bypassCooldown ? @"YES" : @"NO", CEOrphanLastReselectAt ?: (id)@"<nil>"); return NO; }
     UIWindow *window = CEKeyWindow(); UIViewController *history = CEOrphanFindHistoryController(window.rootViewController, 0);
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     id dataSource = collection.dataSource; SEL itemSelector = NSSelectorFromString(@"itemIdentifierForIndexPath:"); SEL selectSelector = NSSelectorFromString(@"collectionView:didSelectItemAtIndexPath:");
+    CERecoveryDiagnosticLog(@"RESELECT-SCAN", @"conversation=%@ history=%@ collection=%@ dataSource=%@ itemSelector=%@ selectSelector=%@ selected=%@", conversationID, history ? NSStringFromClass(history.class) : @"<nil>", collection ? NSStringFromClass(collection.class) : @"<nil>", dataSource ? NSStringFromClass([dataSource class]) : @"<nil>", [dataSource respondsToSelector:itemSelector] ? @"YES" : @"NO", [history respondsToSelector:selectSelector] ? @"YES" : @"NO", collection ? CEOrphanIndexPathsDescription(collection.indexPathsForSelectedItems) : @"<nil>");
     if (!history || !collection || !dataSource || ![dataSource respondsToSelector:itemSelector] || ![history respondsToSelector:selectSelector]) {
+        CERecoveryDiagnosticLog(@"RESELECT-SCAN", @"FAIL cannot access history diffable data source");
         NSLog(@"[ChatGPTEnhancer] orphan recovery could not access history diffable data source"); return NO;
     }
     NSMutableArray<NSIndexPath *> *matches = [NSMutableArray array]; NSUInteger inspected = 0;
@@ -227,7 +254,8 @@ static BOOL CEOrphanReselectConversationInternal(NSString *conversationID, BOOL 
         }
     }
     NSIndexPath *target = matches.firstObject;
-    if (!target) { NSLog(@"[ChatGPTEnhancer] orphan recovery history row not found for %@ inspected=%lu", conversationID, (unsigned long)inspected); return NO; }
+    CERecoveryDiagnosticLog(@"RESELECT-SCAN", @"scan complete sections=%ld inspected=%lu matches=%@", (long)sections, (unsigned long)inspected, CEOrphanIndexPathsDescription(matches));
+    if (!target) { CERecoveryDiagnosticLog(@"RESELECT-SCAN", @"FAIL history row not found"); NSLog(@"[ChatGPTEnhancer] orphan recovery history row not found for %@ inspected=%lu", conversationID, (unsigned long)inspected); return NO; }
     CEOrphanLastReselectAt = NSDate.date;
     [collection selectItemAtIndexPath:target animated:NO scrollPosition:UICollectionViewScrollPositionNone];
     ((void (*)(id, SEL, id, id))objc_msgSend)(history, selectSelector, collection, target);
@@ -284,7 +312,10 @@ static BOOL CEOrphanActivateSidebar(void) {
             if ([cursor isKindOfClass:UIControl.class] || (cursor.accessibilityTraits & UIAccessibilityTraitButton) != 0) { candidate = cursor; break; }
         }
     }
-    if (!candidate) { NSLog(@"[ChatGPTEnhancer] manual reload could not find sidebar control"); return NO; }
+    if (!candidate) { CEOrphanLastSidebarCandidate = @"<not found>"; CERecoveryDiagnosticLog(@"SIDEBAR", @"FAIL no sidebar control candidate window=%@ safeTop=%.1f", NSStringFromClass(window.class), window.safeAreaInsets.top); NSLog(@"[ChatGPTEnhancer] manual reload could not find sidebar control"); return NO; }
+    CGRect candidateFrame = [candidate convertRect:candidate.bounds toView:window];
+    CEOrphanLastSidebarCandidate = [NSString stringWithFormat:@"class=%@ frame=%@ label=%@ id=%@ score=%.1f", NSStringFromClass(candidate.class), NSStringFromCGRect(candidateFrame), candidate.accessibilityLabel ?: @"<nil>", candidate.accessibilityIdentifier ?: @"<nil>", bestScore];
+    CERecoveryDiagnosticLog(@"SIDEBAR", @"activate %@", CEOrphanLastSidebarCandidate);
     NSLog(@"[ChatGPTEnhancer] manual reload activating sidebar control class=%@ label=%@", NSStringFromClass(candidate.class), candidate.accessibilityLabel ?: @"<nil>");
     if ([candidate isKindOfClass:UIControl.class]) { [(UIControl *)candidate sendActionsForControlEvents:UIControlEventTouchUpInside]; return YES; }
     @try { if ([candidate accessibilityActivate]) return YES; } @catch (__unused NSException *exception) {}
@@ -295,9 +326,11 @@ static BOOL CEOrphanManualSelectCurrentHistoryItem(NSString *conversationID) {
     UIWindow *window = CEKeyWindow(); UIViewController *history = CEOrphanFindHistoryController(window.rootViewController, 0);
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     id dataSource = collection.dataSource; SEL itemSelector = NSSelectorFromString(@"itemIdentifierForIndexPath:"); SEL selectSelector = NSSelectorFromString(@"collectionView:didSelectItemAtIndexPath:");
-    if (!history || !collection || !dataSource || ![dataSource respondsToSelector:itemSelector] || ![history respondsToSelector:selectSelector]) return NO;
+    CERecoveryDiagnosticLog(@"MANUAL-SELECT", @"conversation=%@ history=%@ viewLoaded=%@ collection=%@ dataSource=%@ sections=%ld selected=%@ confirmedConversation=%@ confirmedIndex=%@ confirmedIdentifierClass=%@", conversationID, history ? NSStringFromClass(history.class) : @"<nil>", history.viewIfLoaded ? @"YES" : @"NO", collection ? NSStringFromClass(collection.class) : @"<nil>", dataSource ? NSStringFromClass([dataSource class]) : @"<nil>", collection ? (long)collection.numberOfSections : -1L, collection ? CEOrphanIndexPathsDescription(collection.indexPathsForSelectedItems) : @"<nil>", CEOrphanConfirmedHistoryConversationID ?: @"<nil>", CEOrphanConfirmedHistoryIndexPath ? [NSString stringWithFormat:@"%ld:%ld", (long)CEOrphanConfirmedHistoryIndexPath.section, (long)CEOrphanConfirmedHistoryIndexPath.item] : @"<nil>", CEOrphanConfirmedHistoryIdentifier ? NSStringFromClass([CEOrphanConfirmedHistoryIdentifier class]) : @"<nil>");
+    if (!history || !collection || !dataSource || ![dataSource respondsToSelector:itemSelector] || ![history respondsToSelector:selectSelector]) { CERecoveryDiagnosticLog(@"MANUAL-SELECT", @"FAIL history collection unavailable/selectors unavailable"); return NO; }
 
     NSIndexPath *target = nil;
+    NSString *targetSource = nil;
     if ([CEOrphanConfirmedHistoryConversationID isEqualToString:conversationID] && CEOrphanConfirmedHistoryIdentifier) {
         NSInteger sections = collection.numberOfSections;
         for (NSInteger section = 0; section < sections && !target; section++) {
@@ -306,22 +339,29 @@ static BOOL CEOrphanManualSelectCurrentHistoryItem(NSString *conversationID) {
                 NSIndexPath *indexPath = [NSIndexPath indexPathForItem:item inSection:section];
                 id identifier = ((id (*)(id, SEL, id))objc_msgSend)(dataSource, itemSelector, indexPath);
                 BOOL equal = NO; @try { equal = identifier == CEOrphanConfirmedHistoryIdentifier || [identifier isEqual:CEOrphanConfirmedHistoryIdentifier]; } @catch (__unused NSException *exception) {}
-                if (equal) { target = indexPath; break; }
+                if (equal) { target = indexPath; targetSource = @"confirmedIdentifier"; break; }
             }
         }
         if (!target && CEOrphanConfirmedHistoryIndexPath.section < collection.numberOfSections && CEOrphanConfirmedHistoryIndexPath.item < [collection numberOfItemsInSection:CEOrphanConfirmedHistoryIndexPath.section]) {
             id identifier = ((id (*)(id, SEL, id))objc_msgSend)(dataSource, itemSelector, CEOrphanConfirmedHistoryIndexPath);
             BOOL equal = NO; @try { equal = identifier == CEOrphanConfirmedHistoryIdentifier || [identifier isEqual:CEOrphanConfirmedHistoryIdentifier]; } @catch (__unused NSException *exception) {}
-            if (equal) target = CEOrphanConfirmedHistoryIndexPath;
+            if (equal) { target = CEOrphanConfirmedHistoryIndexPath; targetSource = @"confirmedIndex"; }
         }
     }
 
     if (!target) {
         NSArray<NSIndexPath *> *selected = collection.indexPathsForSelectedItems;
-        if (selected.count == 1) target = selected.firstObject;
+        if (selected.count == 1) { target = selected.firstObject; targetSource = @"collectionSelected"; }
     }
 
-    if (!target) return CEOrphanReselectConversationInternal(conversationID, YES);
+    if (!target) {
+        CERecoveryDiagnosticLog(@"MANUAL-SELECT", @"no exact/selected target; falling back to raw UUID scan");
+        BOOL scanned = CEOrphanReselectConversationInternal(conversationID, YES);
+        CERecoveryDiagnosticLog(@"MANUAL-SELECT", @"raw UUID scan result=%@", scanned ? @"YES" : @"NO");
+        return scanned;
+    }
+    id targetIdentifier = ((id (*)(id, SEL, id))objc_msgSend)(dataSource, itemSelector, target);
+    CERecoveryDiagnosticLog(@"MANUAL-SELECT", @"target=%ld:%ld source=%@ identifierClass=%@ identifier=%@", (long)target.section, (long)target.item, targetSource ?: @"<nil>", targetIdentifier ? NSStringFromClass([targetIdentifier class]) : @"<nil>", CEOrphanSafeDescription(targetIdentifier));
     [collection deselectItemAtIndexPath:target animated:NO];
     [collection selectItemAtIndexPath:target animated:NO scrollPosition:UICollectionViewScrollPositionNone];
     ((void (*)(id, SEL, id, id))objc_msgSend)(history, selectSelector, collection, target);
@@ -330,31 +370,41 @@ static BOOL CEOrphanManualSelectCurrentHistoryItem(NSString *conversationID) {
 }
 
 static void CEOrphanManualReloadAttempt(NSString *conversationID, NSUInteger generation, NSUInteger attempt, void (^completion)(BOOL success)) {
-    if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
+    if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) { CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"attempt=%lu skipped generation=%lu current=%lu appState=%ld", (unsigned long)attempt, (unsigned long)generation, (unsigned long)CEOrphanManualReloadGeneration, (long)UIApplication.sharedApplication.applicationState); return; }
     NSDate *startedAt = NSDate.date;
+    CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"attempt=%lu conversation=%@ context=%@", (unsigned long)attempt, conversationID, [CEConversationContext shared].conversationID ?: @"<nil>");
     BOOL invoked = CEOrphanManualSelectCurrentHistoryItem(conversationID);
+    CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"attempt=%lu selectionInvoked=%@", (unsigned long)attempt, invoked ? @"YES" : @"NO");
     if (invoked) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.80 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
-            if (CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt)) { if (completion) completion(YES); return; }
-            if (attempt >= 5) { NSLog(@"[ChatGPTEnhancer] manual reload selection produced no official conversation request for %@", conversationID); if (completion) completion(NO); return; }
+            BOOL requestSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
+            CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"attempt=%lu verify requestSeen=%@ recentEvents=%lu", (unsigned long)attempt, requestSeen ? @"YES" : @"NO", (unsigned long)[CENetworkObserver shared].recentEvents.count);
+            if (requestSeen) { CEOrphanLastManualReloadState = [NSString stringWithFormat:@"success attempt=%lu requestSeen=YES", (unsigned long)attempt]; if (completion) completion(YES); return; }
+            if (attempt >= 5) { CEOrphanLastManualReloadState = @"failed: selection invoked but no official detail request"; CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL selection produced no official detail request"); NSLog(@"[ChatGPTEnhancer] manual reload selection produced no official conversation request for %@", conversationID); if (completion) completion(NO); return; }
             CEOrphanActivateSidebar();
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
         });
         return;
     }
 
-    if (attempt >= 5) { NSLog(@"[ChatGPTEnhancer] manual reload failed after sidebar retries for %@", conversationID); if (completion) completion(NO); return; }
+    if (attempt >= 5) { CEOrphanLastManualReloadState = @"failed: no selectable history target after sidebar retries"; CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL no selectable target after sidebar retries"); NSLog(@"[ChatGPTEnhancer] manual reload failed after sidebar retries for %@", conversationID); if (completion) completion(NO); return; }
     CEOrphanActivateSidebar();
     NSTimeInterval delay = attempt < 2 ? 0.40 : 0.60;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
 }
 
 void CEOrphanForceReloadConversation(NSString *conversationID, void (^completion)(BOOL success)) {
-    if (!conversationID.length) { if (completion) completion(NO); return; }
+    CERecoveryDiagnosticMark(@"MANUAL FULL RELOAD");
+    CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"start conversation=%@ appState=%ld hookInstalled=%@ context=%@", conversationID ?: @"<nil>", (long)UIApplication.sharedApplication.applicationState, CEOrphanHistorySelectionHookInstalled ? @"YES" : @"NO", [CEConversationContext shared].conversationID ?: @"<nil>");
+    if (!conversationID.length) { CEOrphanLastManualReloadState = @"failed: missing conversation id"; if (completion) completion(NO); return; }
+    CEOrphanLastManualReloadState = @"running";
     CEOrphanInstallHistorySelectionCapture(0);
     NSUInteger generation = ++CEOrphanManualReloadGeneration;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.28 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, 0, completion); });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.28 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, 0, ^(BOOL success) {
+        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"completion success=%@ state=%@", success ? @"YES" : @"NO", CEOrphanLastManualReloadState ?: @"<nil>");
+        if (completion) completion(success);
+    }); });
 }
 
 static void CEOrphanCheckForStaleStream(NSDate *cutoff, void (^completion)(BOOL hasStaleStream)) {
@@ -458,6 +508,41 @@ static void CEOrphanInstall(void) {
         NSString *currentID = [CEConversationContext shared].conversationID; if (currentID.length) CEOrphanScheduleContextProbe(currentID);
         NSLog(@"[ChatGPTEnhancer] orphaned conversation recovery installed");
     });
+}
+
+NSString *CEOrphanedConversationRecoveryDiagnosticsSnapshot(void) {
+    UIWindow *window = CEKeyWindow();
+    UIViewController *history = window ? CEOrphanFindHistoryController(window.rootViewController, 0) : nil;
+    UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
+    id dataSource = collection.dataSource;
+    NSMutableString *out = [NSMutableString string];
+    [out appendFormat:@"hookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu\nlastManualReloadState=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedIdentifierClass=%@\nconfirmedIdentifier=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
+        CEOrphanHistorySelectionHookInstalled ? @"YES" : @"NO",
+        CEOrphanOriginalHistoryDidSelectIMP,
+        (unsigned long)CEOrphanManualReloadGeneration,
+        CEOrphanLastManualReloadState ?: @"<nil>",
+        CEOrphanConfirmedHistoryConversationID ?: @"<nil>",
+        CEOrphanConfirmedHistoryIndexPath ? [NSString stringWithFormat:@"%ld:%ld", (long)CEOrphanConfirmedHistoryIndexPath.section, (long)CEOrphanConfirmedHistoryIndexPath.item] : @"<nil>",
+        CEOrphanConfirmedHistoryIdentifier ? NSStringFromClass([CEOrphanConfirmedHistoryIdentifier class]) : @"<nil>",
+        CEOrphanSafeDescription(CEOrphanConfirmedHistoryIdentifier),
+        CEOrphanLastSidebarCandidate ?: @"<nil>",
+        window ? NSStringFromClass(window.class) : @"<nil>",
+        history ? NSStringFromClass(history.class) : @"<nil>",
+        history.viewIfLoaded ? @"YES" : @"NO",
+        history.viewIfLoaded.window ? @"YES" : @"NO",
+        collection ? NSStringFromClass(collection.class) : @"<nil>",
+        dataSource ? NSStringFromClass([dataSource class]) : @"<nil>",
+        collection ? (long)collection.numberOfSections : -1L,
+        collection ? CEOrphanIndexPathsDescription(collection.indexPathsForSelectedItems) : @"<nil>",
+        [CEConversationContext shared].conversationID ?: @"<nil>"];
+    if (collection && dataSource && [dataSource respondsToSelector:NSSelectorFromString(@"itemIdentifierForIndexPath:")]) {
+        [out appendString:@"\nselectedIdentifiers:"];
+        for (NSIndexPath *indexPath in collection.indexPathsForSelectedItems ?: @[]) {
+            id identifier = CEOrphanHistoryItemIdentifier(collection, indexPath);
+            [out appendFormat:@"\n  %ld:%ld class=%@ id=%@", (long)indexPath.section, (long)indexPath.item, identifier ? NSStringFromClass([identifier class]) : @"<nil>", CEOrphanSafeDescription(identifier)];
+        }
+    }
+    return out;
 }
 
 __attribute__((constructor)) static void CEOrphanedConversationRecoveryEntry(void) {
