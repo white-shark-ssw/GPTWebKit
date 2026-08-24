@@ -356,7 +356,7 @@ static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
         Method getterMethod = class_getInstanceMethod(messages.class, getter);
         if (getterMethod) {
             char *returnType = method_copyReturnType(getterMethod);
-            if (returnType && returnType[0] == '@') { @try { vm = ((id (*)(id, SEL))objc_msgSend)(messages, getter); } @catch (__unused NSException *exception) {} }
+            if (returnType && returnType[0] == '@') { IMP imp = method_getImplementation(getterMethod); @try { vm = ((id (*)(id, SEL))imp)(messages, getter); } @catch (__unused NSException *exception) {} }
             if (returnType) free(returnType);
         }
         if (!vm && vmType && vmType[0] == '@') { @try { vm = object_getIvar(messages, vmIvar); } @catch (__unused NSException *exception) {} }
