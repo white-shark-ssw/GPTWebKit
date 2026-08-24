@@ -3,6 +3,7 @@
 #import <objc/message.h>
 #import <malloc/malloc.h>
 #import <string.h>
+#import <math.h>
 #import "../Core/CECore.h"
 #import "../Network/CEAPIClient.h"
 #import "../Network/CENetworkObserver.h"
