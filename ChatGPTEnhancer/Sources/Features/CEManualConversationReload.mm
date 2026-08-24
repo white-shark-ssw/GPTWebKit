@@ -2,7 +2,6 @@
 #import <UIKit/UIKit.h>
 #import <objc/runtime.h>
 #import "../Core/CECore.h"
-#import "../Diagnostics/CEDiagnostics.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
 #import "CEOrphanedConversationRecovery.h"
 
@@ -11,7 +10,6 @@ static IMP CEManualReloadOriginalIMP = NULL;
 static void CEManualReloadCurrentConversation(id self, SEL _cmd) {
     NSString *conversationID = [CEConversationContext shared].conversationID;
     if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
-    CECaptureFocusedActiveConversationDiagnostics(@"manual reload before exact native route");
     CERecoveryDiagnosticMark(@"MANUAL RELOAD CURRENT CONVERSATION");
     CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"requested exact current conversation=%@ appState=%ld", conversationID, (long)UIApplication.sharedApplication.applicationState);
     CEShowMessage(@"正在重载当前会话…");
