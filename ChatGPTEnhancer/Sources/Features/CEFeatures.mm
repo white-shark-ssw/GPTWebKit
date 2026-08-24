@@ -123,7 +123,7 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 
 + (void)exportRecord:(CEConversationRecord *)record requireConfirmation:(BOOL)requireConfirmation {
     record = [self resolvedRecord:record];
-    if (!record.conversationID.length) { CEShowToast(@"无法识别会话 ID。"); return; }
+    if (!record.conversationID.length) { CEShowMessage(@"无法识别会话 ID。"); return; }
     if (!requireConfirmation) { [self beginExportRecord:record]; return; }
     UIViewController *vc = CETopViewController(); if (!vc) return;
     NSString *message = [self isPlaceholderTitle:record.title] ? @"确定导出当前会话吗？" : [NSString stringWithFormat:@"确定导出当前《%@》会话吗？", record.title];
@@ -220,15 +220,15 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 
 + (void)pullLatestCurrentConversation {
     NSString *conversationID = [CEConversationContext shared].conversationID;
-    if (!conversationID.length) { CEShowToast(@"无法识别当前会话。"); return; }
+    if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
     CEPullLatestConversationResult(conversationID);
 }
 
 + (void)reloadCurrentConversation {
     NSString *conversationID = [CEConversationContext shared].conversationID;
-    if (!conversationID.length) { CEShowToast(@"无法识别当前会话。"); return; }
-    CEShowToast(@"正在重载当前会话…");
-    if (!CEOrphanForceReloadConversation(conversationID)) CEShowToast(@"当前会话暂时无法重载，请稍后再试。");
+    if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
+    CEShowMessage(@"正在重载当前会话…");
+    if (!CEOrphanForceReloadConversation(conversationID)) CEShowMessage(@"当前会话暂时无法重载，请稍后再试。");
 }
 
 + (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
@@ -250,8 +250,8 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 
 + (void)performRenameRecord:(CEConversationRecord *)record newTitle:(NSString *)newTitle sourceView:(UIView *)sourceView {
     NSString *path = [NSString stringWithFormat:@"/backend-api/conversation/%@", [record.conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
-    CEShowToast(@"正在重命名…");
-    [[CEAPIClient shared] patchPath:path jsonBody:@{@"title":newTitle} progress:^(NSString *message) { CEShowToast(message); } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
+    CEShowMessage(@"正在重命名…");
+    [[CEAPIClient shared] patchPath:path jsonBody:@{@"title":newTitle} progress:^(NSString *message) { CEShowMessage(message); } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
         if (error) {
             UIViewController *vc = CETopViewController(); if (!vc) return;
             UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
@@ -260,7 +260,7 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
             [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self performRenameRecord:record newTitle:newTitle sourceView:sourceView]; }]];
             [vc presentViewController:alert animated:YES completion:nil]; return;
         }
-        NSString *oldTitle = record.title; [[CECatalog shared] updateTitle:newTitle forConversationID:record.conversationID]; [self replaceVisibleText:oldTitle with:newTitle inView:CEKeyWindow()]; CEShowToast(@"✓ 已重命名");
+        NSString *oldTitle = record.title; [[CECatalog shared] updateTitle:newTitle forConversationID:record.conversationID]; [self replaceVisibleText:oldTitle with:newTitle inView:CEKeyWindow()]; CEShowMessage(@"✓ 已重命名");
     }];
 }
 
