@@ -345,6 +345,8 @@ static NSArray<Class> *CEFocusedRuntimeClasses(void) {
     return out;
 }
 
+static void CEAppendFocusedPointerGraph(NSMutableArray<NSString *> *out, id root, NSString *label);
+
 static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     UIViewController *messages = CEFindViewControllerContainingClassName(CEKeyWindow().rootViewController, @"ChatGPTMessages.MessagesViewController", 0);
