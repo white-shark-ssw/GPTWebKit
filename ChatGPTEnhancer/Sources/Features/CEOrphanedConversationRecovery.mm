@@ -33,6 +33,8 @@ static NSDate *CEOrphanConfirmedHistoryAt = nil;
 static UICollectionView *CEOrphanConfirmedHistoryCollection = nil;
 static NSString *CEOrphanLastTargetSource = nil;
 static NSString *CEOrphanLastSoftRefreshState = nil;
+static NSString *CEOrphanConfirmedHistorySource = nil;
+static BOOL CEOrphanConfirmedHistoryStrong = NO;
 
 static NSString *CEOrphanSafeDescription(id object) {
     if (!object) return @"<nil>";
@@ -195,10 +197,15 @@ static NSIndexPath *CEOrphanResolveHistoryTarget(UICollectionView *collection, N
     NSTimeInterval age = CEOrphanConfirmedHistoryAt ? [NSDate.date timeIntervalSinceDate:CEOrphanConfirmedHistoryAt] : DBL_MAX;
     NSIndexPath *confirmed = CEOrphanConfirmedHistoryIndexPath;
     BOOL inBounds = confirmed && confirmed.section < collection.numberOfSections && confirmed.item < [collection numberOfItemsInSection:confirmed.section];
-    if ([CEOrphanConfirmedHistoryConversationID isEqualToString:conversationID] && sameCollection && inBounds && age <= 180.0) {
+    if ([CEOrphanConfirmedHistoryConversationID isEqualToString:conversationID] && sameCollection && inBounds && age <= 600.0) {
+        if (CEOrphanConfirmedHistoryStrong) {
+            if (sourceOut) *sourceOut = [NSString stringWithFormat:@"confirmed:%@", CEOrphanConfirmedHistorySource ?: @"strong"];
+            CERecoveryDiagnosticLog(@"TARGET", @"using strong confirmed index=%ld:%ld age=%.2f source=%@", (long)confirmed.section, (long)confirmed.item, age, CEOrphanConfirmedHistorySource ?: @"<nil>");
+            return confirmed;
+        }
         UICollectionViewCell *cell = [collection cellForItemAtIndexPath:confirmed];
         if (cell && title.length && !CEOrphanViewContainsExactTitle(cell, title, 0) && !CEOrphanObjectContainsConversationID(cell, conversationID)) {
-            CERecoveryDiagnosticLog(@"TARGET", @"reject stale confirmed index=%ld:%ld age=%.2f because visible cell no longer matches", (long)confirmed.section, (long)confirmed.item, age);
+            CERecoveryDiagnosticLog(@"TARGET", @"reject weak confirmed index=%ld:%ld age=%.2f because visible cell no longer matches", (long)confirmed.section, (long)confirmed.item, age);
             return nil;
         }
         if (sourceOut) *sourceOut = @"recentConfirmedSelection";
@@ -220,6 +227,23 @@ static BOOL CEOrphanRecentDetailRequestForConversationSince(NSString *conversati
     return NO;
 }
 
+
+static BOOL CEOrphanRecentResumeRequestSince(NSDate *date) {
+    if (!date) return NO;
+    long long threshold = (long long)(date.timeIntervalSince1970 * 1000.0);
+    for (NSString *event in [CENetworkObserver shared].recentEvents.reverseObjectEnumerator) {
+        long long timestamp = event.longLongValue; if (timestamp && timestamp < threshold) break;
+        NSString *lower = event.lowercaseString;
+        if (![lower containsString:@" req post "]) continue;
+        if ([lower containsString:@"/backend-api/f/conversation/resume"]) return YES;
+    }
+    return NO;
+}
+
+static BOOL CEOrphanRecentConversationSyncSince(NSString *conversationID, NSDate *date) {
+    return CEOrphanRecentDetailRequestForConversationSince(conversationID, date) || CEOrphanRecentResumeRequestSince(date);
+}
+
 static id CEOrphanHistoryItemIdentifier(UICollectionView *collection, NSIndexPath *indexPath) {
     id dataSource = collection.dataSource; SEL selector = NSSelectorFromString(@"itemIdentifierForIndexPath:");
     if (!collection || !indexPath || !dataSource || ![dataSource respondsToSelector:selector]) return nil;
@@ -230,17 +254,23 @@ static void CEOrphanConfirmHistorySelection(UICollectionView *collection, NSInde
     if (generation != CEOrphanHistorySelectionGeneration || !collection || !indexPath || !selectedAt) { CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"confirm skipped generation=%lu current=%lu collection=%@ index=%@", (unsigned long)generation, (unsigned long)CEOrphanHistorySelectionGeneration, collection ? @"YES" : @"NO", indexPath ?: (id)@"<nil>"); return; }
     NSString *conversationID = [[CEConversationContext shared].conversationID copy];
     BOOL requestSeen = conversationID.length && CEOrphanRecentDetailRequestForConversationSince(conversationID, selectedAt);
+    BOOL resumeSeen = CEOrphanRecentResumeRequestSince(selectedAt);
     BOOL contextChanged = conversationID.length && ![conversationID isEqualToString:contextBefore];
+    BOOL sameContext = conversationID.length && contextBefore.length && [conversationID isEqualToString:contextBefore];
     UICollectionViewCell *cell = [collection cellForItemAtIndexPath:indexPath];
     BOOL cellMatches = conversationID.length && cell && CEOrphanObjectContainsConversationID(cell, conversationID);
-    CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"confirm index=%ld:%ld before=%@ context=%@ requestSeen=%@ contextChanged=%@ cellMatches=%@", (long)indexPath.section, (long)indexPath.item, contextBefore ?: @"<nil>", conversationID ?: @"<nil>", requestSeen ? @"YES" : @"NO", contextChanged ? @"YES" : @"NO", cellMatches ? @"YES" : @"NO");
-    if (!conversationID.length || (!requestSeen && !contextChanged && !cellMatches)) return;
+    BOOL strongSameConversationResume = sameContext && resumeSeen;
+    CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"confirm index=%ld:%ld before=%@ context=%@ requestSeen=%@ resumeSeen=%@ contextChanged=%@ sameContext=%@ cellMatches=%@", (long)indexPath.section, (long)indexPath.item, contextBefore ?: @"<nil>", conversationID ?: @"<nil>", requestSeen ? @"YES" : @"NO", resumeSeen ? @"YES" : @"NO", contextChanged ? @"YES" : @"NO", sameContext ? @"YES" : @"NO", cellMatches ? @"YES" : @"NO");
+    if (!conversationID.length || (!requestSeen && !contextChanged && !cellMatches && !strongSameConversationResume)) return;
+    NSString *source = cellMatches ? @"cellUUID" : (requestSeen ? @"officialDetailRequest" : (contextChanged ? @"contextChange" : @"sameConversationResume"));
     CEOrphanConfirmedHistoryIdentifier = nil;
     CEOrphanConfirmedHistoryIndexPath = [indexPath copy];
     CEOrphanConfirmedHistoryConversationID = conversationID;
     CEOrphanConfirmedHistoryAt = NSDate.date;
     CEOrphanConfirmedHistoryCollection = collection;
-    CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"CONFIRMED conversation=%@ index=%ld:%ld source=%@", conversationID, (long)indexPath.section, (long)indexPath.item, cellMatches ? @"cellUUID" : (requestSeen ? @"officialRequest" : @"contextChange"));
+    CEOrphanConfirmedHistorySource = source;
+    CEOrphanConfirmedHistoryStrong = requestSeen || contextChanged || strongSameConversationResume;
+    CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"CONFIRMED conversation=%@ index=%ld:%ld source=%@ strong=%@", conversationID, (long)indexPath.section, (long)indexPath.item, source, CEOrphanConfirmedHistoryStrong ? @"YES" : @"NO");
     NSLog(@"[ChatGPTEnhancer] captured exact history selection for %@ section=%ld item=%ld", conversationID, (long)indexPath.section, (long)indexPath.item);
 }
 
@@ -250,7 +280,7 @@ static void CEOrphanHistoryDidSelect(id self, SEL _cmd, UICollectionView *collec
     CERecoveryDiagnosticMark(@"OFFICIAL HISTORY ROW SELECTED");
     CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"didSelect index=%ld:%ld contextBefore=%@ collection=%@ dataSource=%@", (long)indexPath.section, (long)indexPath.item, contextBefore ?: @"<nil>", NSStringFromClass(collection.class), collection.dataSource ? NSStringFromClass([(id)collection.dataSource class]) : @"<nil>");
     if (CEOrphanOriginalHistoryDidSelectIMP) ((void (*)(id, SEL, id, id))CEOrphanOriginalHistoryDidSelectIMP)(self, _cmd, collection, indexPath);
-    for (NSNumber *delayValue in @[@0.20, @0.55, @1.10, @1.80]) {
+    for (NSNumber *delayValue in @[@0.20, @0.55, @1.10, @1.80, @2.60]) {
         NSTimeInterval delay = delayValue.doubleValue;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanConfirmHistorySelection(collection, indexPath, contextBefore, selectedAt, generation); });
     }
@@ -402,8 +432,9 @@ void CEOrphanRefreshConversation(NSString *conversationID, void (^completion)(BO
     verify = ^(NSUInteger pass) {
         if (verifyGeneration != CEOrphanSoftRefreshGeneration) { verify = nil; return; }
         BOOL requestSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
-        CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"verify pass=%lu requestSeen=%@", (unsigned long)pass, requestSeen ? @"YES" : @"NO");
-        if (requestSeen) { CEOrphanLastSoftRefreshState = @"success: official detail request observed"; if (completion) completion(YES); verify = nil; return; }
+        BOOL resumeSeen = CEOrphanRecentResumeRequestSince(startedAt);
+        CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"verify pass=%lu detailRequestSeen=%@ resumeSeen=%@", (unsigned long)pass, requestSeen ? @"YES" : @"NO", resumeSeen ? @"YES" : @"NO");
+        if (requestSeen || resumeSeen) { CEOrphanLastSoftRefreshState = requestSeen ? @"success: official detail request observed" : @"success: official resume request observed"; if (completion) completion(YES); verify = nil; return; }
         if (pass >= 2) { CEOrphanLastSoftRefreshState = @"failed: no official detail request"; if (completion) completion(NO); verify = nil; return; }
         NSTimeInterval delay = pass == 0 ? 0.55 : 0.85;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (verify) verify(pass + 1); });
@@ -421,8 +452,9 @@ static void CEOrphanManualReloadAttempt(NSString *conversationID, NSUInteger gen
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.80 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
             if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
             BOOL requestSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
-            CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"attempt=%lu verify requestSeen=%@ recentEvents=%lu", (unsigned long)attempt, requestSeen ? @"YES" : @"NO", (unsigned long)[CENetworkObserver shared].recentEvents.count);
-            if (requestSeen) { CEOrphanLastManualReloadState = [NSString stringWithFormat:@"success attempt=%lu requestSeen=YES source=%@", (unsigned long)attempt, CEOrphanLastTargetSource ?: @"<nil>"]; if (completion) completion(YES); return; }
+            BOOL resumeSeen = CEOrphanRecentResumeRequestSince(startedAt);
+            CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"attempt=%lu verify detailRequestSeen=%@ resumeSeen=%@ recentEvents=%lu", (unsigned long)attempt, requestSeen ? @"YES" : @"NO", resumeSeen ? @"YES" : @"NO", (unsigned long)[CENetworkObserver shared].recentEvents.count);
+            if (requestSeen || resumeSeen) { CEOrphanLastManualReloadState = [NSString stringWithFormat:@"success attempt=%lu transport=%@ source=%@", (unsigned long)attempt, requestSeen ? @"detail" : @"resume", CEOrphanLastTargetSource ?: @"<nil>"]; if (completion) completion(YES); return; }
             if (attempt >= 1) { CEOrphanLastManualReloadState = @"failed: exact history replay produced no official detail request"; CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL exact replay produced no official detail request"); NSLog(@"[ChatGPTEnhancer] manual reload exact replay produced no official conversation request for %@", conversationID); if (completion) completion(NO); return; }
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.55 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
         });
@@ -556,7 +588,7 @@ NSString *CEOrphanedConversationRecoveryDiagnosticsSnapshot(void) {
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     id dataSource = collection.dataSource;
     NSMutableString *out = [NSMutableString string];
-    [out appendFormat:@"hookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu softRefreshGeneration=%lu\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedIdentifierClass=%@\nconfirmedIdentifier=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
+    [out appendFormat:@"hookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu softRefreshGeneration=%lu\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedSource=%@\nconfirmedStrong=%@\nconfirmedIdentifierClass=%@\nconfirmedIdentifier=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
         CEOrphanHistorySelectionHookInstalled ? @"YES" : @"NO",
         CEOrphanOriginalHistoryDidSelectIMP,
         (unsigned long)CEOrphanManualReloadGeneration,
@@ -568,6 +600,8 @@ NSString *CEOrphanedConversationRecoveryDiagnosticsSnapshot(void) {
         CEOrphanConfirmedHistoryIndexPath ? [NSString stringWithFormat:@"%ld:%ld", (long)CEOrphanConfirmedHistoryIndexPath.section, (long)CEOrphanConfirmedHistoryIndexPath.item] : @"<nil>",
         CEOrphanConfirmedHistoryAt ? [NSDate.date timeIntervalSinceDate:CEOrphanConfirmedHistoryAt] : -1.0,
         (CEOrphanConfirmedHistoryCollection && CEOrphanConfirmedHistoryCollection == collection) ? @"YES" : @"NO",
+        CEOrphanConfirmedHistorySource ?: @"<nil>",
+        CEOrphanConfirmedHistoryStrong ? @"YES" : @"NO",
         CEOrphanConfirmedHistoryIdentifier ? NSStringFromClass([CEOrphanConfirmedHistoryIdentifier class]) : @"<nil>",
         CEOrphanSafeDescription(CEOrphanConfirmedHistoryIdentifier),
         CEOrphanLastSidebarCandidate ?: @"<nil>",
