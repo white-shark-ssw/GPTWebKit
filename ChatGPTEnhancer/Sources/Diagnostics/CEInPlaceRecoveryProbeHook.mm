@@ -20,7 +20,7 @@ static NSDate *CEInPlaceProbeLastAutoDate = nil;
         NSDate *now = NSDate.date;
         if (!CEInPlaceProbeLastAutoDate || [now timeIntervalSinceDate:CEInPlaceProbeLastAutoDate] >= 4.0) {
             CEInPlaceProbeLastAutoDate = now;
-            CERecoveryDiagnosticLog(@"INPLACE29-HOOK", @"current conversation GET observed path=%@; capturing active native state before request", path);
+            CERecoveryDiagnosticLog(@"INPLACE30-HOOK", @"current conversation GET observed path=%@; capturing active native state before request", path);
             CEInPlaceRecoveryProbe(@"current-conversation GET");
         }
     }
@@ -35,9 +35,9 @@ __attribute__((constructor)) static void CEInPlaceRecoveryProbeHookEntry(void) {
             Class cls = CEAPIClient.class;
             Method original = class_getInstanceMethod(cls, @selector(getPath:progress:completion:));
             Method replacement = class_getInstanceMethod(cls, @selector(ce_inplaceProbe_getPath:progress:completion:));
-            if (!original || !replacement) { CERecoveryDiagnosticLog(@"INPLACE29-HOOK", @"install failed original=%p replacement=%p", original, replacement); return; }
+            if (!original || !replacement) { CERecoveryDiagnosticLog(@"INPLACE30-HOOK", @"install failed original=%p replacement=%p", original, replacement); return; }
             method_exchangeImplementations(original, replacement);
-            CERecoveryDiagnosticLog(@"INPLACE29-HOOK", @"installed current-conversation GET probe; no navigation and no native method invocation");
+            CERecoveryDiagnosticLog(@"INPLACE30-HOOK", @"installed current-conversation GET probe; no navigation and no native method invocation");
         });
     }
 }
