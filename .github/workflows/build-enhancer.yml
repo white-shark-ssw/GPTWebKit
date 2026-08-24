@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha28 disables every plugin-initiated route/history/sidebar replay and only probes the actually visible MessagesViewController
+# alpha29 keeps every plugin-initiated route/history/sidebar replay disabled and probes the live native conversation pipeline in place
 # alpha16 conversation tools
 # alpha17 unified messages
 
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha28-diagnostic
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha28-diagnostic.zip
+          name: ChatGPTEnhancer-0.1.0-alpha29-native-probe
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha29-native-probe.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha28-diagnostic-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha29-native-probe-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
