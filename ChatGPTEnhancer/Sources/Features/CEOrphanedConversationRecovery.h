@@ -1,4 +1,4 @@
 #import <Foundation/Foundation.h>
 
 BOOL CEOrphanReselectConversation(NSString *conversationID);
-BOOL CEOrphanForceReloadConversation(NSString *conversationID);
+void CEOrphanForceReloadConversation(NSString *conversationID, void (^completion)(BOOL success));
