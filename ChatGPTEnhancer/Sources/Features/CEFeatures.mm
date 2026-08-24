@@ -227,11 +227,10 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 + (void)reloadCurrentConversation {
     NSString *conversationID = [CEConversationContext shared].conversationID;
     if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
-    CEShowMessage(@"正在重载当前会话…");
-    CEOrphanForceReloadConversation(conversationID, ^(BOOL success) {
-        if (success) CEShowMessage(@"已重新加载当前会话。");
-        else CEShowMessage(@"当前会话暂时无法重载，请稍后再试。");
-    });
+    CECaptureFocusedActiveConversationDiagnostics(@"reload button before any navigation");
+    CERecoveryDiagnosticMark(@"MANUAL RELOAD DIAGNOSTIC ONLY");
+    CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"alpha25 diagnostic captured live state conversation=%@; destructive route/history replay disabled", conversationID);
+    CEShowMessage(@"已采集当前会话状态；诊断版不会跳转页面。");
 }
 
 + (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
