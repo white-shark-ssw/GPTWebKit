@@ -5,6 +5,7 @@
 #import "../Storage/CECatalog.h"
 #import "../UI/CEEnhancerUI.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
+#import "../Diagnostics/CEDiagnostics.h"
 
 static void CEShowLoadedToastWhenReady(NSUInteger attempt) {
     if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha22-diagnostic 已加载"); return; }
@@ -17,6 +18,7 @@ static void CEStartEnhancer(void) {
     CERecoveryDiagnosticMark(@"PLUGIN START alpha22-diagnostic");
     @try {
         [[CENetworkObserver shared] start];
+        CEInstallActiveConversationDiagnostics();
         [[CECatalog shared] start];
         [[CEEnhancerUI shared] start];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(0); });
