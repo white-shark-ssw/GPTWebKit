@@ -171,8 +171,6 @@ BOOL CEOrphanReselectConversation(NSString *conversationID) {
     return YES;
 }
 
-BOOL CERefreshConversationFromHistory(NSString *conversationID) { return CEOrphanReselectConversation(conversationID); }
-
 static void CEOrphanCheckForStaleStream(NSDate *cutoff, void (^completion)(BOOL hasStaleStream)) {
     NSURLSession *session = [CENetworkObserver shared].requestSession;
     if (!session || !cutoff) { completion(NO); return; }
