@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha26 crash-safe pre-navigation snapshot; no arbitrary Swift heap dereference
+# alpha26 crash-safe pre-navigation snapshot; no arbitrary Swift heap dereference; final rebuild
 # alpha16 conversation tools
 # alpha17 unified messages
 
