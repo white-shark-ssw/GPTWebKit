@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha19 recovery diagnostics
+# alpha20 exact reload + lightweight refresh diagnostics
 # alpha16 conversation tools
 # alpha17 unified messages
 
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha19-diagnostic
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha19-diagnostic.zip
+          name: ChatGPTEnhancer-0.1.0-alpha20-diagnostic
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha20-diagnostic.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha19-diagnostic-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha20-diagnostic-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
