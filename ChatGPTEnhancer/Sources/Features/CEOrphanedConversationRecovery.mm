@@ -171,6 +171,8 @@ BOOL CEOrphanReselectConversation(NSString *conversationID) {
     return YES;
 }
 
+BOOL CERefreshConversationFromHistory(NSString *conversationID) { return CEOrphanReselectConversation(conversationID); }
+
 static void CEOrphanCheckForStaleStream(NSDate *cutoff, void (^completion)(BOOL hasStaleStream)) {
     NSURLSession *session = [CENetworkObserver shared].requestSession;
     if (!session || !cutoff) { completion(NO); return; }
@@ -212,7 +214,7 @@ static void CEOrphanProbeServer(NSString *conversationID, NSDate *cutoff, NSDate
         }
         CEOrphanCheckForStaleStream(cutoff, ^(BOOL hasStaleStream) {
             if (generation != CEOrphanGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
-            if (hasStaleStream) { NSLog(@"[ChatGPTEnhancer] orphan recovery found stale stream; alpha13 cancellation recovery will handle it"); return; }
+            if (hasStaleStream) { NSLog(@"[ChatGPTEnhancer] orphan recovery found stale stream; foreground stream recovery will handle it"); return; }
             if (CEOrphanRecentOfficialConversationActivitySince(activitySince)) { NSLog(@"[ChatGPTEnhancer] orphan recovery saw fresh official conversation transport after server check"); return; }
             if (!CEOrphanReselectConversation(conversationID)) NSLog(@"[ChatGPTEnhancer] orphan recovery could not reselect completed conversation %@", conversationID);
         });
