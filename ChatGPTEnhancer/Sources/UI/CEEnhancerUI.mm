@@ -306,7 +306,9 @@ static void CEResolveConversationFromView(UIView *view) {
     _button = [UIButton buttonWithType:UIButtonTypeSystem];
     _button.frame = CGRectMake(0, 0, 48, 44); _button.layer.cornerRadius = 14; _button.layer.masksToBounds = NO;
     _button.backgroundColor = [UIColor.secondarySystemBackgroundColor colorWithAlphaComponent:0.96];
-    [_button setTitle:@"MD" forState:UIControlStateNormal]; _button.titleLabel.font = [UIFont systemFontOfSize:13 weight:UIFontWeightBold];
+    UIImageSymbolConfiguration *gearConfig = [UIImageSymbolConfiguration configurationWithPointSize:19 weight:UIImageSymbolWeightSemibold];
+    [_button setImage:[[UIImage systemImageNamed:@"gearshape.fill"] imageWithConfiguration:gearConfig] forState:UIControlStateNormal];
+    _button.accessibilityLabel = @"ChatGPTEnhancer 会话工具";
     _button.layer.shadowColor = UIColor.blackColor.CGColor; _button.layer.shadowOpacity = 0.16; _button.layer.shadowRadius = 8; _button.layer.shadowOffset = CGSizeMake(0, 3);
     [_button addTarget:self action:@selector(buttonTapped) forControlEvents:UIControlEventTouchUpInside];
     UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(pan:)]; [_button addGestureRecognizer:pan];
@@ -326,14 +328,25 @@ static void CEResolveConversationFromView(UIView *view) {
         self.button.frame = CGRectMake(x, y, self.button.bounds.size.width, self.button.bounds.size.height);
     });
 }
-- (void)buttonTapped {
-    NSString *cid = [CEConversationContext shared].conversationID; if (!cid.length) return;
+- (CEConversationRecord *)currentRecord {
+    NSString *cid = [CEConversationContext shared].conversationID; if (!cid.length) return nil;
     CEConversationRecord *record = [[CECatalog shared] recordForID:cid] ?: [CEConversationRecord new];
     if (!record.conversationID.length) record.conversationID = cid;
     NSString *visibleTitle = CEBestVisibleConversationTitle();
     if (visibleTitle.length) { record.title = visibleTitle; [[CECatalog shared] updateTitle:visibleTitle forConversationID:cid]; }
     if (!record.title.length || [record.title isEqualToString:@"当前会话"]) record.title = [CEConversationContext shared].title ?: @"ChatGPT Conversation";
-    [CEFeatures exportRecord:record requireConfirmation:YES];
+    return record;
+}
+- (void)buttonTapped {
+    CEConversationRecord *record = [self currentRecord]; if (!record.conversationID.length) return;
+    UIViewController *vc = CETopViewController(); if (!vc) return;
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"会话工具" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"拉取最新消息" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures pullLatestCurrentConversation]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"重载当前会话" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures reloadCurrentConversation]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"导出 MD 文档" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures exportRecord:record requireConfirmation:YES]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = self.button; sheet.popoverPresentationController.sourceRect = self.button.bounds;
+    [vc presentViewController:sheet animated:YES completion:nil];
 }
 - (void)pan:(UIPanGestureRecognizer *)pan {
     UIView *view = pan.view; UIWindow *window = self.window; if (!view || !window) return;
