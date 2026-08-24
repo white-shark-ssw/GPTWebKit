@@ -1,7 +1,7 @@
 name: Build ChatGPTEnhancer
-# alpha33 removes automatic heavy runtime probes from app lifecycle transitions and only checks the server after backgrounding with a tracked conversation stream
-# exact-current manual reload remains enabled; route/history/sidebar automation remains disabled
-# diagnostic implementations stay in the binary for manual investigation
+# alpha34 adds a lightweight estimated current-conversation context usage percentage to the floating tool button
+# usage estimation parses cached conversation data off the main thread and never polls the server
+# alpha33 lifecycle stability protections remain enabled; route/history/sidebar automation remains disabled
 
 on:
   workflow_dispatch:
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha33-lifecycle-stability
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha33-lifecycle-stability.zip
+          name: ChatGPTEnhancer-0.1.0-alpha34-context-usage
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha34-context-usage.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha33-lifecycle-stability-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha34-context-usage-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
