@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha21 resume-bound reload + lightweight-first sync diagnostics
+# alpha22 native navigation replay + diagnostics
 # alpha16 conversation tools
 # alpha17 unified messages
 
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha21-diagnostic
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha21-diagnostic.zip
+          name: ChatGPTEnhancer-0.1.0-alpha22-diagnostic
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha22-diagnostic.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha21-diagnostic-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha22-diagnostic-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
