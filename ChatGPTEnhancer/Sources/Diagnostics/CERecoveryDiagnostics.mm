@@ -1,4 +1,5 @@
 #import "CERecoveryDiagnostics.h"
+#import "CEInPlaceRecoveryProbe.h"
 
 static NSMutableArray<NSString *> *CERecoveryDiagnosticLines = nil;
 static NSUInteger CERecoveryDiagnosticSequence = 0;
@@ -32,8 +33,8 @@ void CERecoveryDiagnosticLog(NSString *category, NSString *format, ...) {
 }
 
 NSString *CERecoveryDiagnosticsReport(void) {
-    @synchronized (CERecoveryDiagnosticStorage()) {
-        if (!CERecoveryDiagnosticLines.count) return @"<no recovery events captured>";
-        return [CERecoveryDiagnosticLines componentsJoinedByString:@"\n"];
-    }
+    NSString *journal = nil;
+    @synchronized (CERecoveryDiagnosticStorage()) { journal = CERecoveryDiagnosticLines.count ? [CERecoveryDiagnosticLines componentsJoinedByString:@"\n"] : @"<no recovery events captured>"; }
+    NSString *probe = CEInPlaceRecoveryProbeSnapshot();
+    return [NSString stringWithFormat:@"%@\n\n[In-place recovery probe snapshot]\n%@", journal, probe.length ? probe : @"<not captured>"];
 }
