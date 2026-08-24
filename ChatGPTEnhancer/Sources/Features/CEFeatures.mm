@@ -3,6 +3,7 @@
 #import "../Network/CEAPIClient.h"
 #import "../Export/CEMarkdownExporter.h"
 #import "../Diagnostics/CEDiagnostics.h"
+#import "../Diagnostics/CERecoveryDiagnostics.h"
 #import "CEForegroundStreamRecovery.h"
 #import "CEOrphanedConversationRecovery.h"
 
