@@ -22,7 +22,7 @@ FOUNDATION_EXPORT NSString * const CECatalogDidChangeNotification;
 BOOL CETargetApp(void);
 UIWindow * _Nullable CEKeyWindow(void);
 UIViewController * _Nullable CETopViewController(void);
-void CEShowToast(NSString *message);
+void CEShowMessage(NSString *message);
 void CEShowAlert(NSString *title, NSString *message);
 NSString *CESanitizeFilename(NSString *name);
 NSString * _Nullable CEExtractConversationIDFromString(NSString *value);
