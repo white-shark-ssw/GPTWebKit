@@ -20,6 +20,7 @@ static NSUInteger CEOrphanGeneration = 0;
 static NSUInteger CEOrphanContextGeneration = 0;
 static NSDate *CEOrphanLastReselectAt = nil;
 static NSUInteger CEOrphanManualReloadGeneration = 0;
+static NSUInteger CEOrphanSoftRefreshGeneration = 0;
 static NSUInteger CEOrphanHistorySelectionGeneration = 0;
 static IMP CEOrphanOriginalHistoryDidSelectIMP = NULL;
 static BOOL CEOrphanHistorySelectionHookInstalled = NO;
@@ -396,10 +397,10 @@ void CEOrphanRefreshConversation(NSString *conversationID, void (^completion)(BO
     CEOrphanLastSoftRefreshState = [NSString stringWithFormat:@"invoked source=%@", source ?: @"<nil>"];
     CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"invoke conversation=%@ index=%ld:%ld source=%@", conversationID, (long)target.section, (long)target.item, source ?: @"<nil>");
     ((void (*)(id, SEL, id, id))objc_msgSend)(history, selectSelector, collection, target);
-    __block NSUInteger verifyGeneration = ++CEOrphanManualReloadGeneration;
+    __block NSUInteger verifyGeneration = ++CEOrphanSoftRefreshGeneration;
     __block void (^verify)(NSUInteger) = nil;
     verify = ^(NSUInteger pass) {
-        if (verifyGeneration != CEOrphanManualReloadGeneration) { verify = nil; return; }
+        if (verifyGeneration != CEOrphanSoftRefreshGeneration) { verify = nil; return; }
         BOOL requestSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
         CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"verify pass=%lu requestSeen=%@", (unsigned long)pass, requestSeen ? @"YES" : @"NO");
         if (requestSeen) { CEOrphanLastSoftRefreshState = @"success: official detail request observed"; if (completion) completion(YES); verify = nil; return; }
@@ -555,10 +556,11 @@ NSString *CEOrphanedConversationRecoveryDiagnosticsSnapshot(void) {
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     id dataSource = collection.dataSource;
     NSMutableString *out = [NSMutableString string];
-    [out appendFormat:@"hookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedIdentifierClass=%@\nconfirmedIdentifier=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
+    [out appendFormat:@"hookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu softRefreshGeneration=%lu\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedIdentifierClass=%@\nconfirmedIdentifier=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
         CEOrphanHistorySelectionHookInstalled ? @"YES" : @"NO",
         CEOrphanOriginalHistoryDidSelectIMP,
         (unsigned long)CEOrphanManualReloadGeneration,
+        (unsigned long)CEOrphanSoftRefreshGeneration,
         CEOrphanLastManualReloadState ?: @"<nil>",
         CEOrphanLastSoftRefreshState ?: @"<nil>",
         CEOrphanLastTargetSource ?: @"<nil>",
