@@ -15,6 +15,7 @@ static BOOL CEOrphanHadStreamAtBackground = NO;
 static NSUInteger CEOrphanGeneration = 0;
 static NSUInteger CEOrphanContextGeneration = 0;
 static NSDate *CEOrphanLastReselectAt = nil;
+static NSUInteger CEOrphanManualReloadGeneration = 0;
 
 static BOOL CEOrphanConversationFinished(NSData *data) {
     if (!data.length) return NO;
@@ -172,7 +173,79 @@ static BOOL CEOrphanReselectConversationInternal(NSString *conversationID, BOOL 
 }
 
 BOOL CEOrphanReselectConversation(NSString *conversationID) { return CEOrphanReselectConversationInternal(conversationID, NO); }
-BOOL CEOrphanForceReloadConversation(NSString *conversationID) { return CEOrphanReselectConversationInternal(conversationID, YES); }
+
+static BOOL CEOrphanIsSidebarControlCandidate(UIView *view, UIWindow *window, CGFloat *scoreOut) {
+    if (!view || !window || view.hidden || view.alpha < 0.05 || !view.userInteractionEnabled || !view.window) return NO;
+    CGRect frame = [view convertRect:view.bounds toView:window];
+    CGFloat safeTop = window.safeAreaInsets.top;
+    if (CGRectIsEmpty(frame) || CGRectGetMaxX(frame) < 8 || CGRectGetMinX(frame) > MIN(125.0, CGRectGetWidth(window.bounds) * 0.32)) return NO;
+    if (CGRectGetMidY(frame) < safeTop - 8 || CGRectGetMidY(frame) > safeTop + 92) return NO;
+    if (CGRectGetWidth(frame) < 18 || CGRectGetHeight(frame) < 18 || CGRectGetWidth(frame) > 130 || CGRectGetHeight(frame) > 110) return NO;
+
+    BOOL control = [view isKindOfClass:UIControl.class];
+    BOOL buttonTrait = (view.accessibilityTraits & UIAccessibilityTraitButton) != 0;
+    BOOL gesture = view.gestureRecognizers.count > 0;
+    if (!control && !buttonTrait && !gesture) return NO;
+
+    NSString *label = [NSString stringWithFormat:@"%@ %@ %@ %@", view.accessibilityLabel ?: @"", view.accessibilityIdentifier ?: @"", view.accessibilityValue ?: @"", NSStringFromClass(view.class)];
+    NSString *lower = label.lowercaseString;
+    NSArray<NSString *> *reject = @[@"关闭", @"close", @"取消", @"cancel", @"完成", @"done", @"返回", @"back"];
+    for (NSString *token in reject) if ([lower containsString:token.lowercaseString]) return NO;
+
+    CGFloat targetX = 34.0, targetY = safeTop + 26.0;
+    CGFloat dx = CGRectGetMidX(frame) - targetX, dy = CGRectGetMidY(frame) - targetY;
+    CGFloat score = 160.0 - hypot(dx, dy);
+    if (control) score += 70.0;
+    if (buttonTrait) score += 55.0;
+    if ([lower containsString:@"sidebar"] || [lower containsString:@"side menu"] || [lower containsString:@"侧边"] || [lower containsString:@"菜单"] || [lower containsString:@"history"] || [lower containsString:@"历史"]) score += 260.0;
+    if ([lower containsString:@"button"]) score += 30.0;
+    if (scoreOut) *scoreOut = score;
+    return YES;
+}
+
+static void CEOrphanFindSidebarControl(UIView *view, UIWindow *window, NSUInteger depth, UIView **best, CGFloat *bestScore) {
+    if (!view || depth > 18) return;
+    CGFloat score = 0;
+    if (CEOrphanIsSidebarControlCandidate(view, window, &score) && (!*best || score > *bestScore)) { *best = view; *bestScore = score; }
+    for (UIView *child in view.subviews) CEOrphanFindSidebarControl(child, window, depth + 1, best, bestScore);
+}
+
+static BOOL CEOrphanActivateSidebar(void) {
+    UIWindow *window = CEKeyWindow(); if (!window) return NO;
+    UIView *candidate = nil; CGFloat bestScore = -CGFLOAT_MAX;
+    CEOrphanFindSidebarControl(window, window, 0, &candidate, &bestScore);
+    if (!candidate) {
+        CGPoint point = CGPointMake(34.0, window.safeAreaInsets.top + 26.0);
+        UIView *hit = [window hitTest:point withEvent:nil];
+        for (UIView *cursor = hit; cursor && cursor != window; cursor = cursor.superview) {
+            if ([cursor isKindOfClass:UIControl.class] || (cursor.accessibilityTraits & UIAccessibilityTraitButton) != 0) { candidate = cursor; break; }
+        }
+    }
+    if (!candidate) { NSLog(@"[ChatGPTEnhancer] manual reload could not find sidebar control"); return NO; }
+    NSLog(@"[ChatGPTEnhancer] manual reload activating sidebar control class=%@ label=%@", NSStringFromClass(candidate.class), candidate.accessibilityLabel ?: @"<nil>");
+    if ([candidate isKindOfClass:UIControl.class]) { [(UIControl *)candidate sendActionsForControlEvents:UIControlEventTouchUpInside]; return YES; }
+    @try { if ([candidate accessibilityActivate]) return YES; } @catch (__unused NSException *exception) {}
+    return NO;
+}
+
+static void CEOrphanManualReloadAttempt(NSString *conversationID, NSUInteger generation, NSUInteger attempt, void (^completion)(BOOL success)) {
+    if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
+    if (CEOrphanReselectConversationInternal(conversationID, YES)) { if (completion) completion(YES); return; }
+    if (attempt >= 5) { NSLog(@"[ChatGPTEnhancer] manual reload failed after sidebar retries for %@", conversationID); if (completion) completion(NO); return; }
+    NSTimeInterval delay = attempt < 2 ? 0.35 : 0.55;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
+}
+
+void CEOrphanForceReloadConversation(NSString *conversationID, void (^completion)(BOOL success)) {
+    if (!conversationID.length) { if (completion) completion(NO); return; }
+    NSUInteger generation = ++CEOrphanManualReloadGeneration;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.24 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (generation != CEOrphanManualReloadGeneration) return;
+        if (CEOrphanReselectConversationInternal(conversationID, YES)) { if (completion) completion(YES); return; }
+        if (!CEOrphanActivateSidebar()) { if (completion) completion(NO); return; }
+        CEOrphanManualReloadAttempt(conversationID, generation, 0, completion);
+    });
+}
 
 static void CEOrphanCheckForStaleStream(NSDate *cutoff, void (^completion)(BOOL hasStaleStream)) {
     NSURLSession *session = [CENetworkObserver shared].requestSession;
