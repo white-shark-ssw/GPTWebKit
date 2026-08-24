@@ -344,7 +344,7 @@ static void CEResolveConversationFromView(UIView *view) {
     UIViewController *vc = CETopViewController(); if (!vc) return;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"会话工具" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:@"拉取最新消息" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures pullLatestCurrentConversation]; }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"重载当前会话" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures reloadCurrentConversation]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"采集重载诊断（不跳页）" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures reloadCurrentConversation]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"导出 MD 文档" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures exportRecord:record requireConfirmation:YES]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"复制完整诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         CERecoveryDiagnosticMark(@"USER COPIED FULL DIAGNOSTICS");
