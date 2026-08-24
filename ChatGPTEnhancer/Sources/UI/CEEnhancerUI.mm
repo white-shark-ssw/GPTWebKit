@@ -2,6 +2,8 @@
 #import "../Core/CECore.h"
 #import "../Storage/CECatalog.h"
 #import "../Features/CEFeatures.h"
+#import "../Diagnostics/CEDiagnostics.h"
+#import "../Diagnostics/CERecoveryDiagnostics.h"
 #import <objc/runtime.h>
 
 static __weak UIView *CELastTouchedView = nil;
@@ -344,6 +346,10 @@ static void CEResolveConversationFromView(UIView *view) {
     [sheet addAction:[UIAlertAction actionWithTitle:@"拉取最新消息" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures pullLatestCurrentConversation]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"重载当前会话" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures reloadCurrentConversation]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"导出 MD 文档" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures exportRecord:record requireConfirmation:YES]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"复制完整诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+        CERecoveryDiagnosticMark(@"USER COPIED FULL DIAGNOSTICS");
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CECopyDiagnostics(self.button, nil); });
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     sheet.popoverPresentationController.sourceView = self.button; sheet.popoverPresentationController.sourceRect = self.button.bounds;
     [vc presentViewController:sheet animated:YES completion:nil];
