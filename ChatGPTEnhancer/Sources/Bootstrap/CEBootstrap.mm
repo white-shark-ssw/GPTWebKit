@@ -6,7 +6,7 @@
 #import "../UI/CEEnhancerUI.h"
 
 static void CEShowLoadedToastWhenReady(NSUInteger attempt) {
-    if (CEKeyWindow()) { CEShowToast(@"ChatGPTEnhancer alpha16 已加载"); return; }
+    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha16 已加载"); return; }
     if (attempt >= 12) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(attempt + 1); });
 }
