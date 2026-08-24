@@ -194,13 +194,13 @@ static NSArray<NSString *> *CEGenericFreshCandidateIDs(void) {
     if (candidates.count) { [self cegeneric_exportCandidates:candidates fromContextMenu:fromContextMenu]; return; }
     CEConversationRecord *record = CEGenericFreshRecord(); if (record) { [self cegeneric_exportCandidates:@[record] fromContextMenu:fromContextMenu]; return; }
     NSArray<NSString *> *ids = CEGenericFreshCandidateIDs(); if (!ids.count || ![CEAPIClient shared].isReady) { [self cegeneric_exportCandidates:candidates fromContextMenu:fromContextMenu]; return; }
-    CEShowToast(@"正在识别会话…"); CEGenericValidateCandidateIDs(ids, ^(CEConversationRecord *validated) { [self cegeneric_exportCandidates:validated ? @[validated] : candidates fromContextMenu:fromContextMenu]; });
+    CEShowMessage(@"正在识别会话…"); CEGenericValidateCandidateIDs(ids, ^(CEConversationRecord *validated) { [self cegeneric_exportCandidates:validated ? @[validated] : candidates fromContextMenu:fromContextMenu]; });
 }
 + (void)cegeneric_renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
     if (candidates.count) { [self cegeneric_renameCandidates:candidates sourceView:sourceView]; return; }
     CEConversationRecord *record = CEGenericFreshRecord(); if (record) { [self cegeneric_renameCandidates:@[record] sourceView:sourceView]; return; }
     NSArray<NSString *> *ids = CEGenericFreshCandidateIDs(); if (!ids.count || ![CEAPIClient shared].isReady) { [self cegeneric_renameCandidates:candidates sourceView:sourceView]; return; }
-    CEShowToast(@"正在识别会话…"); CEGenericValidateCandidateIDs(ids, ^(CEConversationRecord *validated) { [self cegeneric_renameCandidates:validated ? @[validated] : candidates sourceView:sourceView]; });
+    CEShowMessage(@"正在识别会话…"); CEGenericValidateCandidateIDs(ids, ^(CEConversationRecord *validated) { [self cegeneric_renameCandidates:validated ? @[validated] : candidates sourceView:sourceView]; });
 }
 @end
 
