@@ -6,6 +6,7 @@
 #import "../Core/CECore.h"
 #import "../Network/CEAPIClient.h"
 #import "../Network/CENetworkObserver.h"
+#import "CEOrphanedConversationRecovery.h"
 
 static NSDate *CEOrphanBackgroundDate = nil;
 static NSDate *CEOrphanForegroundDate = nil;
@@ -143,7 +144,7 @@ static UICollectionView *CEOrphanFindHistoryCollection(UIView *view, NSUInteger 
     return nil;
 }
 
-static BOOL CEOrphanReselectConversation(NSString *conversationID) {
+BOOL CEOrphanReselectConversation(NSString *conversationID) {
     if (!conversationID.length || (CEOrphanLastReselectAt && [NSDate.date timeIntervalSinceDate:CEOrphanLastReselectAt] < 20.0)) return NO;
     UIWindow *window = CEKeyWindow(); UIViewController *history = CEOrphanFindHistoryController(window.rootViewController, 0);
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
