@@ -35,6 +35,8 @@ static NSString *CEOrphanLastTargetSource = nil;
 static NSString *CEOrphanLastSoftRefreshState = nil;
 static NSString *CEOrphanConfirmedHistorySource = nil;
 static BOOL CEOrphanConfirmedHistoryStrong = NO;
+static NSString *CEOrphanLastNativeReplayState = nil;
+static NSUInteger CEOrphanNativeReplayGeneration = 0;
 
 static NSString *CEOrphanSafeDescription(id object) {
     if (!object) return @"<nil>";
@@ -280,7 +282,7 @@ static void CEOrphanHistoryDidSelect(id self, SEL _cmd, UICollectionView *collec
     CERecoveryDiagnosticMark(@"OFFICIAL HISTORY ROW SELECTED");
     CERecoveryDiagnosticLog(@"HISTORY-SELECT", @"didSelect index=%ld:%ld contextBefore=%@ collection=%@ dataSource=%@", (long)indexPath.section, (long)indexPath.item, contextBefore ?: @"<nil>", NSStringFromClass(collection.class), collection.dataSource ? NSStringFromClass([(id)collection.dataSource class]) : @"<nil>");
     if (CEOrphanOriginalHistoryDidSelectIMP) ((void (*)(id, SEL, id, id))CEOrphanOriginalHistoryDidSelectIMP)(self, _cmd, collection, indexPath);
-    for (NSNumber *delayValue in @[@0.20, @0.55, @1.10, @1.80, @2.60]) {
+    for (NSNumber *delayValue in @[@0.20, @0.55, @1.10, @1.80, @2.60, @4.50, @6.50]) {
         NSTimeInterval delay = delayValue.doubleValue;
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanConfirmHistorySelection(collection, indexPath, contextBefore, selectedAt, generation); });
     }
@@ -309,6 +311,87 @@ static UIViewController *CEOrphanFindHistoryController(UIViewController *vc, NSU
     if (vc.presentedViewController) { UIViewController *found = CEOrphanFindHistoryController(vc.presentedViewController, depth + 1); if (found) return found; }
     for (UIViewController *child in vc.childViewControllers) { UIViewController *found = CEOrphanFindHistoryController(child, depth + 1); if (found) return found; }
     return nil;
+}
+
+
+static BOOL CEOrphanControllerContainsMessages(UIViewController *vc, NSUInteger depth) {
+    if (!vc || depth > 16) return NO;
+    if ([NSStringFromClass(vc.class) isEqualToString:@"ChatGPTMessages.MessagesViewController"]) return YES;
+    for (UIViewController *child in vc.childViewControllers) if (CEOrphanControllerContainsMessages(child, depth + 1)) return YES;
+    return NO;
+}
+
+static UINavigationController *CEOrphanFindMessagesNavigationController(UIViewController *vc, NSUInteger depth) {
+    if (!vc || depth > 16) return nil;
+    if ([vc isKindOfClass:UINavigationController.class]) {
+        UINavigationController *nav = (UINavigationController *)vc;
+        UIViewController *top = nav.topViewController;
+        if (top && CEOrphanControllerContainsMessages(top, 0)) return nav;
+    }
+    if (vc.presentedViewController) { UINavigationController *found = CEOrphanFindMessagesNavigationController(vc.presentedViewController, depth + 1); if (found) return found; }
+    for (UIViewController *child in vc.childViewControllers) { UINavigationController *found = CEOrphanFindMessagesNavigationController(child, depth + 1); if (found) return found; }
+    return nil;
+}
+
+static NSString *CEOrphanNavigationStackDescription(UINavigationController *nav) {
+    if (!nav) return @"<nil>";
+    NSMutableArray<NSString *> *parts = [NSMutableArray array];
+    NSUInteger index = 0;
+    for (UIViewController *vc in nav.viewControllers) {
+        [parts addObject:[NSString stringWithFormat:@"%lu:%@%@", (unsigned long)index++, NSStringFromClass(vc.class), CEOrphanControllerContainsMessages(vc, 0) ? @"[Messages]" : @""]];
+    }
+    return [parts componentsJoinedByString:@" > "];
+}
+
+static void CEOrphanReplayCurrentNavigationRoute(NSString *conversationID, void (^completion)(BOOL success)) {
+    UIWindow *window = CEKeyWindow();
+    UINavigationController *nav = window ? CEOrphanFindMessagesNavigationController(window.rootViewController, 0) : nil;
+    UIViewController *top = nav.topViewController;
+    NSArray<UIViewController *> *stack = nav.viewControllers;
+    CERecoveryDiagnosticLog(@"NATIVE-REPLAY", @"prepare conversation=%@ nav=%@ count=%lu top=%@ stack=%@", conversationID ?: @"<nil>", nav ? NSStringFromClass(nav.class) : @"<nil>", (unsigned long)stack.count, top ? NSStringFromClass(top.class) : @"<nil>", CEOrphanNavigationStackDescription(nav));
+    if (!conversationID.length || !nav || !top || stack.count < 2 || !CEOrphanControllerContainsMessages(top, 0)) {
+        CEOrphanLastNativeReplayState = @"failed: active messages navigation route unavailable";
+        if (completion) completion(NO);
+        return;
+    }
+
+    NSUInteger generation = ++CEOrphanNativeReplayGeneration;
+    NSDate *startedAt = NSDate.date;
+    UIViewController *popped = [nav popViewControllerAnimated:NO];
+    if (popped != top) {
+        CEOrphanLastNativeReplayState = @"failed: could not pop exact current route";
+        CERecoveryDiagnosticLog(@"NATIVE-REPLAY", @"FAIL pop returned=%@ expected=%@", popped ? NSStringFromClass(popped.class) : @"<nil>", NSStringFromClass(top.class));
+        if (popped && ![nav.viewControllers containsObject:popped]) [nav pushViewController:popped animated:NO];
+        if (completion) completion(NO);
+        return;
+    }
+
+    CERecoveryDiagnosticLog(@"NATIVE-REPLAY", @"popped exact route; stackNow=%@", CEOrphanNavigationStackDescription(nav));
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.08 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (generation != CEOrphanNativeReplayGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) { if (![nav.viewControllers containsObject:top]) [nav pushViewController:top animated:NO]; return; }
+        [nav pushViewController:top animated:NO];
+        CEOrphanLastNativeReplayState = @"invoked: exact navigation route popped and pushed";
+        CERecoveryDiagnosticLog(@"NATIVE-REPLAY", @"pushed exact route; stackNow=%@", CEOrphanNavigationStackDescription(nav));
+
+        __block void (^verify)(NSUInteger) = nil;
+        verify = ^(NSUInteger pass) {
+            if (generation != CEOrphanNativeReplayGeneration) { verify = nil; return; }
+            BOOL detailSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
+            BOOL resumeSeen = CEOrphanRecentResumeRequestSince(startedAt);
+            CERecoveryDiagnosticLog(@"NATIVE-REPLAY", @"verify pass=%lu detailSeen=%@ resumeSeen=%@", (unsigned long)pass, detailSeen ? @"YES" : @"NO", resumeSeen ? @"YES" : @"NO");
+            if (detailSeen || resumeSeen) {
+                CEOrphanLastNativeReplayState = [NSString stringWithFormat:@"success: %@", detailSeen ? @"official detail request" : @"official resume request"];
+                if (completion) completion(YES); verify = nil; return;
+            }
+            if (pass >= 3) {
+                CEOrphanLastNativeReplayState = @"failed: route replay produced no official conversation transport";
+                if (completion) completion(NO); verify = nil; return;
+            }
+            NSTimeInterval delay = pass == 0 ? 0.35 : (pass == 1 ? 0.60 : 0.90);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (verify) verify(pass + 1); });
+        };
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (verify) verify(0); });
+    });
 }
 
 static UICollectionView *CEOrphanFindHistoryCollection(UIView *view, NSUInteger depth) {
@@ -416,7 +499,10 @@ static BOOL CEOrphanManualSelectCurrentHistoryItem(NSString *conversationID) {
 void CEOrphanRefreshConversation(NSString *conversationID, void (^completion)(BOOL success)) {
     CERecoveryDiagnosticMark(@"SOFT CURRENT CONVERSATION REFRESH");
     if (!conversationID.length) { CEOrphanLastSoftRefreshState = @"failed: missing conversation id"; if (completion) completion(NO); return; }
-    UIWindow *window = CEKeyWindow(); UIViewController *history = CEOrphanFindHistoryController(window.rootViewController, 0);
+    CEOrphanReplayCurrentNavigationRoute(conversationID, ^(BOOL nativeSuccess) {
+        if (nativeSuccess) { CEOrphanLastSoftRefreshState = @"success: native current route replay"; if (completion) completion(YES); return; }
+        CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"native current route replay unavailable; trying history target");
+        UIWindow *window = CEKeyWindow(); UIViewController *history = CEOrphanFindHistoryController(window.rootViewController, 0);
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     SEL selectSelector = NSSelectorFromString(@"collectionView:didSelectItemAtIndexPath:");
     if (!history || !collection || ![history respondsToSelector:selectSelector]) { CEOrphanLastSoftRefreshState = @"failed: history target unavailable"; CERecoveryDiagnosticLog(@"SOFT-REFRESH", @"FAIL history=%@ collection=%@ selector=%@", history ? @"YES" : @"NO", collection ? @"YES" : @"NO", [history respondsToSelector:selectSelector] ? @"YES" : @"NO"); if (completion) completion(NO); return; }
@@ -440,6 +526,7 @@ void CEOrphanRefreshConversation(NSString *conversationID, void (^completion)(BO
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (verify) verify(pass + 1); });
     };
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ if (verify) verify(0); });
+    });
 }
 
 static void CEOrphanManualReloadAttempt(NSString *conversationID, NSUInteger generation, NSUInteger attempt, void (^completion)(BOOL success)) {
@@ -472,11 +559,20 @@ void CEOrphanForceReloadConversation(NSString *conversationID, void (^completion
     if (!conversationID.length) { CEOrphanLastManualReloadState = @"failed: missing conversation id"; if (completion) completion(NO); return; }
     CEOrphanLastManualReloadState = @"running";
     CEOrphanInstallHistorySelectionCapture(0);
-    NSUInteger generation = ++CEOrphanManualReloadGeneration;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.28 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, 0, ^(BOOL success) {
-        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"completion success=%@ state=%@", success ? @"YES" : @"NO", CEOrphanLastManualReloadState ?: @"<nil>");
-        if (completion) completion(success);
-    }); });
+    CEOrphanReplayCurrentNavigationRoute(conversationID, ^(BOOL nativeSuccess) {
+        if (nativeSuccess) {
+            CEOrphanLastManualReloadState = @"success: exact current navigation route replay";
+            CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"completion success=YES state=%@", CEOrphanLastManualReloadState);
+            if (completion) completion(YES);
+            return;
+        }
+        CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"native replay failed; falling back to history replay");
+        NSUInteger generation = ++CEOrphanManualReloadGeneration;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.18 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, 0, ^(BOOL success) {
+            CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"completion success=%@ state=%@", success ? @"YES" : @"NO", CEOrphanLastManualReloadState ?: @"<nil>");
+            if (completion) completion(success);
+        }); });
+    });
 }
 
 static void CEOrphanCheckForStaleStream(NSDate *cutoff, void (^completion)(BOOL hasStaleStream)) {
@@ -588,13 +684,14 @@ NSString *CEOrphanedConversationRecoveryDiagnosticsSnapshot(void) {
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     id dataSource = collection.dataSource;
     NSMutableString *out = [NSMutableString string];
-    [out appendFormat:@"hookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu softRefreshGeneration=%lu\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedSource=%@\nconfirmedStrong=%@\nconfirmedIdentifierClass=%@\nconfirmedIdentifier=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
+    [out appendFormat:@"hookInstalled=%@ originalIMP=%p\nmanualReloadGeneration=%lu softRefreshGeneration=%lu\nlastManualReloadState=%@\nlastSoftRefreshState=%@\nlastNativeReplayState=%@\nlastTargetSource=%@\nconfirmedConversation=%@\nconfirmedIndex=%@\nconfirmedAge=%.3fs\nconfirmedSameCollection=%@\nconfirmedSource=%@\nconfirmedStrong=%@\nconfirmedIdentifierClass=%@\nconfirmedIdentifier=%@\nlastSidebarCandidate=%@\nwindow=%@\nhistoryController=%@ viewLoaded=%@ viewWindow=%@\ncollection=%@ dataSource=%@ sections=%ld selected=%@\ncontextConversation=%@",
         CEOrphanHistorySelectionHookInstalled ? @"YES" : @"NO",
         CEOrphanOriginalHistoryDidSelectIMP,
         (unsigned long)CEOrphanManualReloadGeneration,
         (unsigned long)CEOrphanSoftRefreshGeneration,
         CEOrphanLastManualReloadState ?: @"<nil>",
         CEOrphanLastSoftRefreshState ?: @"<nil>",
+        CEOrphanLastNativeReplayState ?: @"<nil>",
         CEOrphanLastTargetSource ?: @"<nil>",
         CEOrphanConfirmedHistoryConversationID ?: @"<nil>",
         CEOrphanConfirmedHistoryIndexPath ? [NSString stringWithFormat:@"%ld:%ld", (long)CEOrphanConfirmedHistoryIndexPath.section, (long)CEOrphanConfirmedHistoryIndexPath.item] : @"<nil>",
