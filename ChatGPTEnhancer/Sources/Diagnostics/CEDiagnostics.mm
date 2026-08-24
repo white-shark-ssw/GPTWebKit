@@ -285,16 +285,16 @@ static void CEAppendFocusedClass(NSMutableArray<NSString *> *out, Class cls, id 
     NSMutableArray<NSValue *> *ivarValues = [NSMutableArray arrayWithCapacity:ivarCount];
     for (unsigned int i = 0; i < ivarCount; i++) [ivarValues addObject:[NSValue valueWithPointer:ivars[i]]];
     [ivarValues sortUsingComparator:^NSComparisonResult(NSValue *a, NSValue *b) {
-        ptrdiff_t oa = ivar_getOffset([a pointerValue]), ob = ivar_getOffset([b pointerValue]);
+        ptrdiff_t oa = ivar_getOffset((Ivar)[a pointerValue]), ob = ivar_getOffset((Ivar)[b pointerValue]);
         return oa < ob ? NSOrderedAscending : (oa > ob ? NSOrderedDescending : NSOrderedSame);
     }];
     for (NSUInteger i = 0; i < ivarValues.count && out.count < 340; i++) {
-        Ivar ivar = [ivarValues[i] pointerValue];
+        Ivar ivar = (Ivar)[ivarValues[i] pointerValue];
         const char *rawName = ivar_getName(ivar); if (!rawName) continue;
         NSString *name = [NSString stringWithUTF8String:rawName];
         if (!CEFocusedName(name)) continue;
         ptrdiff_t offset = ivar_getOffset(ivar);
-        ptrdiff_t next = (i + 1 < ivarValues.count) ? ivar_getOffset([ivarValues[i + 1] pointerValue]) : (ptrdiff_t)class_getInstanceSize(cls);
+        ptrdiff_t next = (i + 1 < ivarValues.count) ? ivar_getOffset((Ivar)[ivarValues[i + 1] pointerValue]) : (ptrdiff_t)class_getInstanceSize(cls);
         ptrdiff_t span = next > offset ? next - offset : 0;
         const char *type = ivar_getTypeEncoding(ivar);
         NSString *extra = @"";
