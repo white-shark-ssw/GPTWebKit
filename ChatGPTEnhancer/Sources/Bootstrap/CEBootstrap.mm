@@ -8,21 +8,21 @@
 #import "../Diagnostics/CEDiagnostics.h"
 
 static void CEShowLoadedToastWhenReady(NSUInteger attempt) {
-    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha30-stream-state-probe 已加载"); return; }
+    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha31-native-reload 已加载"); return; }
     if (attempt >= 12) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(attempt + 1); });
 }
 
 static void CEStartEnhancer(void) {
     if (!CETargetApp()) return;
-    CERecoveryDiagnosticMark(@"PLUGIN START alpha30-stream-state-probe");
+    CERecoveryDiagnosticMark(@"PLUGIN START alpha31-native-reload");
     @try {
         [[CENetworkObserver shared] start];
         CEInstallActiveConversationDiagnostics();
         [[CECatalog shared] start];
         [[CEEnhancerUI shared] start];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(0); });
-        NSLog(@"[ChatGPTEnhancer] alpha30-stream-state-probe started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
+        NSLog(@"[ChatGPTEnhancer] alpha31-native-reload started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
     } @catch (NSException *exception) {
         NSLog(@"[ChatGPTEnhancer] startup exception: %@", exception);
     }
