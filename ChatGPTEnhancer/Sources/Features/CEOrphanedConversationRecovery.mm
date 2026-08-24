@@ -421,10 +421,9 @@ static void CEOrphanManualReloadAttempt(NSString *conversationID, NSUInteger gen
             if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
             BOOL requestSeen = CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt);
             CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"attempt=%lu verify requestSeen=%@ recentEvents=%lu", (unsigned long)attempt, requestSeen ? @"YES" : @"NO", (unsigned long)[CENetworkObserver shared].recentEvents.count);
-            if (requestSeen) { CEOrphanLastManualReloadState = [NSString stringWithFormat:@"success attempt=%lu requestSeen=YES", (unsigned long)attempt]; if (completion) completion(YES); return; }
-            if (attempt >= 5) { CEOrphanLastManualReloadState = @"failed: selection invoked but no official detail request"; CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL selection produced no official detail request"); NSLog(@"[ChatGPTEnhancer] manual reload selection produced no official conversation request for %@", conversationID); if (completion) completion(NO); return; }
-            CEOrphanActivateSidebar();
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
+            if (requestSeen) { CEOrphanLastManualReloadState = [NSString stringWithFormat:@"success attempt=%lu requestSeen=YES source=%@", (unsigned long)attempt, CEOrphanLastTargetSource ?: @"<nil>"]; if (completion) completion(YES); return; }
+            if (attempt >= 1) { CEOrphanLastManualReloadState = @"failed: exact history replay produced no official detail request"; CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"FAIL exact replay produced no official detail request"); NSLog(@"[ChatGPTEnhancer] manual reload exact replay produced no official conversation request for %@", conversationID); if (completion) completion(NO); return; }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.55 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
         });
         return;
     }
