@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha24 focused live view model + conversation internals diagnostics
+# alpha25 pre-navigation live view model snapshot; manual reload side effects disabled
 # alpha16 conversation tools
 # alpha17 unified messages
 
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha24-diagnostic
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha24-diagnostic.zip
+          name: ChatGPTEnhancer-0.1.0-alpha25-diagnostic
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha25-diagnostic.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha24-diagnostic-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha25-diagnostic-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
