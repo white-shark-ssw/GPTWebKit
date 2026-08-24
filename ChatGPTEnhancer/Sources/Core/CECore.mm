@@ -63,26 +63,63 @@ static UIViewController *CETopFrom(UIViewController *vc) {
 }
 UIViewController *CETopViewController(void) { return CETopFrom(CEKeyWindow().rootViewController); }
 
-void CEShowToast(NSString *message) {
+@interface CEMessageLabel : UILabel
+@end
+
+@implementation CEMessageLabel
+- (CGSize)intrinsicContentSize {
+    CGSize size = [super intrinsicContentSize];
+    return CGSizeMake(size.width + 28.0, size.height + 18.0);
+}
+- (void)drawTextInRect:(CGRect)rect { [super drawTextInRect:UIEdgeInsetsInsetRect(rect, UIEdgeInsetsMake(9, 14, 9, 14))]; }
+@end
+
+@interface CEMessagePresenter : NSObject
+@property (nonatomic, strong) CEMessageLabel *label;
+@property (nonatomic, weak) UIWindow *window;
+@property (nonatomic) NSUInteger generation;
++ (instancetype)shared;
+- (void)showMessage:(NSString *)message;
+@end
+
+@implementation CEMessagePresenter
++ (instancetype)shared { static CEMessagePresenter *v; static dispatch_once_t once; dispatch_once(&once, ^{ v = [CEMessagePresenter new]; }); return v; }
+- (CEMessageLabel *)label {
+    if (_label) return _label;
+    _label = [CEMessageLabel new];
+    _label.textColor = UIColor.whiteColor; _label.backgroundColor = [UIColor colorWithWhite:0 alpha:0.84];
+    _label.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium]; _label.textAlignment = NSTextAlignmentCenter; _label.numberOfLines = 3;
+    _label.layer.cornerRadius = 12; _label.layer.masksToBounds = YES; _label.translatesAutoresizingMaskIntoConstraints = NO;
+    return _label;
+}
+- (void)showMessage:(NSString *)message {
     if (!message.length) return;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *window = CEKeyWindow(); if (!window) return;
-        UILabel *label = [[UILabel alloc] initWithFrame:CGRectZero];
-        label.text = message; label.textColor = UIColor.whiteColor; label.backgroundColor = [UIColor colorWithWhite:0 alpha:0.82];
-        label.font = [UIFont systemFontOfSize:13 weight:UIFontWeightMedium]; label.textAlignment = NSTextAlignmentCenter; label.numberOfLines = 2;
-        label.layer.cornerRadius = 11; label.layer.masksToBounds = YES; label.translatesAutoresizingMaskIntoConstraints = NO;
-        [window addSubview:label];
-        [NSLayoutConstraint activateConstraints:@[
-            [label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor],
-            [label.bottomAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.bottomAnchor constant:-28],
-            [label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.82],
-            [label.heightAnchor constraintGreaterThanOrEqualToConstant:38]
-        ]];
-        label.layoutMargins = UIEdgeInsetsMake(8, 14, 8, 14);
-        [UIView animateWithDuration:0.18 animations:^{ label.alpha = 1; } completion:^(__unused BOOL finished) {
-            [UIView animateWithDuration:0.2 delay:1.4 options:UIViewAnimationOptionCurveEaseInOut animations:^{ label.alpha = 0; } completion:^(__unused BOOL finished2) { [label removeFromSuperview]; }];
+    UIWindow *window = CEKeyWindow(); if (!window) return;
+    NSUInteger generation = ++self.generation;
+    CEMessageLabel *label = self.label; label.text = message;
+    if (label.superview != window) { [label removeFromSuperview]; [window addSubview:label]; self.window = window; }
+    [NSLayoutConstraint deactivateConstraints:label.constraints];
+    CGFloat upward = -MIN(MAX(CGRectGetHeight(window.bounds) * 0.08, 40.0), 75.0);
+    [NSLayoutConstraint activateConstraints:@[
+        [label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor],
+        [label.centerYAnchor constraintEqualToAnchor:window.centerYAnchor constant:upward],
+        [label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.84],
+        [label.heightAnchor constraintGreaterThanOrEqualToConstant:40]
+    ]];
+    [window bringSubviewToFront:label];
+    [label.layer removeAllAnimations]; label.alpha = 1.0;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.65 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (generation != self.generation) return;
+        [UIView animateWithDuration:0.22 animations:^{ label.alpha = 0; } completion:^(__unused BOOL finished) {
+            if (generation == self.generation) [label removeFromSuperview];
         }];
     });
+}
+@end
+
+void CEShowMessage(NSString *message) {
+    if (!message.length) return;
+    dispatch_async(dispatch_get_main_queue(), ^{ [[CEMessagePresenter shared] showMessage:message]; });
 }
 
 void CEShowAlert(NSString *title, NSString *message) {
