@@ -1,8 +1,7 @@
 name: Build ChatGPTEnhancer
-# alpha32 keeps the now-working exact-current manual reload, renames the visible action, and hides the full-diagnostics menu item
-# alpha30 stream-state diagnostics remain included internally for future stuck-thinking regressions
-# alpha16 conversation tools
-# alpha17 unified messages
+# alpha33 removes automatic heavy runtime probes from app lifecycle transitions and only checks the server after backgrounding with a tracked conversation stream
+# exact-current manual reload remains enabled; route/history/sidebar automation remains disabled
+# diagnostic implementations stay in the binary for manual investigation
 
 on:
   workflow_dispatch:
@@ -38,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha32-ui-cleanup
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha32-ui-cleanup.zip
+          name: ChatGPTEnhancer-0.1.0-alpha33-lifecycle-stability
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha33-lifecycle-stability.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha32-ui-cleanup-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha33-lifecycle-stability-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
