@@ -244,15 +244,6 @@ static NSArray<NSString *> *CENavigationRouterClasses(void) {
 }
 
 
-static id CEHeapObjectPointer(uintptr_t bits) {
-    if (!bits || (bits & (sizeof(void *) - 1)) != 0) return nil;
-    void *ptr = (void *)bits;
-    if (!malloc_zone_from_ptr(ptr)) return nil;
-    Class cls = object_getClass((__bridge id)ptr);
-    if (!cls || !class_getName(cls)) return nil;
-    return (__bridge id)ptr;
-}
-
 static BOOL CEFocusedName(NSString *name) {
     NSString *lower = name.lowercaseString;
     NSArray<NSString *> *needles = @[@"viewmodel", @"coordinator", @"conversation", @"repository", @"stream", @"resume", @"recover", @"refresh", @"reload", @"fetch", @"load", @"reset", @"manager", @"router", @"route", @"state", @"api", @"service", @"provider"];
@@ -302,11 +293,16 @@ static void CEAppendFocusedClass(NSMutableArray<NSString *> *out, Class cls, id 
         ptrdiff_t span = next > offset ? next - offset : 0;
         const char *type = ivar_getTypeEncoding(ivar);
         NSString *extra = @"";
-        if (object && span >= (ptrdiff_t)sizeof(uintptr_t)) {
-            uintptr_t bits = 0; memcpy(&bits, (uint8_t *)(__bridge void *)object + offset, sizeof(bits));
-            id candidate = CEHeapObjectPointer(bits);
-            if (candidate) extra = [NSString stringWithFormat:@" raw=0x%llx objectClass=%@ object=%@", (unsigned long long)bits, NSStringFromClass([candidate class]), CECompactObjectDescription(candidate)];
-            else extra = [NSString stringWithFormat:@" raw=0x%llx", (unsigned long long)bits];
+        if (object && span > 0 && offset >= 0) {
+            size_t rawLength = (size_t)MIN((ptrdiff_t)16, span);
+            NSMutableString *hex = [NSMutableString stringWithCapacity:rawLength * 2];
+            const uint8_t *raw = (const uint8_t *)(__bridge const void *)object + offset;
+            for (size_t j = 0; j < rawLength; j++) [hex appendFormat:@"%02x", raw[j]];
+            extra = [NSString stringWithFormat:@" rawBytes=%@", hex];
+            if (type && type[0] == '@') {
+                id value = nil; @try { value = object_getIvar(object, ivar); } @catch (__unused NSException *exception) {}
+                if (value) extra = [extra stringByAppendingFormat:@" objectClass=%@ object=%@", NSStringFromClass([value class]), CECompactObjectDescription(value)];
+            }
         }
         [out addObject:[NSString stringWithFormat:@"  ivar %@ | %s offset=0x%tx span=%td%@", name, type ?: "", offset, span, extra]];
     }
@@ -315,11 +311,10 @@ static void CEAppendFocusedClass(NSMutableArray<NSString *> *out, Class cls, id 
 
 static id CEObjectField(id object, const char *fieldName) {
     if (!object || !fieldName) return nil;
-    Ivar ivar = class_getInstanceVariable([object class], fieldName);
-    if (!ivar) return nil;
-    ptrdiff_t offset = ivar_getOffset(ivar);
-    uintptr_t bits = 0; memcpy(&bits, (uint8_t *)(__bridge void *)object + offset, sizeof(bits));
-    return CEHeapObjectPointer(bits);
+    Ivar ivar = class_getInstanceVariable([object class], fieldName); if (!ivar) return nil;
+    const char *type = ivar_getTypeEncoding(ivar); if (!type || type[0] != '@') return nil;
+    id value = nil; @try { value = object_getIvar(object, ivar); } @catch (__unused NSException *exception) {}
+    return value;
 }
 
 static NSArray<Class> *CEFocusedRuntimeClasses(void) {
@@ -345,8 +340,6 @@ static NSArray<Class> *CEFocusedRuntimeClasses(void) {
     return out;
 }
 
-static void CEAppendFocusedPointerGraph(NSMutableArray<NSString *> *out, id root, NSString *label);
-
 static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     UIViewController *messages = CEFindViewControllerContainingClassName(CEKeyWindow().rootViewController, @"ChatGPTMessages.MessagesViewController", 0);
@@ -355,13 +348,20 @@ static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
 
     Ivar vmIvar = class_getInstanceVariable(messages.class, "viewModel");
     if (vmIvar) {
-        ptrdiff_t offset = ivar_getOffset(vmIvar); uintptr_t bits = 0;
-        memcpy(&bits, (uint8_t *)(__bridge void *)messages + offset, sizeof(bits));
-        id vm = CEHeapObjectPointer(bits);
-        [out addObject:[NSString stringWithFormat:@"messages.viewModel offset=0x%tx raw=0x%llx resolved=%@ ptr=%p", offset, (unsigned long long)bits, vm ? NSStringFromClass([vm class]) : @"<nil>", vm]];
+        ptrdiff_t offset = ivar_getOffset(vmIvar); const char *vmType = ivar_getTypeEncoding(vmIvar);
+        uintptr_t rawSlot = 0; memcpy(&rawSlot, (uint8_t *)(__bridge void *)messages + offset, sizeof(rawSlot));
+        id vm = nil;
+        SEL getter = NSSelectorFromString(@"viewModel");
+        Method getterMethod = class_getInstanceMethod(messages.class, getter);
+        if (getterMethod) {
+            char *returnType = method_copyReturnType(getterMethod);
+            if (returnType && returnType[0] == '@') { @try { vm = ((id (*)(id, SEL))objc_msgSend)(messages, getter); } @catch (__unused NSException *exception) {} }
+            if (returnType) free(returnType);
+        }
+        if (!vm && vmType && vmType[0] == '@') { @try { vm = object_getIvar(messages, vmIvar); } @catch (__unused NSException *exception) {} }
+        [out addObject:[NSString stringWithFormat:@"messages.viewModel offset=0x%tx type=%s rawSlot=0x%llx safeResolved=%@ ptr=%p", offset, vmType ?: "", (unsigned long long)rawSlot, vm ? NSStringFromClass([vm class]) : @"<nil>", vm]];
         if (vm) {
             CEAppendFocusedClass(out, [vm class], vm, @"MESSAGES-VM");
-            CEAppendFocusedPointerGraph(out, vm, @"MESSAGES-VM");
             NSArray<NSString *> *childNames = @[@"coordinator", @"conversationCoordinator", @"repository", @"conversationRepository", @"conversation", @"state", @"stream", @"finalStream", @"rootViewModel", @"conversationRootViewModel", @"resetManager"];
             NSMutableSet<NSValue *> *seen = [NSMutableSet set];
             for (NSString *childName in childNames) {
@@ -379,32 +379,6 @@ static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
     return out;
 }
 
-
-static BOOL CEFocusedInterestingObjectClass(Class cls) {
-    if (!cls) return NO;
-    NSString *lower = NSStringFromClass(cls).lowercaseString;
-    NSArray<NSString *> *needles = @[@"conversation", @"message", @"viewmodel", @"coordinator", @"repository", @"stream", @"recover", @"resume", @"state", @"reset", @"router", @"route", @"api", @"service", @"provider"];
-    for (NSString *needle in needles) if ([lower containsString:needle]) return YES;
-    return NO;
-}
-
-static void CEAppendFocusedPointerGraph(NSMutableArray<NSString *> *out, id root, NSString *label) {
-    if (!root || out.count >= 340) return;
-    size_t allocationSize = malloc_size((__bridge const void *)root);
-    size_t scanSize = MIN(allocationSize, (size_t)0x700);
-    if (scanSize < sizeof(uintptr_t)) return;
-    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
-    for (size_t offset = 0; offset + sizeof(uintptr_t) <= scanSize && out.count < 340; offset += sizeof(uintptr_t)) {
-        uintptr_t bits = 0; memcpy(&bits, (uint8_t *)(__bridge void *)root + offset, sizeof(bits));
-        id child = CEHeapObjectPointer(bits); if (!child || child == root) continue;
-        Class cls = [child class]; if (!CEFocusedInterestingObjectClass(cls)) continue;
-        NSValue *key = [NSValue valueWithPointer:(__bridge const void *)child]; if ([seen containsObject:key]) continue; [seen addObject:key];
-        NSString *childLabel = [NSString stringWithFormat:@"%@+0x%zx", label ?: @"ROOT", offset];
-        [out addObject:[NSString stringWithFormat:@"%@ -> %@ ptr=%p object=%@", childLabel, NSStringFromClass(cls), child, CECompactObjectDescription(child)]];
-        CEAppendFocusedClass(out, cls, child, childLabel);
-        if (seen.count >= 24) break;
-    }
-}
 
 void CECaptureFocusedActiveConversationDiagnostics(NSString *reason) {
     void (^capture)(void) = ^{
