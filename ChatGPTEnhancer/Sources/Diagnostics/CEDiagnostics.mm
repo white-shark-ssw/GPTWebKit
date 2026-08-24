@@ -1,4 +1,7 @@
 #import "CEDiagnostics.h"
+#import "CERecoveryDiagnostics.h"
+#import "../Features/CEForegroundStreamRecovery.h"
+#import "../Features/CEOrphanedConversationRecovery.h"
 #import "../Core/CECore.h"
 #import "../Network/CENetworkObserver.h"
 #import "../Storage/CECatalog.h"
@@ -167,7 +170,11 @@ NSString *CEDiagnosticsReport(UIView *sourceView, NSString *contextIdentifier) {
     NSURLSession *session = observer.requestSession;
 
     [report appendFormat:@"ChatGPTEnhancer diagnostics\nversion=%@\napp=%@ %@\nbundle=%@\niOS=%@\n\n", CEVersion, [bundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"?", [bundle objectForInfoDictionaryKey:@"CFBundleVersion"] ?: @"?", bundle.bundleIdentifier ?: @"?", UIDevice.currentDevice.systemVersion];
-    [report appendFormat:@"[Context]\nconversationID=%@\ntitle=%@\ncontextMenuIdentifier=%@\n\n", ctx.conversationID ?: @"<nil>", ctx.title ?: @"<nil>", contextIdentifier ?: @"<nil>"];
+    [report appendFormat:@"[Context]\nconversationID=%@\ntitle=%@\ncontextMenuIdentifier=%@\ncontextUpdatedAt=%@\ncontextAge=%.3fs\nappState=%ld\n\n", ctx.conversationID ?: @"<nil>", ctx.title ?: @"<nil>", contextIdentifier ?: @"<nil>", ctx.updatedAt ?: (id)@"<nil>", ctx.updatedAt ? [NSDate.date timeIntervalSinceDate:ctx.updatedAt] : -1.0, (long)UIApplication.sharedApplication.applicationState];
+
+    [report appendFormat:@"[Foreground stream recovery live state]\n%@\n\n", CEForegroundStreamRecoveryDiagnosticsSnapshot()];
+    [report appendFormat:@"[Full reload live state]\n%@\n\n", CEOrphanedConversationRecoveryDiagnosticsSnapshot()];
+    [report appendFormat:@"[Recovery event journal]\n%@\n\n", CERecoveryDiagnosticsReport()];
 
     NSArray *headerKeys = [[request.allHTTPHeaderFields allKeys] sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
     NSDictionary *additional = session.configuration.HTTPAdditionalHeaders;
