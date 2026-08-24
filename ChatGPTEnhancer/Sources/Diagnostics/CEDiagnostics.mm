@@ -140,6 +140,186 @@ static NSArray<NSString *> *CERuntimeDetails(void) {
     return out;
 }
 
+
+static NSString *CECompactObjectDescription(id object) {
+    if (!object) return @"<nil>";
+    NSString *value = nil;
+    @try { value = [object description]; } @catch (__unused NSException *exception) {}
+    if (!value.length) value = [NSString stringWithFormat:@"<%@>", NSStringFromClass([object class])];
+    value = [value stringByReplacingOccurrencesOfString:@"\n" withString:@" "];
+    if (value.length > 360) value = [[value substringToIndex:360] stringByAppendingString:@"…"];
+    return value;
+}
+
+static UIViewController *CEFindViewControllerContainingClassName(UIViewController *vc, NSString *needle, NSUInteger depth) {
+    if (!vc || !needle.length || depth > 16) return nil;
+    if ([NSStringFromClass(vc.class) containsString:needle]) return vc;
+    if (vc.presentedViewController) {
+        UIViewController *found = CEFindViewControllerContainingClassName(vc.presentedViewController, needle, depth + 1);
+        if (found) return found;
+    }
+    for (UIViewController *child in vc.childViewControllers) {
+        UIViewController *found = CEFindViewControllerContainingClassName(child, needle, depth + 1);
+        if (found) return found;
+    }
+    return nil;
+}
+
+static BOOL CESelectorLooksRelevant(NSString *name) {
+    NSString *lower = name.lowercaseString;
+    NSArray<NSString *> *needles = @[@"conversation", @"message", @"coordinator", @"reload", @"refresh", @"resume", @"recover", @"load", @"update", @"state", @"viewmodel", @"repository", @"configure", @"navigation", @"route", @"appear", @"stream", @"fetch"];
+    for (NSString *needle in needles) if ([lower containsString:needle]) return YES;
+    return NO;
+}
+
+static void CEAppendRuntimeClassDetails(NSMutableArray<NSString *> *out, Class cls, id object, NSString *label) {
+    if (!cls || out.count > 420) return;
+    [out addObject:[NSString stringWithFormat:@"%@ class=%@ ptr=%p instanceSize=%zu", label ?: @"object", NSStringFromClass(cls), object, class_getInstanceSize(cls)]];
+    Class cursor = cls;
+    for (NSUInteger depth = 0; cursor && depth < 5 && out.count < 420; depth++, cursor = class_getSuperclass(cursor)) {
+        [out addObject:[NSString stringWithFormat:@"  CLASS[%lu] %@ size=%zu", (unsigned long)depth, NSStringFromClass(cursor), class_getInstanceSize(cursor)]];
+        unsigned int methodCount = 0;
+        Method *methods = class_copyMethodList(cursor, &methodCount);
+        NSUInteger emittedMethods = 0;
+        for (unsigned int i = 0; i < methodCount && emittedMethods < 90 && out.count < 420; i++) {
+            NSString *selName = NSStringFromSelector(method_getName(methods[i]));
+            if (!CESelectorLooksRelevant(selName) && methodCount > 40) continue;
+            const char *types = method_getTypeEncoding(methods[i]);
+            [out addObject:[NSString stringWithFormat:@"    - %@ | %s", selName, types ?: ""]];
+            emittedMethods++;
+        }
+        free(methods);
+
+        unsigned int propertyCount = 0;
+        objc_property_t *properties = class_copyPropertyList(cursor, &propertyCount);
+        for (unsigned int i = 0; i < propertyCount && i < 64 && out.count < 420; i++) {
+            const char *name = property_getName(properties[i]); const char *attrs = property_getAttributes(properties[i]);
+            [out addObject:[NSString stringWithFormat:@"    property %s | %s", name ?: "", attrs ?: ""]];
+        }
+        free(properties);
+
+        unsigned int ivarCount = 0;
+        Ivar *ivars = class_copyIvarList(cursor, &ivarCount);
+        for (unsigned int i = 0; i < ivarCount && i < 64 && out.count < 420; i++) {
+            Ivar ivar = ivars[i];
+            const char *name = ivar_getName(ivar); const char *type = ivar_getTypeEncoding(ivar);
+            ptrdiff_t offset = ivar_getOffset(ivar);
+            NSString *suffix = @"";
+            if (object && type && type[0] == '@') {
+                id value = nil;
+                @try { value = object_getIvar(object, ivar); } @catch (__unused NSException *exception) {}
+                if (value) suffix = [NSString stringWithFormat:@" valueClass=%@ value=%@", NSStringFromClass([value class]), CECompactObjectDescription(value)];
+            }
+            [out addObject:[NSString stringWithFormat:@"    ivar %s | %s offset=0x%tx%@", name ?: "", type ?: "", offset, suffix]];
+        }
+        free(ivars);
+    }
+}
+
+static NSArray<NSString *> *CENavigationRouterClasses(void) {
+    int count = objc_getClassList(NULL, 0);
+    if (count <= 0) return @[];
+    Class *classes = (Class *)calloc((size_t)count, sizeof(Class));
+    count = objc_getClassList(classes, count);
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    NSString *bundlePath = NSBundle.mainBundle.bundlePath ?: @"";
+    NSArray<NSString *> *needles = @[@"router", @"route", @"deeplink", @"navigationdestination", @"conversationroot", @"sidemenu"];
+    for (int i = 0; i < count && out.count < 120; i++) {
+        Class cls = classes[i]; const char *rawName = class_getName(cls); const char *rawImage = class_getImageName(cls);
+        if (!rawName || !rawImage) continue;
+        NSString *name = [NSString stringWithUTF8String:rawName];
+        NSString *image = [NSString stringWithUTF8String:rawImage];
+        if (bundlePath.length && ![image hasPrefix:bundlePath]) continue;
+        NSString *lower = name.lowercaseString; BOOL match = NO;
+        for (NSString *needle in needles) if ([lower containsString:needle]) { match = YES; break; }
+        if (match) [out addObject:[NSString stringWithFormat:@"%@ | %@", name, image.lastPathComponent]];
+    }
+    free(classes);
+    return [out sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
+}
+
+static NSArray<NSString *> *CEActiveConversationRuntimeDetails(void) {
+    NSMutableArray<NSString *> *out = [NSMutableArray array];
+    UIWindow *window = CEKeyWindow();
+    UIViewController *root = window.rootViewController;
+    UIViewController *messages = CEFindViewControllerContainingClassName(root, @"ChatGPTMessages.MessagesViewController", 0);
+    UIViewController *collection = messages ? CEFindViewControllerContainingClassName(messages, @"ChatCollectionViewController", 0) : nil;
+    [out addObject:[NSString stringWithFormat:@"window=%@ root=%@ messages=%@ ptr=%p collectionVC=%@ ptr=%p", window ? NSStringFromClass(window.class) : @"<nil>", root ? NSStringFromClass(root.class) : @"<nil>", messages ? NSStringFromClass(messages.class) : @"<nil>", messages, collection ? NSStringFromClass(collection.class) : @"<nil>", collection]];
+    if (messages) {
+        NSMutableArray<NSString *> *parents = [NSMutableArray array];
+        UIViewController *cursor = messages;
+        for (NSUInteger i = 0; cursor && i < 10; i++, cursor = cursor.parentViewController) [parents addObject:[NSString stringWithFormat:@"%lu:%@[%p]", (unsigned long)i, NSStringFromClass(cursor.class), cursor]];
+        [out addObject:[NSString stringWithFormat:@"messagesParentChain=%@", [parents componentsJoinedByString:@" > "]]];
+        CEAppendRuntimeClassDetails(out, messages.class, messages, @"MESSAGES");
+    }
+    if (collection) CEAppendRuntimeClassDetails(out, collection.class, collection, @"COLLECTION");
+    NSDictionary *info = NSBundle.mainBundle.infoDictionary ?: @{};
+    [out addObject:[NSString stringWithFormat:@"CFBundleURLTypes=%@", info[@"CFBundleURLTypes"] ?: @"<nil>"]];
+    [out addObject:[NSString stringWithFormat:@"UIApplicationQueriesSchemes=%@", info[@"LSApplicationQueriesSchemes"] ?: @"<nil>"]];
+    return out;
+}
+
+static IMP CEMessagesOriginalViewDidLoad = NULL;
+static IMP CEMessagesOriginalViewWillAppear = NULL;
+static IMP CEMessagesOriginalViewDidAppear = NULL;
+static IMP CEMessagesOriginalViewWillDisappear = NULL;
+static IMP CEMessagesOriginalViewDidDisappear = NULL;
+
+static void CEMessagesDiagViewDidLoad(id self, SEL _cmd) {
+    if (CEMessagesOriginalViewDidLoad) ((void (*)(id, SEL))CEMessagesOriginalViewDidLoad)(self, _cmd);
+    CERecoveryDiagnosticLog(@"MSG-LIFECYCLE", @"viewDidLoad self=%p class=%@ parent=%@ context=%@", self, NSStringFromClass([self class]), [self parentViewController] ? NSStringFromClass([[self parentViewController] class]) : @"<nil>", [CEConversationContext shared].conversationID ?: @"<nil>");
+}
+static void CEMessagesDiagViewWillAppear(id self, SEL _cmd, BOOL animated) {
+    CERecoveryDiagnosticLog(@"MSG-LIFECYCLE", @"viewWillAppear self=%p animated=%@ context=%@", self, animated ? @"YES" : @"NO", [CEConversationContext shared].conversationID ?: @"<nil>");
+    if (CEMessagesOriginalViewWillAppear) ((void (*)(id, SEL, BOOL))CEMessagesOriginalViewWillAppear)(self, _cmd, animated);
+}
+static void CEMessagesDiagViewDidAppear(id self, SEL _cmd, BOOL animated) {
+    if (CEMessagesOriginalViewDidAppear) ((void (*)(id, SEL, BOOL))CEMessagesOriginalViewDidAppear)(self, _cmd, animated);
+    CERecoveryDiagnosticLog(@"MSG-LIFECYCLE", @"viewDidAppear self=%p animated=%@ context=%@", self, animated ? @"YES" : @"NO", [CEConversationContext shared].conversationID ?: @"<nil>");
+}
+static void CEMessagesDiagViewWillDisappear(id self, SEL _cmd, BOOL animated) {
+    CERecoveryDiagnosticLog(@"MSG-LIFECYCLE", @"viewWillDisappear self=%p animated=%@ context=%@", self, animated ? @"YES" : @"NO", [CEConversationContext shared].conversationID ?: @"<nil>");
+    if (CEMessagesOriginalViewWillDisappear) ((void (*)(id, SEL, BOOL))CEMessagesOriginalViewWillDisappear)(self, _cmd, animated);
+}
+static void CEMessagesDiagViewDidDisappear(id self, SEL _cmd, BOOL animated) {
+    if (CEMessagesOriginalViewDidDisappear) ((void (*)(id, SEL, BOOL))CEMessagesOriginalViewDidDisappear)(self, _cmd, animated);
+    CERecoveryDiagnosticLog(@"MSG-LIFECYCLE", @"viewDidDisappear self=%p animated=%@ context=%@", self, animated ? @"YES" : @"NO", [CEConversationContext shared].conversationID ?: @"<nil>");
+}
+
+static BOOL CEInstallMessagesLifecycleMethod(Class cls, SEL selector, IMP replacement, IMP *originalOut) {
+    Method inherited = class_getInstanceMethod(cls, selector);
+    if (!inherited) return NO;
+    IMP original = method_getImplementation(inherited); const char *types = method_getTypeEncoding(inherited);
+    if (originalOut) *originalOut = original;
+    if (class_addMethod(cls, selector, replacement, types)) return YES;
+    Method local = class_getInstanceMethod(cls, selector);
+    if (!local) return NO;
+    method_setImplementation(local, replacement);
+    return YES;
+}
+
+static void CEInstallActiveConversationDiagnosticsAttempt(NSUInteger attempt) {
+    static BOOL installed = NO;
+    if (installed) return;
+    Class cls = NSClassFromString(@"ChatGPTMessages.MessagesViewController");
+    if (!cls) {
+        if (attempt < 30) dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEInstallActiveConversationDiagnosticsAttempt(attempt + 1); });
+        return;
+    }
+    BOOL ok = YES;
+    ok &= CEInstallMessagesLifecycleMethod(cls, @selector(viewDidLoad), (IMP)CEMessagesDiagViewDidLoad, &CEMessagesOriginalViewDidLoad);
+    ok &= CEInstallMessagesLifecycleMethod(cls, @selector(viewWillAppear:), (IMP)CEMessagesDiagViewWillAppear, &CEMessagesOriginalViewWillAppear);
+    ok &= CEInstallMessagesLifecycleMethod(cls, @selector(viewDidAppear:), (IMP)CEMessagesDiagViewDidAppear, &CEMessagesOriginalViewDidAppear);
+    ok &= CEInstallMessagesLifecycleMethod(cls, @selector(viewWillDisappear:), (IMP)CEMessagesDiagViewWillDisappear, &CEMessagesOriginalViewWillDisappear);
+    ok &= CEInstallMessagesLifecycleMethod(cls, @selector(viewDidDisappear:), (IMP)CEMessagesDiagViewDidDisappear, &CEMessagesOriginalViewDidDisappear);
+    installed = ok;
+    CERecoveryDiagnosticLog(@"MSG-HOOK", @"installed=%@ class=%@", ok ? @"YES" : @"NO", NSStringFromClass(cls));
+}
+
+void CEInstallActiveConversationDiagnostics(void) {
+    dispatch_async(dispatch_get_main_queue(), ^{ CEInstallActiveConversationDiagnosticsAttempt(0); });
+}
+
 static NSArray<NSString *> *CEBundledImages(void) {
     NSMutableArray<NSString *> *out = [NSMutableArray array];
     NSString *bundlePath = NSBundle.mainBundle.bundlePath ?: @"";
@@ -200,6 +380,11 @@ NSString *CEDiagnosticsReport(UIView *sourceView, NSString *contextIdentifier) {
     [report appendFormat:@"\n[Source view chain]\n%@\n", sourceView ? CEViewChain(sourceView) : @"<nil>"];
     NSMutableArray<NSString *> *vcLines = [NSMutableArray array]; CEAppendViewControllerTree(window.rootViewController, 0, vcLines);
     [report appendFormat:@"\n[View controllers]\n%@\n", [vcLines componentsJoinedByString:@"\n"]];
+
+    [report appendString:@"\n[Active conversation runtime]\n"];
+    for (NSString *line in CEActiveConversationRuntimeDetails()) [report appendFormat:@"%@\n", line];
+    [report appendString:@"\n[Navigation/router runtime classes]\n"];
+    for (NSString *line in CENavigationRouterClasses()) [report appendFormat:@"%@\n", line];
 
     [report appendString:@"\n[Database candidates]\n"];
     for (NSString *line in CEDatabaseCandidates()) [report appendFormat:@"%@\n", line];
