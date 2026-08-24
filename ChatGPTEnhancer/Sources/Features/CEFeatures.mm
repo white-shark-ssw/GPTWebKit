@@ -228,7 +228,10 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
     NSString *conversationID = [CEConversationContext shared].conversationID;
     if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
     CEShowMessage(@"正在重载当前会话…");
-    if (!CEOrphanForceReloadConversation(conversationID)) CEShowMessage(@"当前会话暂时无法重载，请稍后再试。");
+    CEOrphanForceReloadConversation(conversationID, ^(BOOL success) {
+        if (success) CEShowMessage(@"已重新加载当前会话。");
+        else CEShowMessage(@"当前会话暂时无法重载，请稍后再试。");
+    });
 }
 
 + (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
