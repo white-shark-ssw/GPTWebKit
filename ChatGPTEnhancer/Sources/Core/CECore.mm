@@ -2,7 +2,7 @@
 #import <objc/runtime.h>
 
 NSString * const CEBundleIdentifier = @"com.openai.chat";
-NSString * const CEVersion = @"0.1.0-alpha25-diagnostic";
+NSString * const CEVersion = @"0.1.0-alpha26-diagnostic";
 NSString * const CEConversationContextDidChangeNotification = @"ChatGPTEnhancer.ConversationContextDidChange";
 NSString * const CENetworkTemplateDidChangeNotification = @"ChatGPTEnhancer.NetworkTemplateDidChange";
 NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidChange";
