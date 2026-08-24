@@ -5,8 +5,6 @@
 #import <objc/runtime.h>
 #import <malloc/malloc.h>
 #import <dlfcn.h>
-#import <mach/mach.h>
-#import <mach/mach_vm.h>
 #import <mach-o/dyld.h>
 #import <mach-o/loader.h>
 #import <mach-o/nlist.h>
@@ -45,22 +43,13 @@ static Class CEProbeHeapClass(uintptr_t bits, size_t *allocationOut) {
     return (__bridge Class)(const void *)classBits;
 }
 
-static BOOL CEProbeReadable(uintptr_t address, size_t length) {
-    if (!address || !length) return NO;
-    mach_vm_address_t region = (mach_vm_address_t)address; mach_vm_size_t size = 0; vm_region_basic_info_data_64_t info = {0}; mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64; mach_port_t object = MACH_PORT_NULL;
-    kern_return_t kr = mach_vm_region(mach_task_self(), &region, &size, VM_REGION_BASIC_INFO_64, (vm_region_info_t)&info, &count, &object);
-    if (kr != KERN_SUCCESS || !(info.protection & VM_PROT_READ) || region > address) return NO;
-    uintptr_t end = address + length; if (end < address) return NO;
-    return end <= (uintptr_t)(region + size);
-}
-
-static BOOL CEProbePointerInBundleSegment(uintptr_t pointer, vm_prot_t required, NSString **imageName, uintptr_t *imageOffset) {
-    NSString *bundlePath = NSBundle.mainBundle.bundlePath ?: @"";
-    uint32_t imageCount = _dyld_image_count();
+static BOOL CEProbeRangeInBundleSegment(uintptr_t pointer, size_t length, vm_prot_t required, NSString **imageName, uintptr_t *imageOffset) {
+    if (!pointer || !length) return NO;
+    uintptr_t requestedEnd = pointer + length; if (requestedEnd < pointer) return NO;
+    NSString *bundlePath = NSBundle.mainBundle.bundlePath ?: @""; uint32_t imageCount = _dyld_image_count();
     for (uint32_t i = 0; i < imageCount; i++) {
-        const char *rawPath = _dyld_get_image_name(i); const struct mach_header *header32 = _dyld_get_image_header(i); if (!rawPath || !header32) continue;
+        const char *rawPath = _dyld_get_image_name(i); const struct mach_header *header32 = _dyld_get_image_header(i); if (!rawPath || !header32 || header32->magic != MH_MAGIC_64) continue;
         NSString *path = [NSString stringWithUTF8String:rawPath]; if (bundlePath.length && ![path hasPrefix:bundlePath]) continue;
-        if (header32->magic != MH_MAGIC_64) continue;
         const struct mach_header_64 *header = (const struct mach_header_64 *)header32; intptr_t slide = _dyld_get_image_vmaddr_slide(i); const uint8_t *cursor = (const uint8_t *)(header + 1);
         for (uint32_t c = 0; c < header->ncmds; c++) {
             const struct load_command *lc = (const struct load_command *)cursor;
@@ -68,13 +57,19 @@ static BOOL CEProbePointerInBundleSegment(uintptr_t pointer, vm_prot_t required,
                 const struct segment_command_64 *segment = (const struct segment_command_64 *)cursor;
                 if ((segment->initprot & required) == required && segment->vmsize) {
                     uintptr_t start = (uintptr_t)(slide + (intptr_t)segment->vmaddr); uintptr_t end = start + (uintptr_t)segment->vmsize;
-                    if (pointer >= start && pointer < end) { if (imageName) *imageName = path.lastPathComponent; if (imageOffset) *imageOffset = pointer - (uintptr_t)header; return YES; }
+                    if (pointer >= start && requestedEnd <= end) { if (imageName) *imageName = path.lastPathComponent; if (imageOffset) *imageOffset = pointer - (uintptr_t)header; return YES; }
                 }
             }
             if (!lc->cmdsize) break; cursor += lc->cmdsize;
         }
     }
     return NO;
+}
+
+static BOOL CEProbeReadable(uintptr_t address, size_t length) {
+    if (!address || !length) return NO;
+    void *heap = (void *)address; if (malloc_zone_from_ptr(heap)) { size_t allocation = malloc_size(heap); if (allocation >= length) return YES; }
+    return CEProbeRangeInBundleSegment(address, length, VM_PROT_READ, NULL, NULL);
 }
 
 static NSString *CEProbeDemangleCString(const char *raw) {
@@ -89,13 +84,12 @@ static NSString *CEProbeDemangleCString(const char *raw) {
 static NSString *CEProbePointerDescription(uintptr_t pointer) {
     if (!pointer) return @"0x0";
     size_t allocation = 0; Class heapClass = CEProbeHeapClass(pointer, &allocation); if (heapClass) return [NSString stringWithFormat:@"0x%llx heap=%@ alloc=%zu", (unsigned long long)pointer, NSStringFromClass(heapClass), allocation];
-    NSString *image = nil; uintptr_t offset = 0; BOOL executable = CEProbePointerInBundleSegment(pointer, VM_PROT_EXECUTE, &image, &offset);
-    if (executable) {
-        Dl_info info = {0}; NSString *symbol = @"<stripped>";
-        if (dladdr((const void *)pointer, &info) && info.dli_sname) symbol = CEProbeDemangleCString(info.dli_sname);
+    NSString *image = nil; uintptr_t offset = 0;
+    if (CEProbeRangeInBundleSegment(pointer, 1, VM_PROT_EXECUTE, &image, &offset)) {
+        Dl_info info = {0}; NSString *symbol = @"<stripped>"; if (dladdr((const void *)pointer, &info) && info.dli_sname) symbol = CEProbeDemangleCString(info.dli_sname);
         return [NSString stringWithFormat:@"0x%llx code=%@+0x%llx symbol=%@", (unsigned long long)pointer, image ?: @"<image>", (unsigned long long)offset, symbol];
     }
-    if (CEProbePointerInBundleSegment(pointer, VM_PROT_READ, &image, &offset)) return [NSString stringWithFormat:@"0x%llx data=%@+0x%llx", (unsigned long long)pointer, image ?: @"<image>", (unsigned long long)offset];
+    if (CEProbeRangeInBundleSegment(pointer, 1, VM_PROT_READ, &image, &offset)) return [NSString stringWithFormat:@"0x%llx data=%@+0x%llx", (unsigned long long)pointer, image ?: @"<image>", (unsigned long long)offset];
     return [NSString stringWithFormat:@"0x%llx", (unsigned long long)pointer];
 }
 
@@ -148,7 +142,7 @@ static uintptr_t CEProbeReadIvarWord(void *object, Class cls, const char *name, 
 static void CEProbeAppendMethods(NSMutableArray<NSString *> *lines, Class cls, NSString *label) {
     if (!cls) { [lines addObject:[NSString stringWithFormat:@"%@ methods=<class nil>", label]]; return; }
     unsigned int count = 0; Method *methods = class_copyMethodList(cls, &count); [lines addObject:[NSString stringWithFormat:@"%@ class=%@ instanceMethods=%u", label, NSStringFromClass(cls), count]];
-    for (unsigned int i = 0; i < count && i < 80; i++) [lines addObject:[NSString stringWithFormat:@"  - %@ | %s", NSStringFromSelector(method_getName(methods[i])), method_getTypeEncoding(methods[i]) ?: ""]];
+    for (unsigned int i = 0; i < count && i < 40; i++) [lines addObject:[NSString stringWithFormat:@"  - %@ | %s", NSStringFromSelector(method_getName(methods[i])), method_getTypeEncoding(methods[i]) ?: ""]];
     free(methods);
 }
 
@@ -156,9 +150,9 @@ static void CEProbeAppendExecutableTable(NSMutableArray<NSString *> *lines, uint
     if (!table || !CEProbeReadable(table, maxEntries * sizeof(uintptr_t))) { [lines addObject:[NSString stringWithFormat:@"%@ table=%@ readable=NO", label, CEProbePointerDescription(table)]]; return; }
     [lines addObject:[NSString stringWithFormat:@"%@ table=%@", label, CEProbePointerDescription(table)]];
     NSUInteger hits = 0;
-    for (NSUInteger i = 0; i < maxEntries && hits < 48; i++) {
+    for (NSUInteger i = 0; i < maxEntries && hits < 32; i++) {
         uintptr_t value = 0; memcpy(&value, (const void *)(table + i * sizeof(uintptr_t)), sizeof(value));
-        NSString *image = nil; uintptr_t offset = 0; if (!CEProbePointerInBundleSegment(value, VM_PROT_EXECUTE, &image, &offset)) continue;
+        if (!CEProbeRangeInBundleSegment(value, 1, VM_PROT_EXECUTE, NULL, NULL)) continue;
         [lines addObject:[NSString stringWithFormat:@"  [%02lu] %@", (unsigned long)i, CEProbePointerDescription(value)]]; hits++;
     }
     if (!hits) [lines addObject:@"  <no executable entries in scanned range>"];
@@ -175,7 +169,7 @@ static NSArray<NSString *> *CEProbeInterestingSymbols(void) {
     static NSArray<NSString *> *cached = nil; static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableArray<NSString *> *out = [NSMutableArray array]; NSString *bundlePath = NSBundle.mainBundle.bundlePath ?: @""; uint32_t imageCount = _dyld_image_count();
-        for (uint32_t i = 0; i < imageCount && out.count < 180; i++) {
+        for (uint32_t i = 0; i < imageCount && out.count < 100; i++) {
             const char *rawPath = _dyld_get_image_name(i); const struct mach_header *header32 = _dyld_get_image_header(i); if (!rawPath || !header32 || header32->magic != MH_MAGIC_64) continue;
             NSString *path = [NSString stringWithUTF8String:rawPath]; if (bundlePath.length && ![path hasPrefix:bundlePath]) continue; if ([path.lastPathComponent containsString:@"ChatGPTEnhancer"]) continue;
             const struct mach_header_64 *header = (const struct mach_header_64 *)header32; intptr_t slide = _dyld_get_image_vmaddr_slide(i); const struct symtab_command *symtab = NULL; const struct segment_command_64 *linkedit = NULL; const uint8_t *cursor = (const uint8_t *)(header + 1);
@@ -189,10 +183,10 @@ static NSArray<NSString *> *CEProbeInterestingSymbols(void) {
             uintptr_t linkeditBase = (uintptr_t)(slide + (intptr_t)linkedit->vmaddr - (intptr_t)linkedit->fileoff); uintptr_t symbolsAddress = linkeditBase + symtab->symoff; uintptr_t stringsAddress = linkeditBase + symtab->stroff;
             if (!CEProbeReadable(symbolsAddress, (size_t)symtab->nsyms * sizeof(struct nlist_64)) || !CEProbeReadable(stringsAddress, symtab->strsize)) continue;
             const struct nlist_64 *symbols = (const struct nlist_64 *)symbolsAddress; const char *strings = (const char *)stringsAddress;
-            for (uint32_t s = 0; s < symtab->nsyms && out.count < 180; s++) {
-                uint32_t stringIndex = symbols[s].n_un.n_strx; if (!stringIndex || stringIndex >= symtab->strsize) continue; const char *rawName = strings + stringIndex; if (!rawName[0]) continue;
-                NSString *raw = [NSString stringWithUTF8String:rawName]; if (!raw.length || !CEProbeInterestingSymbol(raw)) continue;
-                NSString *demangled = CEProbeDemangleCString(rawName); [out addObject:[NSString stringWithFormat:@"%@ | raw=%@ | value=0x%llx", demangled, raw, (unsigned long long)symbols[s].n_value]];
+            for (uint32_t s = 0; s < symtab->nsyms && out.count < 100; s++) {
+                uint32_t stringIndex = symbols[s].n_un.n_strx; if (!stringIndex || stringIndex >= symtab->strsize) continue; const char *rawName = strings + stringIndex; size_t remaining = symtab->strsize - stringIndex; size_t rawLength = strnlen(rawName, remaining); if (!rawLength || rawLength == remaining) continue;
+                NSString *raw = [[NSString alloc] initWithBytes:rawName length:rawLength encoding:NSUTF8StringEncoding]; if (!raw.length || !CEProbeInterestingSymbol(raw)) continue;
+                NSString *demangled = CEProbeDemangleCString(raw.UTF8String); [out addObject:[NSString stringWithFormat:@"%@ | raw=%@ | value=0x%llx", demangled, raw, (unsigned long long)symbols[s].n_value]];
             }
         }
         cached = [out copy];
@@ -208,8 +202,7 @@ static BOOL CEProbeGraphInterestingClass(NSString *name) {
 }
 
 static void CEProbeAppendFinalStreamClosures(NSMutableArray<NSString *> *lines, uintptr_t object, Class cls) {
-    NSArray<NSString *> *fields = @[@"resumeConversationStream", @"initialStream"];
-    for (NSString *field in fields) {
+    for (NSString *field in @[@"resumeConversationStream", @"initialStream"]) {
         Ivar ivar = class_getInstanceVariable(cls, field.UTF8String); if (!ivar) continue; ptrdiff_t offset = ivar_getOffset(ivar); uintptr_t words[2] = {0, 0}; memcpy(words, (const uint8_t *)object + offset, sizeof(words));
         [lines addObject:[NSString stringWithFormat:@"FINAL-STREAM %@.%@ offset=0x%tx function=%@ context=%@", NSStringFromClass(cls), field, offset, CEProbePointerDescription(words[0]), CEProbePointerDescription(words[1])]];
     }
@@ -217,15 +210,14 @@ static void CEProbeAppendFinalStreamClosures(NSMutableArray<NSString *> *lines, 
 
 static void CEProbeAppendReachableGraph(NSMutableArray<NSString *> *lines, uintptr_t root) {
     if (!root) return; NSMutableArray<NSDictionary *> *queue = [NSMutableArray arrayWithObject:@{@"ptr": @(root), @"depth": @0}]; NSMutableSet<NSNumber *> *seen = [NSMutableSet set]; NSUInteger emitted = 0;
-    while (queue.count && seen.count < 160 && emitted < 80) {
+    while (queue.count && seen.count < 120 && emitted < 48) {
         NSDictionary *entry = queue.firstObject; [queue removeObjectAtIndex:0]; uintptr_t pointer = [entry[@"ptr"] unsignedLongLongValue]; NSUInteger depth = [entry[@"depth"] unsignedIntegerValue]; NSNumber *key = @(pointer); if ([seen containsObject:key]) continue; [seen addObject:key];
         size_t allocation = 0; Class cls = CEProbeHeapClass(pointer, &allocation); if (!cls) continue; NSString *name = NSStringFromClass(cls); if (!CEProbeGraphInterestingClass(name)) continue;
         [lines addObject:[NSString stringWithFormat:@"GRAPH depth=%lu %@", (unsigned long)depth, CEProbePointerDescription(pointer)]]; emitted++;
         if ([name containsString:@"ConversationFinalStream"]) CEProbeAppendFinalStreamClosures(lines, pointer, cls);
         if (depth >= 3) continue; size_t scan = MIN(MIN(allocation, class_getInstanceSize(cls)), (size_t)8192);
-        for (size_t offset = 0; offset + sizeof(uintptr_t) <= scan && queue.count < 220; offset += sizeof(uintptr_t)) {
-            uintptr_t child = 0; memcpy(&child, (const uint8_t *)pointer + offset, sizeof(child)); size_t childAllocation = 0; Class childClass = CEProbeHeapClass(child, &childAllocation); if (!childClass) continue;
-            NSString *childName = NSStringFromClass(childClass); if (!CEProbeGraphInterestingClass(childName)) continue; if (![seen containsObject:@(child)]) [queue addObject:@{@"ptr": @(child), @"depth": @(depth + 1)}];
+        for (size_t offset = 0; offset + sizeof(uintptr_t) <= scan && queue.count < 160; offset += sizeof(uintptr_t)) {
+            uintptr_t child = 0; memcpy(&child, (const uint8_t *)pointer + offset, sizeof(child)); Class childClass = CEProbeHeapClass(child, NULL); if (!childClass) continue; NSString *childName = NSStringFromClass(childClass); if (!CEProbeGraphInterestingClass(childName)) continue; if (![seen containsObject:@(child)]) [queue addObject:@{@"ptr": @(child), @"depth": @(depth + 1)}];
         }
     }
 }
@@ -241,9 +233,9 @@ static NSArray<NSString *> *CEProbeCapture(NSString *reason) {
     Ivar repositoryIvar = class_getInstanceVariable(coordinatorClass, "conversationRepository"); uintptr_t repository = 0;
     if (repositoryIvar) {
         ptrdiff_t offset = ivar_getOffset(repositoryIvar); [lines addObject:[NSString stringWithFormat:@"conversationRepository offset=0x%tx", offset]];
-        for (NSUInteger i = 0; i < 5; i++) { uintptr_t word = 0; memcpy(&word, (const uint8_t *)coordinator + offset + i * sizeof(uintptr_t), sizeof(word)); [lines addObject:[NSString stringWithFormat:@"  repoWord[%lu]=%@", (unsigned long)i, CEProbePointerDescription(word)]]; if (i == 0) repository = word; else { NSString *image = nil; uintptr_t imageOffset = 0; if (CEProbePointerInBundleSegment(word, VM_PROT_READ, &image, &imageOffset) && !CEProbePointerInBundleSegment(word, VM_PROT_EXECUTE, NULL, NULL)) CEProbeAppendExecutableTable(lines, word, [NSString stringWithFormat:@"REPO-TABLE-%lu", (unsigned long)i], 64); } }
+        for (NSUInteger i = 0; i < 5; i++) { uintptr_t word = 0; memcpy(&word, (const uint8_t *)coordinator + offset + i * sizeof(uintptr_t), sizeof(word)); [lines addObject:[NSString stringWithFormat:@"  repoWord[%lu]=%@", (unsigned long)i, CEProbePointerDescription(word)]]; if (i == 0) repository = word; else if (CEProbeRangeInBundleSegment(word, 64 * sizeof(uintptr_t), VM_PROT_READ, NULL, NULL) && !CEProbeRangeInBundleSegment(word, 1, VM_PROT_EXECUTE, NULL, NULL)) CEProbeAppendExecutableTable(lines, word, [NSString stringWithFormat:@"REPO-TABLE-%lu", (unsigned long)i], 64); }
     } else [lines addObject:@"conversationRepository ivar=<missing>"];
-    size_t repositoryAllocation = 0; Class repositoryClass = CEProbeHeapClass(repository, &repositoryAllocation); if (repositoryClass) CEProbeAppendMethods(lines, repositoryClass, @"REPO-METHODS");
+    Class repositoryClass = CEProbeHeapClass(repository, NULL); if (repositoryClass) CEProbeAppendMethods(lines, repositoryClass, @"REPO-METHODS");
     [lines addObject:@"-- reachable live graph --"]; CEProbeAppendReachableGraph(lines, coordinator);
     [lines addObject:@"-- matching Mach-O symbols --"]; NSArray<NSString *> *symbols = CEProbeInterestingSymbols(); if (symbols.count) [lines addObjectsFromArray:symbols]; else [lines addObject:@"<no matching symbols in LC_SYMTAB>"];
     return lines;
