@@ -110,7 +110,7 @@ static void CEInstallSessionDelegateCapture(id delegate) {
     @synchronized (self) {
         NSString *line = [NSString stringWithFormat:@"%@ %@", @((long long)(NSDate.date.timeIntervalSince1970 * 1000)), event];
         [self.mutableRecentEvents addObject:line];
-        while (self.mutableRecentEvents.count > 40) [self.mutableRecentEvents removeObjectAtIndex:0];
+        while (self.mutableRecentEvents.count > 120) [self.mutableRecentEvents removeObjectAtIndex:0];
     }
 }
 - (BOOL)hasUsableTemplate {
