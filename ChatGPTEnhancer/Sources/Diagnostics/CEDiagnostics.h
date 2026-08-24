@@ -6,5 +6,6 @@ NS_ASSUME_NONNULL_BEGIN
 NSString *CEDiagnosticsReport(UIView * _Nullable sourceView, NSString * _Nullable contextIdentifier);
 void CECopyDiagnostics(UIView * _Nullable sourceView, NSString * _Nullable contextIdentifier);
 void CEInstallActiveConversationDiagnostics(void);
+void CECaptureFocusedActiveConversationDiagnostics(NSString *reason);
 
 NS_ASSUME_NONNULL_END
