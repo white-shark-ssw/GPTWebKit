@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha23 active conversation runtime + lifecycle diagnostics
+# alpha24 focused live view model + conversation internals diagnostics
 # alpha16 conversation tools
 # alpha17 unified messages
 
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha23-diagnostic
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha23-diagnostic.zip
+          name: ChatGPTEnhancer-0.1.0-alpha24-diagnostic
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha24-diagnostic.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha23-diagnostic-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha24-diagnostic-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
