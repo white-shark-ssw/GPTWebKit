@@ -144,8 +144,8 @@ static UICollectionView *CEOrphanFindHistoryCollection(UIView *view, NSUInteger 
     return nil;
 }
 
-BOOL CEOrphanReselectConversation(NSString *conversationID) {
-    if (!conversationID.length || (CEOrphanLastReselectAt && [NSDate.date timeIntervalSinceDate:CEOrphanLastReselectAt] < 20.0)) return NO;
+static BOOL CEOrphanReselectConversationInternal(NSString *conversationID, BOOL bypassCooldown) {
+    if (!conversationID.length || (!bypassCooldown && CEOrphanLastReselectAt && [NSDate.date timeIntervalSinceDate:CEOrphanLastReselectAt] < 20.0)) return NO;
     UIWindow *window = CEKeyWindow(); UIViewController *history = CEOrphanFindHistoryController(window.rootViewController, 0);
     UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
     id dataSource = collection.dataSource; SEL itemSelector = NSSelectorFromString(@"itemIdentifierForIndexPath:"); SEL selectSelector = NSSelectorFromString(@"collectionView:didSelectItemAtIndexPath:");
@@ -170,6 +170,9 @@ BOOL CEOrphanReselectConversation(NSString *conversationID) {
     NSLog(@"[ChatGPTEnhancer] orphan recovery reselected %@ at section=%ld item=%ld matches=%lu", conversationID, (long)target.section, (long)target.item, (unsigned long)matches.count);
     return YES;
 }
+
+BOOL CEOrphanReselectConversation(NSString *conversationID) { return CEOrphanReselectConversationInternal(conversationID, NO); }
+BOOL CEOrphanForceReloadConversation(NSString *conversationID) { return CEOrphanReselectConversationInternal(conversationID, YES); }
 
 static void CEOrphanCheckForStaleStream(NSDate *cutoff, void (^completion)(BOOL hasStaleStream)) {
     NSURLSession *session = [CENetworkObserver shared].requestSession;
