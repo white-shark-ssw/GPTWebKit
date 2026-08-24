@@ -248,8 +248,16 @@ void CEPullLatestConversationResult(NSString *conversationID) {
         BOOL finished = CERecoveryConversationFinished(data, nil, &serverAdvanced);
         CERecoveryDiagnosticLog(@"PULL", @"serverFinished=%@", finished ? @"YES" : @"NO");
         if (!finished) { CEShowMessage(@"服务端仍在生成中。"); return; }
+        void (^trySoftRefresh)(void) = ^{
+            CERecoveryDiagnosticLog(@"PULL", @"no recoverable stream remains; trying lightweight official conversation refresh");
+            CEOrphanRefreshConversation(conversationID, ^(BOOL success) {
+                CERecoveryDiagnosticLog(@"PULL", @"lightweight refresh result=%@", success ? @"YES" : @"NO");
+                if (success) CEShowMessage(@"已拉取最新结果，正在刷新当前会话…");
+                else CEShowMessage(@"已拉取最新结果；轻量刷新未触发，可使用“重载当前会话”。");
+            });
+        };
         NSURLSession *session = [CENetworkObserver shared].requestSession;
-        if (!session) { CEShowMessage(@"已拉取最新结果；当前无可恢复流，可使用“重载当前会话”。"); return; }
+        if (!session) { trySoftRefresh(); return; }
         [session getAllTasksWithCompletionHandler:^(NSArray<__kindof NSURLSessionTask *> *tasks) {
             __block NSUInteger cancelled = 0, active = 0, streamCandidates = 0;
             CERecoveryDiagnosticLog(@"PULL", @"session tasks total=%lu", (unsigned long)tasks.count);
@@ -267,8 +275,12 @@ void CEPullLatestConversationResult(NSString *conversationID) {
             }
             CERecoveryDiagnosticLog(@"PULL", @"task scan active=%lu streamCandidates=%lu cancelled=%lu", (unsigned long)active, (unsigned long)streamCandidates, (unsigned long)cancelled);
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (cancelled) CEShowMessage(@"已拉取最新结果，正在同步…");
-                else CEShowMessage(@"已拉取最新结果；界面未更新时可重载当前会话。");
+                if (cancelled) {
+                    CEShowMessage(@"已拉取最新结果，正在同步…");
+                    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.9 * NSEC_PER_SEC)), dispatch_get_main_queue(), trySoftRefresh);
+                } else {
+                    trySoftRefresh();
+                }
             });
         }];
     }];
