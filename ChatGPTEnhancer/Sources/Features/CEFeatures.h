@@ -8,6 +8,8 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)exportCandidates:(NSArray<CEConversationRecord *> *)candidates fromContextMenu:(BOOL)fromContextMenu;
 + (void)exportRecord:(CEConversationRecord *)record requireConfirmation:(BOOL)requireConfirmation;
 + (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(nullable UIView *)sourceView;
++ (void)pullLatestCurrentConversation;
++ (void)reloadCurrentConversation;
 @end
 
 NS_ASSUME_NONNULL_END
