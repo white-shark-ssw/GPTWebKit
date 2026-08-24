@@ -9,6 +9,10 @@
 #import <mach-o/dyld.h>
 #import <malloc/malloc.h>
 
+static NSArray<NSString *> *CEFocusedSnapshotLines = nil;
+static NSDate *CEFocusedSnapshotDate = nil;
+static NSString *CEFocusedSnapshotReason = nil;
+
 static void CEAppendAccessibilityValue(NSMutableOrderedSet<NSString *> *out, id object) {
     if (!object || out.count >= 400) return;
     NSString *identifier = nil, *label = nil, *value = nil;
@@ -355,6 +359,7 @@ static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
         [out addObject:[NSString stringWithFormat:@"messages.viewModel offset=0x%tx raw=0x%llx resolved=%@ ptr=%p", offset, (unsigned long long)bits, vm ? NSStringFromClass([vm class]) : @"<nil>", vm]];
         if (vm) {
             CEAppendFocusedClass(out, [vm class], vm, @"MESSAGES-VM");
+            CEAppendFocusedPointerGraph(out, vm, @"MESSAGES-VM");
             NSArray<NSString *> *childNames = @[@"coordinator", @"conversationCoordinator", @"repository", @"conversationRepository", @"conversation", @"state", @"stream", @"finalStream", @"rootViewModel", @"conversationRootViewModel", @"resetManager"];
             NSMutableSet<NSValue *> *seen = [NSMutableSet set];
             for (NSString *childName in childNames) {
@@ -370,6 +375,44 @@ static NSArray<NSString *> *CEFocusedActiveConversationDetails(void) {
     [out addObject:@"-- focused loaded classes --"];
     for (Class cls in CEFocusedRuntimeClasses()) CEAppendFocusedClass(out, cls, nil, [@"CLASS-" stringByAppendingString:NSStringFromClass(cls)]);
     return out;
+}
+
+
+static BOOL CEFocusedInterestingObjectClass(Class cls) {
+    if (!cls) return NO;
+    NSString *lower = NSStringFromClass(cls).lowercaseString;
+    NSArray<NSString *> *needles = @[@"conversation", @"message", @"viewmodel", @"coordinator", @"repository", @"stream", @"recover", @"resume", @"state", @"reset", @"router", @"route", @"api", @"service", @"provider"];
+    for (NSString *needle in needles) if ([lower containsString:needle]) return YES;
+    return NO;
+}
+
+static void CEAppendFocusedPointerGraph(NSMutableArray<NSString *> *out, id root, NSString *label) {
+    if (!root || out.count >= 340) return;
+    size_t allocationSize = malloc_size((__bridge const void *)root);
+    size_t scanSize = MIN(allocationSize, (size_t)0x700);
+    if (scanSize < sizeof(uintptr_t)) return;
+    NSMutableSet<NSValue *> *seen = [NSMutableSet set];
+    for (size_t offset = 0; offset + sizeof(uintptr_t) <= scanSize && out.count < 340; offset += sizeof(uintptr_t)) {
+        uintptr_t bits = 0; memcpy(&bits, (uint8_t *)(__bridge void *)root + offset, sizeof(bits));
+        id child = CEHeapObjectPointer(bits); if (!child || child == root) continue;
+        Class cls = [child class]; if (!CEFocusedInterestingObjectClass(cls)) continue;
+        NSValue *key = [NSValue valueWithPointer:(__bridge const void *)child]; if ([seen containsObject:key]) continue; [seen addObject:key];
+        NSString *childLabel = [NSString stringWithFormat:@"%@+0x%zx", label ?: @"ROOT", offset];
+        [out addObject:[NSString stringWithFormat:@"%@ -> %@ ptr=%p object=%@", childLabel, NSStringFromClass(cls), child, CECompactObjectDescription(child)]];
+        CEAppendFocusedClass(out, cls, child, childLabel);
+        if (seen.count >= 24) break;
+    }
+}
+
+void CECaptureFocusedActiveConversationDiagnostics(NSString *reason) {
+    void (^capture)(void) = ^{
+        CEFocusedSnapshotLines = [CEFocusedActiveConversationDetails() copy];
+        CEFocusedSnapshotDate = NSDate.date;
+        CEFocusedSnapshotReason = [reason copy] ?: @"manual";
+        CERecoveryDiagnosticMark(@"FOCUSED ACTIVE CONVERSATION SNAPSHOT");
+        CERecoveryDiagnosticLog(@"FOCUSED-SNAPSHOT", @"reason=%@ lines=%lu context=%@", CEFocusedSnapshotReason, (unsigned long)CEFocusedSnapshotLines.count, [CEConversationContext shared].conversationID ?: @"<nil>");
+    };
+    if (NSThread.isMainThread) capture(); else dispatch_sync(dispatch_get_main_queue(), capture);
 }
 
 static NSArray<NSString *> *CEActiveConversationRuntimeDetails(void) {
@@ -517,6 +560,10 @@ NSString *CEDiagnosticsReport(UIView *sourceView, NSString *contextIdentifier) {
 
     [report appendString:@"\n[Active conversation runtime]\n"];
     for (NSString *line in CEActiveConversationRuntimeDetails()) [report appendFormat:@"%@\n", line];
+    [report appendString:@"\n[Focused snapshot captured before reload]\n"];
+    [report appendFormat:@"capturedAt=%@ reason=%@\n", CEFocusedSnapshotDate ?: (id)@"<nil>", CEFocusedSnapshotReason ?: @"<nil>"];
+    if (CEFocusedSnapshotLines.count) for (NSString *line in CEFocusedSnapshotLines) [report appendFormat:@"%@\n", line]; else [report appendString:@"<nil>\n"];
+
     [report appendString:@"\n[Focused active conversation internals]\n"];
     for (NSString *line in CEFocusedActiveConversationDetails()) [report appendFormat:@"%@\n", line];
 
