@@ -3,6 +3,8 @@
 #import "../Core/CECore.h"
 #import "../Network/CEAPIClient.h"
 #import "../Network/CENetworkObserver.h"
+#import "../Storage/CECatalog.h"
+#import "CEForegroundStreamRecovery.h"
 #import "CEOrphanedConversationRecovery.h"
 #import <objc/runtime.h>
 
@@ -167,6 +169,37 @@ static void CERecoveryCheckServer(NSString *conversationID, NSDate *cutoff, BOOL
     [self ce_recovery_resume];
 }
 @end
+
+void CEPullLatestConversationResult(NSString *conversationID) {
+    if (!conversationID.length) { CEShowToast(@"无法识别当前会话。"); return; }
+    if (![[CEAPIClient shared] isReady]) { CEShowToast(@"官方网络会话尚未就绪。"); return; }
+    CEShowToast(@"正在拉取最新消息…");
+    NSString *encoded = [conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet];
+    NSString *path = [NSString stringWithFormat:@"/backend-api/conversation/%@", encoded];
+    [[CEAPIClient shared] getPath:path progress:^(NSString *message) { if (message.length) CEShowToast(message); } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
+        if (error || response.statusCode < 200 || response.statusCode >= 300 || !data.length) { CEShowToast(error.localizedDescription.length ? error.localizedDescription : @"拉取最新消息失败。"); return; }
+        NSString *origin = [CENetworkObserver shared].baseOrigin.length ? [CENetworkObserver shared].baseOrigin : @"https://ios.chat.openai.com";
+        NSURL *requestURL = [NSURL URLWithString:[origin stringByAppendingString:path]];
+        if (requestURL) [[CECatalog shared] ingestResponseData:data requestURL:requestURL];
+        BOOL serverAdvanced = NO;
+        if (!CERecoveryConversationFinished(data, nil, &serverAdvanced)) { CEShowToast(@"服务端仍在生成中。"); return; }
+        NSURLSession *session = [CENetworkObserver shared].requestSession;
+        if (!session) { CEShowToast(@"已拉取最新结果；当前无可恢复流，可使用“重载当前会话”。"); return; }
+        [session getAllTasksWithCompletionHandler:^(NSArray<__kindof NSURLSessionTask *> *tasks) {
+            __block NSUInteger cancelled = 0;
+            for (NSURLSessionTask *task in tasks) {
+                if (task.state != NSURLSessionTaskStateRunning && task.state != NSURLSessionTaskStateSuspended) continue;
+                NSURLRequest *request = task.currentRequest ?: task.originalRequest;
+                if (!CERecoveryLooksLikeConversationStream(request)) continue;
+                [task cancel]; cancelled++;
+            }
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (cancelled) CEShowToast(@"已拉取最新结果，正在同步…");
+                else CEShowToast(@"已拉取最新结果；界面未更新时可重载当前会话。");
+            });
+        }];
+    }];
+}
 
 static void CERecoveryInstall(void) {
     static dispatch_once_t once;
