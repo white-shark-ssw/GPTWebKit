@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 #import <objc/message.h>
+#import <objc/runtime.h>
 #import <malloc/malloc.h>
 #import <string.h>
 #import <math.h>
@@ -17,6 +18,12 @@ static NSUInteger CEOrphanGeneration = 0;
 static NSUInteger CEOrphanContextGeneration = 0;
 static NSDate *CEOrphanLastReselectAt = nil;
 static NSUInteger CEOrphanManualReloadGeneration = 0;
+static NSUInteger CEOrphanHistorySelectionGeneration = 0;
+static IMP CEOrphanOriginalHistoryDidSelectIMP = NULL;
+static BOOL CEOrphanHistorySelectionHookInstalled = NO;
+static id CEOrphanConfirmedHistoryIdentifier = nil;
+static NSIndexPath *CEOrphanConfirmedHistoryIndexPath = nil;
+static NSString *CEOrphanConfirmedHistoryConversationID = nil;
 
 static BOOL CEOrphanConversationFinished(NSData *data) {
     if (!data.length) return NO;
@@ -128,6 +135,61 @@ static BOOL CEOrphanObjectContainsConversationID(id object, NSString *conversati
     return utf8.length && CEOrphanScanPointerForID((__bridge const void *)object, (const uint8_t *)utf8.bytes, utf8.length, 0, visited, &allocations, &bytes);
 }
 
+static BOOL CEOrphanRecentDetailRequestForConversationSince(NSString *conversationID, NSDate *date) {
+    if (!conversationID.length || !date) return NO;
+    long long threshold = (long long)(date.timeIntervalSince1970 * 1000.0);
+    NSString *cid = conversationID.lowercaseString;
+    for (NSString *event in [CENetworkObserver shared].recentEvents.reverseObjectEnumerator) {
+        long long timestamp = event.longLongValue; if (timestamp && timestamp < threshold) break;
+        NSString *lower = event.lowercaseString;
+        if (![lower containsString:@" req "]) continue;
+        if ([lower containsString:[NSString stringWithFormat:@"/backend-api/conversation/%@", cid]] || [lower containsString:[NSString stringWithFormat:@"/backend-api/f/conversation/%@", cid]]) return YES;
+    }
+    return NO;
+}
+
+static id CEOrphanHistoryItemIdentifier(UICollectionView *collection, NSIndexPath *indexPath) {
+    id dataSource = collection.dataSource; SEL selector = NSSelectorFromString(@"itemIdentifierForIndexPath:");
+    if (!collection || !indexPath || !dataSource || ![dataSource respondsToSelector:selector]) return nil;
+    return ((id (*)(id, SEL, id))objc_msgSend)(dataSource, selector, indexPath);
+}
+
+static void CEOrphanConfirmHistorySelection(id identifier, NSIndexPath *indexPath, NSDate *selectedAt, NSUInteger generation) {
+    if (generation != CEOrphanHistorySelectionGeneration || !identifier || !indexPath || !selectedAt) return;
+    NSString *conversationID = [[CEConversationContext shared].conversationID copy];
+    if (!conversationID.length || !CEOrphanRecentDetailRequestForConversationSince(conversationID, selectedAt)) return;
+    CEOrphanConfirmedHistoryIdentifier = identifier;
+    CEOrphanConfirmedHistoryIndexPath = [indexPath copy];
+    CEOrphanConfirmedHistoryConversationID = conversationID;
+    NSLog(@"[ChatGPTEnhancer] captured exact history selection for %@ section=%ld item=%ld identifierClass=%@", conversationID, (long)indexPath.section, (long)indexPath.item, NSStringFromClass([identifier class]));
+}
+
+static void CEOrphanHistoryDidSelect(id self, SEL _cmd, UICollectionView *collection, NSIndexPath *indexPath) {
+    id identifier = CEOrphanHistoryItemIdentifier(collection, indexPath);
+    NSDate *selectedAt = NSDate.date; NSUInteger generation = ++CEOrphanHistorySelectionGeneration;
+    if (CEOrphanOriginalHistoryDidSelectIMP) ((void (*)(id, SEL, id, id))CEOrphanOriginalHistoryDidSelectIMP)(self, _cmd, collection, indexPath);
+    for (NSNumber *delayValue in @[@0.20, @0.55, @1.10, @1.80]) {
+        NSTimeInterval delay = delayValue.doubleValue;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanConfirmHistorySelection(identifier, indexPath, selectedAt, generation); });
+    }
+}
+
+static void CEOrphanInstallHistorySelectionCapture(NSUInteger attempt) {
+    if (CEOrphanHistorySelectionHookInstalled) return;
+    Class cls = NSClassFromString(@"ChatGPTHistory.HistoryViewController");
+    SEL selector = NSSelectorFromString(@"collectionView:didSelectItemAtIndexPath:");
+    Method method = cls ? class_getInstanceMethod(cls, selector) : NULL;
+    if (method) {
+        CEOrphanOriginalHistoryDidSelectIMP = method_getImplementation(method);
+        method_setImplementation(method, (IMP)CEOrphanHistoryDidSelect);
+        CEOrphanHistorySelectionHookInstalled = YES;
+        NSLog(@"[ChatGPTEnhancer] exact history selection capture installed");
+        return;
+    }
+    if (attempt >= 20) { NSLog(@"[ChatGPTEnhancer] exact history selection capture unavailable"); return; }
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.75 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanInstallHistorySelectionCapture(attempt + 1); });
+}
+
 static UIViewController *CEOrphanFindHistoryController(UIViewController *vc, NSUInteger depth) {
     if (!vc || depth > 14) return nil;
     if ([NSStringFromClass(vc.class) isEqualToString:@"ChatGPTHistory.HistoryViewController"]) return vc;
@@ -229,23 +291,70 @@ static BOOL CEOrphanActivateSidebar(void) {
     return NO;
 }
 
+static BOOL CEOrphanManualSelectCurrentHistoryItem(NSString *conversationID) {
+    UIWindow *window = CEKeyWindow(); UIViewController *history = CEOrphanFindHistoryController(window.rootViewController, 0);
+    UICollectionView *collection = history ? CEOrphanFindHistoryCollection(history.viewIfLoaded, 0) : nil;
+    id dataSource = collection.dataSource; SEL itemSelector = NSSelectorFromString(@"itemIdentifierForIndexPath:"); SEL selectSelector = NSSelectorFromString(@"collectionView:didSelectItemAtIndexPath:");
+    if (!history || !collection || !dataSource || ![dataSource respondsToSelector:itemSelector] || ![history respondsToSelector:selectSelector]) return NO;
+
+    NSIndexPath *target = nil;
+    if ([CEOrphanConfirmedHistoryConversationID isEqualToString:conversationID] && CEOrphanConfirmedHistoryIdentifier) {
+        NSInteger sections = collection.numberOfSections;
+        for (NSInteger section = 0; section < sections && !target; section++) {
+            NSInteger items = [collection numberOfItemsInSection:section];
+            for (NSInteger item = 0; item < items; item++) {
+                NSIndexPath *indexPath = [NSIndexPath indexPathForItem:item inSection:section];
+                id identifier = ((id (*)(id, SEL, id))objc_msgSend)(dataSource, itemSelector, indexPath);
+                BOOL equal = NO; @try { equal = identifier == CEOrphanConfirmedHistoryIdentifier || [identifier isEqual:CEOrphanConfirmedHistoryIdentifier]; } @catch (__unused NSException *exception) {}
+                if (equal) { target = indexPath; break; }
+            }
+        }
+        if (!target && CEOrphanConfirmedHistoryIndexPath.section < collection.numberOfSections && CEOrphanConfirmedHistoryIndexPath.item < [collection numberOfItemsInSection:CEOrphanConfirmedHistoryIndexPath.section]) {
+            id identifier = ((id (*)(id, SEL, id))objc_msgSend)(dataSource, itemSelector, CEOrphanConfirmedHistoryIndexPath);
+            BOOL equal = NO; @try { equal = identifier == CEOrphanConfirmedHistoryIdentifier || [identifier isEqual:CEOrphanConfirmedHistoryIdentifier]; } @catch (__unused NSException *exception) {}
+            if (equal) target = CEOrphanConfirmedHistoryIndexPath;
+        }
+    }
+
+    if (!target) {
+        NSArray<NSIndexPath *> *selected = collection.indexPathsForSelectedItems;
+        if (selected.count == 1) target = selected.firstObject;
+    }
+
+    if (!target) return CEOrphanReselectConversationInternal(conversationID, YES);
+    [collection deselectItemAtIndexPath:target animated:NO];
+    [collection selectItemAtIndexPath:target animated:NO scrollPosition:UICollectionViewScrollPositionNone];
+    ((void (*)(id, SEL, id, id))objc_msgSend)(history, selectSelector, collection, target);
+    NSLog(@"[ChatGPTEnhancer] manual reload invoked exact/selected history row for %@ section=%ld item=%ld", conversationID, (long)target.section, (long)target.item);
+    return YES;
+}
+
 static void CEOrphanManualReloadAttempt(NSString *conversationID, NSUInteger generation, NSUInteger attempt, void (^completion)(BOOL success)) {
     if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
-    if (CEOrphanReselectConversationInternal(conversationID, YES)) { if (completion) completion(YES); return; }
+    NSDate *startedAt = NSDate.date;
+    BOOL invoked = CEOrphanManualSelectCurrentHistoryItem(conversationID);
+    if (invoked) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.80 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            if (generation != CEOrphanManualReloadGeneration || UIApplication.sharedApplication.applicationState != UIApplicationStateActive) return;
+            if (CEOrphanRecentDetailRequestForConversationSince(conversationID, startedAt)) { if (completion) completion(YES); return; }
+            if (attempt >= 5) { NSLog(@"[ChatGPTEnhancer] manual reload selection produced no official conversation request for %@", conversationID); if (completion) completion(NO); return; }
+            CEOrphanActivateSidebar();
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.45 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
+        });
+        return;
+    }
+
     if (attempt >= 5) { NSLog(@"[ChatGPTEnhancer] manual reload failed after sidebar retries for %@", conversationID); if (completion) completion(NO); return; }
-    NSTimeInterval delay = attempt < 2 ? 0.35 : 0.55;
+    CEOrphanActivateSidebar();
+    NSTimeInterval delay = attempt < 2 ? 0.40 : 0.60;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, attempt + 1, completion); });
 }
 
 void CEOrphanForceReloadConversation(NSString *conversationID, void (^completion)(BOOL success)) {
     if (!conversationID.length) { if (completion) completion(NO); return; }
+    CEOrphanInstallHistorySelectionCapture(0);
     NSUInteger generation = ++CEOrphanManualReloadGeneration;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.24 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        if (generation != CEOrphanManualReloadGeneration) return;
-        if (CEOrphanReselectConversationInternal(conversationID, YES)) { if (completion) completion(YES); return; }
-        if (!CEOrphanActivateSidebar()) { if (completion) completion(NO); return; }
-        CEOrphanManualReloadAttempt(conversationID, generation, 0, completion);
-    });
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.28 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEOrphanManualReloadAttempt(conversationID, generation, 0, completion); });
 }
 
 static void CEOrphanCheckForStaleStream(NSDate *cutoff, void (^completion)(BOOL hasStaleStream)) {
@@ -326,12 +435,14 @@ static void CEOrphanCaptureBackgroundStreams(NSUInteger generation, NSString *co
 static void CEOrphanInstall(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
+        CEOrphanInstallHistorySelectionCapture(0);
         NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
         [center addObserverForName:UIApplicationDidEnterBackgroundNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
             CEOrphanBackgroundDate = NSDate.date; CEOrphanForegroundDate = nil; CEOrphanBackgroundConversationID = [[CEConversationContext shared].conversationID copy]; CEOrphanHadStreamAtBackground = NO;
             NSUInteger generation = ++CEOrphanGeneration; CEOrphanCaptureBackgroundStreams(generation, CEOrphanBackgroundConversationID);
         }];
         [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
+            CEOrphanInstallHistorySelectionCapture(0);
             NSDate *backgroundDate = CEOrphanBackgroundDate; NSString *conversationID = [CEOrphanBackgroundConversationID copy];
             CEOrphanForegroundDate = NSDate.date; NSUInteger generation = ++CEOrphanGeneration;
             if (!backgroundDate || !conversationID.length || [NSDate.date timeIntervalSinceDate:backgroundDate] < 3.0) return;
