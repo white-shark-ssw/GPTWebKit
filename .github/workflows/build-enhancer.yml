@@ -1,6 +1,6 @@
 name: Build ChatGPTEnhancer
-# alpha31 keeps automatic/history/sidebar recovery disabled and enables exact-current manual reload through the app's registered custom conversation route
-# alpha30 stream-state diagnostics remain included for future stuck-thinking regressions
+# alpha32 keeps the now-working exact-current manual reload, renames the visible action, and hides the full-diagnostics menu item
+# alpha30 stream-state diagnostics remain included internally for future stuck-thinking regressions
 # alpha16 conversation tools
 # alpha17 unified messages
 
@@ -38,12 +38,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha31-native-reload
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha31-native-reload.zip
+          name: ChatGPTEnhancer-0.1.0-alpha32-ui-cleanup
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha32-ui-cleanup.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha31-native-reload-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha32-ui-cleanup-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
