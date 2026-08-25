@@ -2,10 +2,11 @@
 #import <objc/runtime.h>
 
 NSString * const CEBundleIdentifier = @"com.openai.chat";
-NSString * const CEVersion = @"0.1.0-alpha41-project-conversation-title";
+NSString * const CEVersion = @"0.1.0-alpha42-project-conversation-title";
 NSString * const CEConversationContextDidChangeNotification = @"ChatGPTEnhancer.ConversationContextDidChange";
 NSString * const CENetworkTemplateDidChangeNotification = @"ChatGPTEnhancer.NetworkTemplateDidChange";
 NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidChange";
+NSInteger const CESyntheticConversationTitleMarkerTag = 0x43454844;
 
 @implementation CEConversationContext {
     NSString *_conversationID;
@@ -133,8 +134,11 @@ NSString *CEExtractConversationIDFromString(NSString *value) {
 
 static void CECollectStringsRecursive(UIView *view, NSUInteger depth, NSUInteger maxDepth, NSMutableOrderedSet<NSString *> *out) {
     if (!view || depth > maxDepth) return;
-    NSArray *values = @[view.accessibilityIdentifier ?: @"", view.accessibilityLabel ?: @"", view.accessibilityValue ?: @"", [view isKindOfClass:UILabel.class] ? (((UILabel *)view).text ?: @"") : @"", [view isKindOfClass:UIButton.class] ? ([((UIButton *)view) titleForState:UIControlStateNormal] ?: @"") : @""];
-    for (NSString *value in values) { NSString *trim = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (trim.length && trim.length < 240) [out addObject:trim]; }
+    BOOL syntheticConversationTitle = [view isKindOfClass:UILabel.class] && [view viewWithTag:CESyntheticConversationTitleMarkerTag] != nil;
+    if (!syntheticConversationTitle) {
+        NSArray *values = @[view.accessibilityIdentifier ?: @"", view.accessibilityLabel ?: @"", view.accessibilityValue ?: @"", [view isKindOfClass:UILabel.class] ? (((UILabel *)view).text ?: @"") : @"", [view isKindOfClass:UIButton.class] ? ([((UIButton *)view) titleForState:UIControlStateNormal] ?: @"") : @""];
+        for (NSString *value in values) { NSString *trim = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (trim.length && trim.length < 240) [out addObject:trim]; }
+    }
     for (UIView *child in view.subviews) CECollectStringsRecursive(child, depth + 1, maxDepth, out);
 }
 
