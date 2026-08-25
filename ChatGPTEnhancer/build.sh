@@ -26,8 +26,8 @@ while IFS= read -r source; do SOURCES+=("$source"); done < <(find "$ROOT/Sources
   -o "$BUILD/ChatGPTEnhancer.dylib"
 codesign -f -s - "$BUILD/ChatGPTEnhancer.dylib"
 cp "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/package/"
-cp "$ROOT/Support/ChatGPTEnhancer.plist" "$BUILD/package/"
+cp "$ROOT/Support/ChatGPTEnhancer.plist" "$BUILD/package/ChatGPTEnhancer.plist"
 cp "$ROOT/README.md" "$BUILD/package/README.txt"
-(cd "$BUILD/package" && /usr/bin/zip -9 -r "../ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage.zip" .)
+(cd "$BUILD/package" && /usr/bin/zip -9 -r "../ChatGPTEnhancer-0.1.0-alpha37-effective-context.zip" .)
 file "$BUILD/ChatGPTEnhancer.dylib"
-ls -lh "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage.zip"
+ls -lh "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/ChatGPTEnhancer-0.1.0-alpha37-effective-context.zip"
