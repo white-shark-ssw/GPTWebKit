@@ -3,6 +3,8 @@
 #import "CECore.h"
 #import "../Storage/CECatalog.h"
 
+static NSInteger const CEProjectHeaderMarkerTag = 0x43454844;
+
 static BOOL CEContextURLLooksRelevant(NSURL *url) {
     NSString *host = url.host.lowercaseString ?: @"";
     if (![host containsString:@"chatgpt"] && ![host containsString:@"openai"]) return NO;
@@ -30,7 +32,8 @@ static void CECollectActuallyVisibleStrings(UIView *view, NSUInteger depth, NSMu
     if (view.accessibilityIdentifier.length) [values addObject:view.accessibilityIdentifier];
     if (view.accessibilityLabel.length) [values addObject:view.accessibilityLabel];
     if ([view.accessibilityValue isKindOfClass:NSString.class] && [(NSString *)view.accessibilityValue length]) [values addObject:(NSString *)view.accessibilityValue];
-    if ([view isKindOfClass:UILabel.class] && ((UILabel *)view).text.length) [values addObject:((UILabel *)view).text];
+    BOOL enhancerProjectHeader = [view isKindOfClass:UILabel.class] && [view viewWithTag:CEProjectHeaderMarkerTag] != nil;
+    if ([view isKindOfClass:UILabel.class] && !enhancerProjectHeader && ((UILabel *)view).text.length) [values addObject:((UILabel *)view).text];
     if ([view isKindOfClass:UIButton.class]) {
         NSString *title = [((UIButton *)view) titleForState:UIControlStateNormal];
         if (title.length) [values addObject:title];
