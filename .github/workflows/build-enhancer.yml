@@ -1,14 +1,14 @@
 name: Build ChatGPTEnhancer
-# alpha39 keeps reload on the exact current conversation only and retries the app's own custom-route delivery when the first same-route event is deduplicated
-# reload retries never use History rows, sidebar automation, UIKit pop/push, or another conversation id
+# alpha40 re-evaluates the visible current conversation after navigation and prevents floating-tool title/ID cross-contamination
+# alpha39 exact-current reload behavior remains unchanged: no History/sidebar/UIKit fallback and no alternate conversation id
 # alpha38 floating-button/context-percentage stability and alpha33 lifecycle stability protections remain enabled
-# route/history/sidebar automation remains disabled
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +38,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha39-reload-stability
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha39-reload-stability.zip
+          name: ChatGPTEnhancer-0.1.0-alpha40-conversation-recognition
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha40-conversation-recognition.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha39-reload-stability-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha40-conversation-recognition-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
