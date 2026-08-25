@@ -1,6 +1,6 @@
 name: Build ChatGPTEnhancer
-# alpha35 guarantees context percentage with cached full data first, then a single fallback GET on cache miss
-# no polling is used; usage JSON parsing stays off the main thread
+# alpha36 shows percentage only and derives the context denominator from the active conversation model when available
+# explicit context-window fields in conversation JSON take priority; one-shot fallback GET and off-main-thread parsing remain unchanged
 # alpha33 lifecycle stability protections remain enabled; route/history/sidebar automation remains disabled
 
 on:
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha35-usage-fallback
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha35-usage-fallback.zip
+          name: ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha35-usage-fallback-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
