@@ -24,6 +24,8 @@ static BOOL CEContextURLLooksRelevant(NSURL *url) {
 
 static void CECollectActuallyVisibleStrings(UIView *view, NSUInteger depth, NSMutableOrderedSet<NSString *> *output) {
     if (!view || depth > 8 || view.hidden || view.alpha < 0.02 || !view.window) return;
+    CGRect frame = [view convertRect:view.bounds toView:view.window];
+    if (CGRectIsEmpty(frame) || !CGRectIntersectsRect(frame, view.window.bounds)) return;
     NSMutableArray<NSString *> *values = [NSMutableArray array];
     if (view.accessibilityIdentifier.length) [values addObject:view.accessibilityIdentifier];
     if (view.accessibilityLabel.length) [values addObject:view.accessibilityLabel];
@@ -58,7 +60,6 @@ static void CECollectActuallyVisibleStrings(UIView *view, NSUInteger depth, NSMu
 }
 
 - (void)resolveNow {
-    if ([CEConversationContext shared].conversationID.length) return;
     UIWindow *window = CEKeyWindow();
     if (!window) return;
     NSMutableOrderedSet<NSString *> *strings = [NSMutableOrderedSet orderedSet];
