@@ -99,6 +99,7 @@ static NSString *CECatalogTitleFromAccessibilityText(NSString *text) {
 
 static void CEConsiderAccessibilityObject(id object, CGPoint screenPoint, NSString **bestTitle, CGFloat *bestScore) {
     if (!object) return;
+    if ([object isKindOfClass:UILabel.class] && [(UILabel *)object viewWithTag:CEProjectHeaderMarkerTag]) return;
     CGRect frame = CGRectNull;
     @try {
         if ([object respondsToSelector:@selector(accessibilityFrame)]) frame = [object accessibilityFrame];
@@ -209,6 +210,7 @@ static NSString *CEBestVisibleConversationTitle(void) {
     NSMutableArray<UILabel *> *labels = [NSMutableArray array]; CECollectTopLabels(window, window, 0, labels);
     UILabel *best = nil; CGFloat bestScore = -CGFLOAT_MAX;
     for (UILabel *label in labels) {
+        if ([label viewWithTag:CEProjectHeaderMarkerTag]) continue;
         NSString *text = [label.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (text.length < 2 || text.length > 120 || [text containsString:@"\n"] || ![[CECatalog shared] recordsMatchingTitle:text].count) continue;
         NSString *lower = text.lowercaseString;
