@@ -7,8 +7,18 @@ _Last updated: 2026-08-25._
 - **Stable/Frozen runtime baseline**: `Unknown / Unverified` from repository evidence alone.
 - The default branch `main` is **not** proof of the latest product behavior; before governance installation it contained only the initial README and placeholder file.
 - The current active product track is `ChatGPTEnhancer`. `feat/chatgpt-enhancer-v0.1` remains the base product branch; `feat/conversation-recognition` is the newest test candidate branch and has not yet been accepted as a runtime baseline.
+- A separate standalone native-client planning track, `DEV-native-chatgpt-client`, is Active but has no implementation baseline or runnable candidate yet.
 
 ## Current development candidates
+
+### Standalone native ChatGPT client planning
+
+- Work ID: `DEV-native-chatgpt-client`.
+- Branch: `feat/native-chatgpt-client`, created from governance `main` commit `92e26ae5bd0dc6ee75cc7ea3aae628ee42d5c215`.
+- Purpose: replace WebView/React/DOM chat rendering with native iOS conversation list/message/composer/attachment UI while using a native protocol/network adapter against real ChatGPT backend behavior.
+- Current stage: architecture planning only. No product code, PR, candidate identity, CI, artifact or runtime result.
+- Critical open boundary: standalone authentication/session bootstrap and send/stream/upload protocol behavior must be verified from real request evidence. Whether any browser surface is allowed solely for login bootstrap remains undecided.
+- Status: Active planning task; not a Candidate and not a replacement for the current enhancer product track.
 
 ### ChatGPTEnhancer `0.1.0-alpha42-project-conversation-title`
 
@@ -58,12 +68,15 @@ The current enhancer is a host-app injected dylib with separated state ownership
 6. `CEEnhancerUI` owns host-app UI integration, including the project-header presentation override.
 7. Export/features/diagnostics consume these owners rather than creating parallel authorities.
 
+The standalone native-client architecture is not implemented yet. Planning direction requires separate state ownership for standalone authentication/session, transport/protocol, conversation data and native UI; exact modules remain `Unknown / Unverified` until implementation planning is finalized.
+
 ## Current development direction
 
-- Treat `ChatGPTEnhancer` as the current active product track unless explicitly rerouted.
+- Treat `ChatGPTEnhancer` as the current active product track unless explicitly routed to another task.
 - Manual reload remains exact-current-conversation only.
 - For `DEV-conversation-recognition`, correct identity at `CEConversationContext` and treat plugin-generated header content as presentation only, never as identity evidence.
-- `DEV-conversation-usage` remains a separate Active task restricted to percentage-specific files until this candidate's shared packaging ownership is cleared.
+- `DEV-conversation-usage` remains a separate Active task restricted to percentage-specific files and its stacked alpha43 candidate.
+- `DEV-native-chatgpt-client` is a parallel planning-only track. Its primary chat UI must be native iOS rather than WebView/React/DOM rendering; private backend/auth/stream behavior must be evidenced before implementation. It does not modify or supersede enhancer architecture during planning.
 
 ## Known issues / constraints
 
@@ -75,6 +88,8 @@ The current enhancer is a host-app injected dylib with separated state ownership
 - The alpha42 header detector is currently evidenced only for the Chinese project-chat layout with exact subtitle `聊天`; other locales/layouts are `Unknown / Unverified`.
 - Tiny-gear positioning and header restoration have compiled but still require real-device visual validation.
 - GitHub Actions commits run IDs back to feature branches, so branch head can be a CI bookkeeping commit rather than the tested functional source.
+- Standalone native client authentication/session acquisition is not yet solved; zero-WebView login, login-only browser bootstrap, and other approaches must not be treated as equivalent until verified.
+- Send/stream/edit/regenerate/upload/model/project request contracts for the standalone client are currently `Unknown / Unverified` and must be derived from real current traffic rather than historical assumptions.
 
 ## Evidence rule
 
