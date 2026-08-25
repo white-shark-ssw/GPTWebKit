@@ -2,7 +2,7 @@
 #import <objc/runtime.h>
 
 NSString * const CEBundleIdentifier = @"com.openai.chat";
-NSString * const CEVersion = @"0.1.0-alpha35-usage-fallback";
+NSString * const CEVersion = @"0.1.0-alpha36-model-aware-usage";
 NSString * const CEConversationContextDidChangeNotification = @"ChatGPTEnhancer.ConversationContextDidChange";
 NSString * const CENetworkTemplateDidChangeNotification = @"ChatGPTEnhancer.NetworkTemplateDidChange";
 NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidChange";
@@ -152,8 +152,7 @@ static void CECollectStringsRecursive(UIView *view, NSUInteger depth, NSUInteger
 }
 
 NSArray<NSString *> *CECollectVisibleStrings(UIView *view, NSUInteger maxDepth) {
-    NSMutableOrderedSet<NSString *> *set = [NSMutableOrderedSet orderedSet];
-    UIView *cursor = view;
+    NSMutableOrderedSet<NSString *> *set = [NSMutableOrderedSet orderedSet]; UIView *cursor = view;
     for (NSUInteger up = 0; cursor && up < 5; up++, cursor = cursor.superview) CECollectStringsRecursive(cursor, 0, MIN(maxDepth, 5), set);
     return set.array;
 }
