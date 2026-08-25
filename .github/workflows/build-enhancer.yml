@@ -1,6 +1,7 @@
 name: Build ChatGPTEnhancer
-# alpha36 shows percentage only and derives the context denominator from the active conversation model when available
-# explicit context-window fields in conversation JSON take priority; one-shot fallback GET and off-main-thread parsing remain unchanged
+# alpha37 estimates effective active context rather than dividing the entire stored conversation by the model window
+# current model capacity prefers the official ChatGPT app model catalog max_tokens/context fields when observed, then falls back to model docs
+# long conversations use the newest compaction/context checkpoint; raw history over the model window is never shown as a fake 100%
 # alpha33 lifecycle stability protections remain enabled; route/history/sidebar automation remains disabled
 
 on:
@@ -37,12 +38,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage.zip
+          name: ChatGPTEnhancer-0.1.0-alpha37-effective-context
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha37-effective-context.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha37-effective-context-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
