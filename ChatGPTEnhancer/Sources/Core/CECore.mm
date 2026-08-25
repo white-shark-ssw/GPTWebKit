@@ -2,7 +2,7 @@
 #import <objc/runtime.h>
 
 NSString * const CEBundleIdentifier = @"com.openai.chat";
-NSString * const CEVersion = @"0.1.0-alpha34-context-usage";
+NSString * const CEVersion = @"0.1.0-alpha35-usage-fallback";
 NSString * const CEConversationContextDidChangeNotification = @"ChatGPTEnhancer.ConversationContextDidChange";
 NSString * const CENetworkTemplateDidChangeNotification = @"ChatGPTEnhancer.NetworkTemplateDidChange";
 NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidChange";
@@ -67,10 +67,7 @@ UIViewController *CETopViewController(void) { return CETopFrom(CEKeyWindow().roo
 @end
 
 @implementation CEMessageLabel
-- (CGSize)intrinsicContentSize {
-    CGSize size = [super intrinsicContentSize];
-    return CGSizeMake(size.width + 28.0, size.height + 18.0);
-}
+- (CGSize)intrinsicContentSize { CGSize size = [super intrinsicContentSize]; return CGSizeMake(size.width + 28.0, size.height + 18.0); }
 - (void)drawTextInRect:(CGRect)rect { [super drawTextInRect:UIEdgeInsetsInsetRect(rect, UIEdgeInsetsMake(9, 14, 9, 14))]; }
 @end
 
@@ -101,28 +98,18 @@ UIViewController *CETopViewController(void) { return CETopFrom(CEKeyWindow().roo
     if (label.superview != window) { [label removeFromSuperview]; [window addSubview:label]; self.window = window; }
     if (self.messageConstraints.count) [NSLayoutConstraint deactivateConstraints:self.messageConstraints];
     CGFloat upward = -MIN(MAX(CGRectGetHeight(window.bounds) * 0.08, 40.0), 75.0);
-    self.messageConstraints = @[
-        [label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor],
-        [label.centerYAnchor constraintEqualToAnchor:window.centerYAnchor constant:upward],
-        [label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.84],
-        [label.heightAnchor constraintGreaterThanOrEqualToConstant:40]
-    ];
+    self.messageConstraints = @[[label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor], [label.centerYAnchor constraintEqualToAnchor:window.centerYAnchor constant:upward], [label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.84], [label.heightAnchor constraintGreaterThanOrEqualToConstant:40]];
     [NSLayoutConstraint activateConstraints:self.messageConstraints];
     [window bringSubviewToFront:label];
     [label.layer removeAllAnimations]; label.alpha = 1.0;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.65 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
         if (generation != self.generation) return;
-        [UIView animateWithDuration:0.22 animations:^{ label.alpha = 0; } completion:^(__unused BOOL finished) {
-            if (generation == self.generation) [label removeFromSuperview];
-        }];
+        [UIView animateWithDuration:0.22 animations:^{ label.alpha = 0; } completion:^(__unused BOOL finished) { if (generation == self.generation) [label removeFromSuperview]; }];
     });
 }
 @end
 
-void CEShowMessage(NSString *message) {
-    if (!message.length) return;
-    dispatch_async(dispatch_get_main_queue(), ^{ [[CEMessagePresenter shared] showMessage:message]; });
-}
+void CEShowMessage(NSString *message) { if (!message.length) return; dispatch_async(dispatch_get_main_queue(), ^{ [[CEMessagePresenter shared] showMessage:message]; }); }
 
 void CEShowAlert(NSString *title, NSString *message) {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -159,15 +146,8 @@ NSString *CEExtractConversationIDFromString(NSString *value) {
 
 static void CECollectStringsRecursive(UIView *view, NSUInteger depth, NSUInteger maxDepth, NSMutableOrderedSet<NSString *> *out) {
     if (!view || depth > maxDepth) return;
-    NSArray *values = @[
-        view.accessibilityIdentifier ?: @"", view.accessibilityLabel ?: @"", view.accessibilityValue ?: @"",
-        [view isKindOfClass:UILabel.class] ? (((UILabel *)view).text ?: @"") : @"",
-        [view isKindOfClass:UIButton.class] ? ([((UIButton *)view) titleForState:UIControlStateNormal] ?: @"") : @""
-    ];
-    for (NSString *value in values) {
-        NSString *trim = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (trim.length && trim.length < 240) [out addObject:trim];
-    }
+    NSArray *values = @[view.accessibilityIdentifier ?: @"", view.accessibilityLabel ?: @"", view.accessibilityValue ?: @"", [view isKindOfClass:UILabel.class] ? (((UILabel *)view).text ?: @"") : @"", [view isKindOfClass:UIButton.class] ? ([((UIButton *)view) titleForState:UIControlStateNormal] ?: @"") : @""];
+    for (NSString *value in values) { NSString *trim = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (trim.length && trim.length < 240) [out addObject:trim]; }
     for (UIView *child in view.subviews) CECollectStringsRecursive(child, depth + 1, maxDepth, out);
 }
 
@@ -187,6 +167,4 @@ BOOL CESwizzleInstanceMethod(Class cls, SEL originalSelector, SEL swizzledSelect
     return YES;
 }
 
-BOOL CESwizzleClassMethod(Class cls, SEL originalSelector, SEL swizzledSelector) {
-    return CESwizzleInstanceMethod(object_getClass(cls), originalSelector, swizzledSelector);
-}
+BOOL CESwizzleClassMethod(Class cls, SEL originalSelector, SEL swizzledSelector) { return CESwizzleInstanceMethod(object_getClass(cls), originalSelector, swizzledSelector); }
