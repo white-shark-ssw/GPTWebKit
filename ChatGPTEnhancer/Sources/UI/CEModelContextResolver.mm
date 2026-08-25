@@ -15,7 +15,7 @@ static NSString *CEModelResolverString(id value) {
 
 static NSUInteger CEModelResolverDirectCapacity(NSDictionary *dictionary) {
     if (![dictionary isKindOfClass:NSDictionary.class]) return 0;
-    for (NSString *key in @[@"context_window", @"context_window_size", @"max_context_tokens", @"max_context_length", @"max_tokens"]) {
+    for (NSString *key in @[@"context_window", @"context_window_size", @"max_context_tokens", @"max_context_length"]) {
         id raw = dictionary[key]; NSUInteger value = [raw respondsToSelector:@selector(unsignedIntegerValue)] ? [raw unsignedIntegerValue] : 0;
         if (value >= 4096 && value <= 2000000) return value;
     }
@@ -36,13 +36,14 @@ static void CEModelResolverScan(id value, NSUInteger depth, NSMutableDictionary<
 
 static NSUInteger CEModelResolverFallbackCapacity(NSString *model, NSString **sourceOut) {
     NSString *lower = model.lowercaseString ?: @"";
+    if (!lower.length) { if (sourceOut) *sourceOut = @"model-unavailable"; return 0; }
     if ([lower containsString:@"gpt-5.6"] || [lower containsString:@"gpt-5-6"] || [lower containsString:@"gpt-5.5"] || [lower containsString:@"gpt-5-5"] || ([lower containsString:@"gpt-5.4"] && ![lower containsString:@"mini"] && ![lower containsString:@"nano"]) || ([lower containsString:@"gpt-5-4"] && ![lower containsString:@"mini"] && ![lower containsString:@"nano"])) { if (sourceOut) *sourceOut = @"fallback-model-docs=1050000"; return 1050000; }
     if ([lower containsString:@"gpt-5.4-mini"] || [lower containsString:@"gpt-5-4-mini"] || [lower containsString:@"gpt-5.4-nano"] || [lower containsString:@"gpt-5-4-nano"] || [lower containsString:@"gpt-5.3"] || [lower containsString:@"gpt-5-3"] || [lower containsString:@"gpt-5.2"] || [lower containsString:@"gpt-5-2"] || [lower containsString:@"gpt-5.1"] || [lower containsString:@"gpt-5-1"] || [lower containsString:@"chat-latest"]) { if (sourceOut) *sourceOut = @"fallback-model-family=400000"; return 400000; }
     if ([lower containsString:@"gpt-4.1"] || [lower containsString:@"gpt-4-1"]) { if (sourceOut) *sourceOut = @"fallback-gpt-4.1=1047576"; return 1047576; }
     if ([lower containsString:@"gpt-4o"] || [lower containsString:@"gpt-4-o"]) { if (sourceOut) *sourceOut = @"fallback-gpt-4o=128000"; return 128000; }
     if ([lower hasPrefix:@"o3"] || [lower hasPrefix:@"o4"]) { if (sourceOut) *sourceOut = @"fallback-o3-o4=200000"; return 200000; }
-    if (sourceOut) *sourceOut = model.length ? [NSString stringWithFormat:@"unknown-model:%@ fallback=128000", model] : @"model-unavailable fallback=128000";
-    return 128000;
+    if (sourceOut) *sourceOut = [NSString stringWithFormat:@"unknown-model:%@", model];
+    return 0;
 }
 
 NSUInteger CEChatGPTContextCapacityForModel(NSString *model, NSString **sourceOut) {

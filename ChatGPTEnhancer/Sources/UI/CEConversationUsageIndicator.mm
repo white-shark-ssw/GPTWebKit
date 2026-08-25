@@ -47,6 +47,17 @@ static NSDictionary *CEUsageConversationContainer(id root) {
     return [conversation[@"mapping"] isKindOfClass:NSDictionary.class] ? conversation : nil;
 }
 
+static NSString *CEUsageConversationID(NSDictionary *container) {
+    if (![container isKindOfClass:NSDictionary.class]) return nil;
+    for (NSString *key in @[@"id", @"conversation_id"]) {
+        id raw = container[key];
+        if (![raw isKindOfClass:NSString.class]) continue;
+        NSString *value = [(NSString *)raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (value.length) return value;
+    }
+    return nil;
+}
+
 static NSString *CEUsageModelString(id raw) {
     if (![raw isKindOfClass:NSString.class]) return nil;
     NSString *value = [(NSString *)raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -135,18 +146,25 @@ static NSArray<NSString *> *CEUsageCurrentPath(NSDictionary *mapping, NSString *
     return reverse.reverseObjectEnumerator.allObjects;
 }
 
-static NSUInteger CEUsageEstimatePercent(NSData *data, NSUInteger *estimatedTokensOut, NSUInteger *capacityOut, NSUInteger *messagesOut, NSString **modelOut, NSString **capacitySourceOut, NSString **contextSourceOut, NSUInteger *rawTokensOut) {
+static NSUInteger CEUsageEstimatePercent(NSData *data, NSString *expectedConversationID, NSUInteger *estimatedTokensOut, NSUInteger *capacityOut, NSUInteger *messagesOut, NSString **modelOut, NSString **capacitySourceOut, NSString **contextSourceOut, NSUInteger *rawTokensOut) {
     if (estimatedTokensOut) *estimatedTokensOut = 0; if (capacityOut) *capacityOut = 0; if (messagesOut) *messagesOut = 0; if (modelOut) *modelOut = nil; if (capacitySourceOut) *capacitySourceOut = nil; if (contextSourceOut) *contextSourceOut = nil; if (rawTokensOut) *rawTokensOut = 0;
     if (!data.length) return NSNotFound;
     id rootObject = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil]; NSDictionary *root = [rootObject isKindOfClass:NSDictionary.class] ? rootObject : nil;
     NSDictionary *container = CEUsageConversationContainer(rootObject); if (!root || !container) return NSNotFound;
+    NSString *payloadConversationID = CEUsageConversationID(container);
+    if (payloadConversationID.length && expectedConversationID.length && ![payloadConversationID isEqualToString:expectedConversationID]) { if (contextSourceOut) *contextSourceOut = [NSString stringWithFormat:@"unreliable: payload conversation mismatch:%@", payloadConversationID]; return NSNotFound; }
     NSDictionary *mapping = [container[@"mapping"] isKindOfClass:NSDictionary.class] ? container[@"mapping"] : nil;
     NSString *currentNode = [container[@"current_node"] isKindOfClass:NSString.class] ? container[@"current_node"] : nil; if (!mapping.count || !currentNode.length) return NSNotFound;
 
     NSString *model = CEUsageCurrentModel(root, container, mapping, currentNode);
     NSString *capacitySource = nil; NSUInteger capacity = CEUsageConversationCapacity(root, container, &capacitySource);
     if (!capacity) capacity = CEChatGPTContextCapacityForModel(model, &capacitySource);
-    NSArray<NSString *> *path = CEUsageCurrentPath(mapping, currentNode); if (!path.count || !capacity) return NSNotFound;
+    NSArray<NSString *> *path = CEUsageCurrentPath(mapping, currentNode);
+    if (!path.count || !capacity) {
+        if (modelOut) *modelOut = model; if (capacityOut) *capacityOut = capacity; if (capacitySourceOut) *capacitySourceOut = capacitySource;
+        if (contextSourceOut) *contextSourceOut = !path.count ? @"unreliable: current path unavailable" : @"unreliable: context capacity unavailable";
+        return NSNotFound;
+    }
 
     double rawTokens = 0; NSUInteger rawMessages = 0; NSInteger latestStrong = NSNotFound, latestWeak = NSNotFound;
     for (NSUInteger i = 0; i < path.count; i++) {
@@ -207,7 +225,7 @@ static void CEUsageComputeData(NSData *data, NSString *conversationID, NSString 
     NSUInteger generation = ++CEUsageGeneration;
     dispatch_async(CEUsageQueue, ^{
         NSUInteger estimated = 0, capacity = 0, messages = 0, rawTokens = 0; NSString *model = nil, *capacitySource = nil, *contextSource = nil;
-        NSUInteger percent = CEUsageEstimatePercent(data, &estimated, &capacity, &messages, &model, &capacitySource, &contextSource, &rawTokens);
+        NSUInteger percent = CEUsageEstimatePercent(data, conversationID, &estimated, &capacity, &messages, &model, &capacitySource, &contextSource, &rawTokens);
         dispatch_async(dispatch_get_main_queue(), ^{
             if (generation != CEUsageGeneration || ![[CEConversationContext shared].conversationID isEqualToString:conversationID]) return;
             UIButton *button = CEUsageFloatingButton(); if (!button) return;
