@@ -66,7 +66,7 @@ __attribute__((constructor)) static void CEUsageDisplayStabilityEntry(void) {
             CEUsage38Cache = [NSMutableDictionary dictionary];
             CESwizzleInstanceMethod(UIButton.class, @selector(setTitle:forState:), @selector(ce_usage38_setTitle:forState:));
             NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-            [center addObserverForName=CEConversationContextDidChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CEUsage38RestoreCurrent(); }];
+            [center addObserverForName:CEConversationContextDidChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CEUsage38RestoreCurrent(); }];
             [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CEUsage38RestoreCurrent(); }];
             CERecoveryDiagnosticLog(@"USAGE38", @"in-process percentage display cache installed; explicit unknown is never overridden");
         });
