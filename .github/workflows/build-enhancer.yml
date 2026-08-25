@@ -1,7 +1,7 @@
 name: Build ChatGPTEnhancer
-# alpha38 fixes floating-button disappearance during the iOS left-edge interactive swipe while the Messages screen is still active
-# alpha38 keeps the last valid context percentage for each conversation so temporary unavailable estimates do not flicker back to --%
-# alpha37 effective-context estimation and alpha33 lifecycle stability protections remain enabled
+# alpha39 keeps reload on the exact current conversation only and retries the app's own custom-route delivery when the first same-route event is deduplicated
+# reload retries never use History rows, sidebar automation, UIKit pop/push, or another conversation id
+# alpha38 floating-button/context-percentage stability and alpha33 lifecycle stability protections remain enabled
 # route/history/sidebar automation remains disabled
 
 on:
@@ -38,12 +38,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha38-ui-usage-stability
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha38-ui-usage-stability.zip
+          name: ChatGPTEnhancer-0.1.0-alpha39-reload-stability
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha39-reload-stability.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha38-ui-usage-stability-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha39-reload-stability-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
