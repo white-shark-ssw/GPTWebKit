@@ -8,30 +8,30 @@
 
 - **Project name**: `GPTWebKit` repository; current active product track is `ChatGPTEnhancer`.
 - **Repository**: `white-shark-ssw/GPTWebKit`.
-- **Project purpose**: iOS tooling that augments ChatGPT usage. The newest active track injects a dylib into the official ChatGPT iOS app to add conversation export/management/reload/diagnostic UI. Older branches also contain a standalone/native ChatGPT utility and earlier WebView client experiments.
+- **Project purpose**: iOS tooling that augments ChatGPT usage. The newest active track injects a dylib into the official ChatGPT iOS app to add conversation export/management/reload/diagnostic UI and current-conversation-aware presentation. Older branches contain standalone/native ChatGPT utility and earlier WebView client experiments.
 - **Product type**: Current track — injected iOS dynamic library / host-app enhancer. Legacy tracks — native iOS app / WebView utility.
-- **Primary users/runtime**: Current enhancer targets the official ChatGPT iOS app bundle `com.openai.chat`, iOS 17.0+, installed through TrollFools / 巨魔注入器-style plain dylib injection.
+- **Primary users/runtime**: Current enhancer targets official ChatGPT iOS bundle `com.openai.chat`, iOS 17.0+, installed through TrollFools / 巨魔注入器-style plain dylib injection.
 
 ## Technology stack
 
-- **Primary language(s)**: Objective-C++ (`.mm`) for `ChatGPTEnhancer`; Swift for the legacy/native `GPTWebKit` app; Bash for build packaging; YAML for GitHub Actions.
-- **Framework(s)**: UIKit, Foundation, QuartzCore, CoreGraphics for the enhancer; UIKit/Xcode iOS app target for the legacy native app.
-- **Package/dependency manager(s)**: No third-party package/dependency manifest found in the scanned repository tree. `Unknown / Unverified` beyond system Apple frameworks.
+- **Primary language(s)**: Objective-C++ (`.mm`) for `ChatGPTEnhancer`; Swift for legacy/native `GPTWebKit`; Bash for build packaging; YAML for GitHub Actions.
+- **Framework(s)**: UIKit, Foundation, QuartzCore, CoreGraphics for enhancer; UIKit/Xcode iOS app target for legacy native app.
+- **Package/dependency manager(s)**: No third-party package/dependency manifest found in scanned repository tree. `Unknown / Unverified` beyond Apple system frameworks.
 - **Important manifests/configs**: `ChatGPTEnhancer/Support/ChatGPTEnhancer.plist`, `ChatGPTEnhancer/build.sh`, `GPTWebKit.xcodeproj/project.pbxproj`, `GPTWebKit/Info.plist`, `.github/workflows/build-enhancer.yml`, `.github/workflows/build-ipa.yml`.
 
 ## Repository structure
 
-- **Main source roots**: Current enhancer: `ChatGPTEnhancer/Sources/`; legacy native app: `GPTWebKit/`.
-- **Application/service entry points**: Enhancer primary startup entry: `ChatGPTEnhancer/Sources/Bootstrap/CEBootstrap.mm`; legacy app: `GPTWebKit/AppDelegate.swift` + `GPTWebKit/SceneDelegate.swift`.
-- **Test roots**: No automated unit/UI test root found in the scanned source tree.
+- **Main source roots**: current enhancer `ChatGPTEnhancer/Sources/`; legacy native app `GPTWebKit/`.
+- **Application/service entry points**: enhancer `ChatGPTEnhancer/Sources/Bootstrap/CEBootstrap.mm`; legacy app `GPTWebKit/AppDelegate.swift` + `GPTWebKit/SceneDelegate.swift`.
+- **Test roots**: No automated unit/UI test root found.
 - **Key modules/state owners**:
-  - `Core/CECore` — generic UIKit helpers and authoritative active `CEConversationContext` state.
+  - `Core/CECore` — generic UIKit helpers and authoritative active `CEConversationContext` state; generic visible-string collection now excludes enhancer-synthetic conversation-title presentation.
   - `Network/CENetworkObserver` — passive observation of official ChatGPT Foundation networking and in-memory request template/events.
   - `Network/CEAPIClient` — sole owner for enhancer-originated ChatGPT requests.
   - `Storage/CECatalog` — conversation ID/title/update-time catalog and title resolution.
-  - `UI/CEEnhancerUI` — host-app UI integration and enhancer surfaces.
+  - `UI/CEEnhancerUI` — host-app UI integration, floating tools, and fail-closed project-chat header title override.
   - `Export/CEMarkdownExporter` — Markdown generation from conversation data.
-  - `Features/*` — feature behavior such as rename/reload/recovery.
+  - `Features/*` — rename/reload/recovery behavior.
   - `Diagnostics/*` — runtime probes and recovery diagnostics.
 
 ## Build and validation
@@ -42,40 +42,43 @@
 - **Test command(s)**: No automated test command verified.
 - **Lint/static checks**: No dedicated lint/format/static-analysis command verified.
 - **CI workflows**:
-  - `.github/workflows/build-enhancer.yml` — `Build ChatGPTEnhancer`, macOS 15, normal push branch `feat/chatgpt-enhancer-v0.1`; `DEV-conversation-recognition` was also built once on its isolated branch by Actions run `32850463066` while validating alpha40.
+  - `.github/workflows/build-enhancer.yml` — `Build ChatGPTEnhancer`, macOS 15; normal push branch remains `feat/chatgpt-enhancer-v0.1`. Temporary `feat/conversation-recognition` trigger was used to build the isolated alpha42 candidate, then removed after CI success.
   - `.github/workflows/build-ipa.yml` — legacy unsigned IPA build for `feat/initial-ios-shell` and `feat/0.2-native-recovery-exporter`.
 - **Artifact/package output**:
-  - Newest enhancer test candidate: `ChatGPTEnhancer.dylib` plus `ChatGPTEnhancer-0.1.0-alpha40-conversation-recognition.zip`; Actions run `32850463066` produced package and dylib artifacts. Runtime/manual acceptance is still pending.
-  - Previous enhancer candidate: `0.1.0-alpha39-reload-stability`.
-  - Legacy app workflow: unsigned IPA artifact, currently named `ChatGPT-MD-0.3.0-alpha2.ipa` in the workflow.
+  - Newest enhancer test candidate: `ChatGPTEnhancer.dylib` plus `ChatGPTEnhancer-0.1.0-alpha42-project-conversation-title.zip`; Actions run `32855687010` produced package artifact id `9566065953` and dylib artifact id `9566066411`. Runtime/manual acceptance is pending.
+  - Superseded pre-runtime candidate: `0.1.0-alpha41-project-conversation-title`.
+  - Previous candidate: `0.1.0-alpha40-conversation-recognition`.
+  - Legacy app workflow: unsigned IPA artifact named `ChatGPT-MD-0.3.0-alpha2.ipa` in workflow.
 
 ## Versioning and candidate identity
 
 - **Version source**:
-  - Enhancer: `CEVersion` in `ChatGPTEnhancer/Sources/Core/CECore.mm`; package/artifact names are also duplicated in `ChatGPTEnhancer/build.sh` and `.github/workflows/build-enhancer.yml` and must be kept synchronized.
-  - Legacy app: `MARKETING_VERSION` in `GPTWebKit.xcodeproj/project.pbxproj` (`0.3.0` on the scanned legacy branch).
+  - Enhancer: `CEVersion` in `ChatGPTEnhancer/Sources/Core/CECore.mm`; package/artifact names duplicated in `ChatGPTEnhancer/build.sh` and `.github/workflows/build-enhancer.yml` and must match.
+  - Legacy app: `MARKETING_VERSION` in `GPTWebKit.xcodeproj/project.pbxproj` (`0.3.0` on scanned legacy branch).
 - **Build number source**:
-  - Enhancer: no separate numeric product build number verified. GitHub Actions run ID is recorded in `.github/latest-enhancer-run-id` as CI/build evidence, not as the product version.
-  - Legacy app: `CURRENT_PROJECT_VERSION` in `project.pbxproj` (`2` on the scanned branch).
-- **Release/tag scheme**: No repository release/tag process verified. Current enhancer uses semantic alpha candidate strings such as `0.1.0-alpha40-conversation-recognition`.
-- **Parallel test-candidate scheme**: Governance rule established: each Active development task must reserve a unique candidate identity. For enhancer work, use a unique alpha/candidate suffix consistent with the existing explicit artifact naming unless a later repository decision changes the scheme.
+  - Enhancer: no separate numeric product build number verified. GitHub Actions run ID in `.github/latest-enhancer-run-id` is CI/build evidence, not product version.
+  - Legacy app: `CURRENT_PROJECT_VERSION` in `project.pbxproj` (`2` on scanned branch).
+- **Release/tag scheme**: No repository release/tag process verified. Current enhancer uses explicit semantic alpha candidate strings such as `0.1.0-alpha42-project-conversation-title`.
+- **Parallel test-candidate scheme**: each Active development task must reserve a unique candidate identity before producing runnable artifacts.
 - **Artifact naming rule**: Candidate name must match code version and CI/package names; do not reuse an exact artifact/candidate identity across Active tasks.
 
 ## Runtime / deployment
 
-- **Supported runtime/OS/platform**: Current enhancer: arm64 iOS 17.0+ inside official ChatGPT iOS app. Legacy app project also targets iPhoneOS 17.0+.
-- **Deployment target(s)**: Enhancer compiler target `arm64-apple-ios17.0`; legacy Xcode target `IPHONEOS_DEPLOYMENT_TARGET = 17.0`.
-- **Environment/configuration sources**: Enhancer runtime target validation uses official app bundle `com.openai.chat`; authentication/account request context is captured only in memory from the host app's own requests. No server-side deployment environment is part of this repository.
+- **Supported runtime/OS/platform**: current enhancer arm64 iOS 17.0+ inside official ChatGPT iOS app. Legacy app also targets iPhoneOS 17.0+.
+- **Deployment target(s)**: enhancer compiler target `arm64-apple-ios17.0`; legacy Xcode target `IPHONEOS_DEPLOYMENT_TARGET = 17.0`.
+- **Environment/configuration sources**: enhancer validates official app bundle `com.openai.chat`; authentication/account request context is captured only in memory from host app requests. No server deployment environment is part of this repository.
 
 ## Documentation evidence
 
 - Branch inventory: GitHub branches API, scanned 2026-08-25.
-- Current enhancer architecture/purpose: `ChatGPTEnhancer/README.md`, `ChatGPTEnhancer/ARCHITECTURE.md` on `feat/chatgpt-enhancer-v0.1`.
+- Current enhancer architecture/purpose: `ChatGPTEnhancer/README.md`, `ChatGPTEnhancer/ARCHITECTURE.md` on enhancer base branch.
 - Current enhancer build/runtime target: `ChatGPTEnhancer/build.sh`.
-- Enhancer alpha39 CI/artifacts: Actions run `32841238704`.
-- Enhancer alpha40 conversation-recognition CI/artifacts: Actions run `32850463066`; Draft PR #2 from `feat/conversation-recognition` to `feat/chatgpt-enhancer-v0.1`.
+- Alpha39 CI/artifacts: Actions `32841238704`.
+- Alpha40 conversation-recognition CI/artifacts: Actions `32850463066`; Draft PR #2.
+- Alpha41 project-title builds: Actions `32854457168` / `32854676896`, superseded pre-runtime.
+- Alpha42 integrated project-conversation-title candidate: Actions `32855687010`; Draft PR #2 head `51bc4a9b580d62e3cc95cc3cf95b33827d6a0a7b`; real-device validation pending.
 - Legacy app build/version: `.github/workflows/build-ipa.yml`, `GPTWebKit.xcodeproj/project.pbxproj` on `feat/0.2-native-recovery-exporter`.
-- Repository default `main` before governance installation contained only `README.md` and `占位文件.txt`; therefore default-branch presence alone is not evidence of the accepted product baseline.
+- Repository default `main` before governance installation contained only `README.md` and `占位文件.txt`; default-branch presence alone is not accepted-baseline evidence.
 
 ## Auto-refresh rule
 
