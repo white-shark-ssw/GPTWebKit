@@ -8,21 +8,18 @@
 #import "../Diagnostics/CEDiagnostics.h"
 
 static void CEShowLoadedToastWhenReady(NSUInteger attempt) {
-    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha37-effective-context 已加载"); return; }
+    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha38-ui-usage-stability 已加载"); return; }
     if (attempt >= 12) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(attempt + 1); });
 }
 
 static void CEStartEnhancer(void) {
     if (!CETargetApp()) return;
-    CERecoveryDiagnosticMark(@"PLUGIN START alpha37-effective-context");
+    CERecoveryDiagnosticMark(@"PLUGIN START alpha38-ui-usage-stability");
     @try {
-        [[CENetworkObserver shared] start];
-        CEInstallActiveConversationDiagnostics();
-        [[CECatalog shared] start];
-        [[CEEnhancerUI shared] start];
+        [[CENetworkObserver shared] start]; CEInstallActiveConversationDiagnostics(); [[CECatalog shared] start]; [[CEEnhancerUI shared] start];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(0); });
-        NSLog(@"[ChatGPTEnhancer] alpha37-effective-context started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
+        NSLog(@"[ChatGPTEnhancer] alpha38-ui-usage-stability started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
     } @catch (NSException *exception) { NSLog(@"[ChatGPTEnhancer] startup exception: %@", exception); }
 }
 
@@ -33,9 +30,7 @@ __attribute__((constructor)) static void CEEntry(void) {
             if (UIApplication.sharedApplication.applicationState == UIApplicationStateActive) CEStartEnhancer();
             else {
                 __block id token = nil;
-                token = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) {
-                    if (token) [[NSNotificationCenter defaultCenter] removeObserver:token]; CEStartEnhancer();
-                }];
+                token = [[NSNotificationCenter defaultCenter] addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { if (token) [[NSNotificationCenter defaultCenter] removeObserver:token]; CEStartEnhancer(); }];
             }
         });
     }
