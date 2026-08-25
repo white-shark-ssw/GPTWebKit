@@ -68,6 +68,20 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Validation level**: Code written + CI passed + artifact produced for alpha42; runtime/manual/real-device validation pending.
 - **Supersedes**: The incomplete alpha41 project-header evidence handling.
 
+## TD-006 — Standalone ChatGPT client uses native iOS presentation, not WebView chat rendering
+
+- **Status**: Confirmed planning direction
+- **Date**: 2026-08-25
+- **Scope**: `DEV-native-chatgpt-client`
+- **Decision**: The new standalone client will render conversation lists, messages, composer, attachments and navigation with native iOS controls. ChatGPT Web / WKWebView is not the primary chat UI and DOM/React virtualization is not the long-conversation architecture. The client will instead use a native networking/protocol adapter against real ChatGPT backend behavior verified from current request evidence.
+- **Evidence**: User explicitly reports repeated WebView optimization versions still retain unacceptable long-conversation lag and requests a native client using the Web/backend communication model. Existing repository evidence shows native Foundation networking can consume ChatGPT conversation data without rendering Web UI, but standalone authentication/send/stream behavior remains to be verified separately.
+- **Alternatives considered**: Continue tuning WebView DOM virtualization, timers/observers, or use WebView as the main conversation renderer.
+- **Rejected / do-not-repeat**: Do not return to WebView/React/DOM chat rendering as the primary architecture merely to preserve existing code. Do not invent private endpoints/auth/stream contracts without real evidence.
+- **Affected modules**: New standalone-client track; exact future source modules are not yet selected. Existing `ChatGPTEnhancer` modules remain separate.
+- **Validation level**: User requirement + architecture planning only; no product code, CI, artifact or runtime validation.
+- **Supersedes**: WebView-first rendering direction for the new client only. It does not alter the current `ChatGPTEnhancer` architecture.
+- **Notes**: Whether a browser surface is allowed solely as an authentication bootstrap remains an open design question; this decision only prohibits WebView as the normal chat presentation/runtime.
+
 ## Rule
 
 Do not write speculation here as fact. A historical plan is not proof of implementation.
