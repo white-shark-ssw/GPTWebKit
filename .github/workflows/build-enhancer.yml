@@ -9,7 +9,6 @@ on:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
-      - feat/conversation-usage
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
