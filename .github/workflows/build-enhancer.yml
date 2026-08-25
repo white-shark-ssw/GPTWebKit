@@ -1,14 +1,15 @@
 name: Build ChatGPTEnhancer
-# alpha42 replaces the project-chat header with the verified current conversation title while excluding that synthetic title from conversation-identity evidence
-# alpha40 re-evaluates the visible current conversation after navigation and prevents floating-tool title/ID cross-contamination
+# alpha43 stacks percentage accuracy/fail-closed fixes on alpha42 conversation recognition for combined real-device validation
+# unknown conversation identity, payload mismatch, or unverified context capacity must display --% instead of a stale/invented percentage
+# alpha42 project-header/current-conversation identity isolation remains enabled
 # alpha39 exact-current reload behavior remains unchanged: no History/sidebar/UIKit fallback and no alternate conversation id
-# alpha38 floating-button/context-percentage stability and alpha33 lifecycle stability protections remain enabled
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-usage
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +39,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha42-project-conversation-title
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha42-project-conversation-title.zip
+          name: ChatGPTEnhancer-0.1.0-alpha43-conversation-usage
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha43-conversation-usage.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha42-project-conversation-title-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha43-conversation-usage-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
