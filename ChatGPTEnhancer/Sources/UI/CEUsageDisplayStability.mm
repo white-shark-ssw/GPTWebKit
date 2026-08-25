@@ -5,17 +5,16 @@
 #import "../Core/CECore.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
 
-static NSString *CEUsage38CacheKey(NSString *conversationID) { return conversationID.length ? [@"ChatGPTEnhancer.Usage38." stringByAppendingString:conversationID] : nil; }
+static NSMutableDictionary<NSString *, NSString *> *CEUsage38Cache;
 
 static NSString *CEUsage38CachedText(NSString *conversationID) {
-    NSString *key = CEUsage38CacheKey(conversationID); if (!key.length) return nil;
-    NSString *value = [[NSUserDefaults standardUserDefaults] stringForKey:key];
-    return value.length ? value : nil;
+    if (!conversationID.length) return nil;
+    @synchronized (CEUsage38Cache) { return [CEUsage38Cache[conversationID] copy]; }
 }
 
 static void CEUsage38StoreText(NSString *conversationID, NSString *text) {
-    NSString *key = CEUsage38CacheKey(conversationID); if (!key.length || !text.length) return;
-    [[NSUserDefaults standardUserDefaults] setObject:text forKey:key];
+    if (!conversationID.length || !text.length) return;
+    @synchronized (CEUsage38Cache) { CEUsage38Cache[conversationID] = [text copy]; }
 }
 
 static UIButton *CEUsage38ExistingFloatingButton(void) {
@@ -40,16 +39,9 @@ static BOOL CEUsage38ValidPercentText(NSString *text) {
 @implementation UIButton (CEUsageDisplayStability)
 - (void)ce_usage38_setTitle:(NSString *)title forState:(UIControlState)state {
     UIButton *floating = CEUsage38ExistingFloatingButton();
-    if (self == floating && state == UIControlStateNormal) {
+    if (self == floating && state == UIControlStateNormal && CEUsage38ValidPercentText(title)) {
         NSString *conversationID = [CEConversationContext shared].conversationID;
-        if (CEUsage38ValidPercentText(title)) CEUsage38StoreText(conversationID, title);
-        else if ([title isEqualToString:@"--%"] && conversationID.length) {
-            NSString *cached = CEUsage38CachedText(conversationID);
-            if (cached.length) {
-                CERecoveryDiagnosticLog(@"USAGE38", @"kept cached stable percentage conversation=%@ cached=%@", conversationID, cached);
-                title = cached;
-            }
-        }
+        CEUsage38StoreText(conversationID, title);
     }
     [self ce_usage38_setTitle:title forState:state];
 }
@@ -60,7 +52,10 @@ static void CEUsage38RestoreCurrent(void) {
         NSString *conversationID = [CEConversationContext shared].conversationID; NSString *cached = CEUsage38CachedText(conversationID); UIButton *button = CEUsage38ExistingFloatingButton();
         if (!conversationID.length || !cached.length || !button) return;
         NSString *current = [button titleForState:UIControlStateNormal];
-        if (!CEUsage38ValidPercentText(current)) [button setTitle:cached forState:UIControlStateNormal];
+        if (!current.length) {
+            [button setTitle:cached forState:UIControlStateNormal];
+            CERecoveryDiagnosticLog(@"USAGE38", @"restored in-process percentage after button recreation conversation=%@ cached=%@", conversationID, cached);
+        }
     });
 }
 
@@ -68,11 +63,12 @@ __attribute__((constructor)) static void CEUsageDisplayStabilityEntry(void) {
     @autoreleasepool {
         if (!CETargetApp()) return;
         static dispatch_once_t once; dispatch_once(&once, ^{
+            CEUsage38Cache = [NSMutableDictionary dictionary];
             CESwizzleInstanceMethod(UIButton.class, @selector(setTitle:forState:), @selector(ce_usage38_setTitle:forState:));
             NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-            [center addObserverForName:CEConversationContextDidChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CEUsage38RestoreCurrent(); }];
+            [center addObserverForName=CEConversationContextDidChangeNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CEUsage38RestoreCurrent(); }];
             [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CEUsage38RestoreCurrent(); }];
-            CERecoveryDiagnosticLog(@"USAGE38", @"last-valid percentage display cache installed");
+            CERecoveryDiagnosticLog(@"USAGE38", @"in-process percentage display cache installed; explicit unknown is never overridden");
         });
     }
 }
