@@ -1,6 +1,6 @@
 name: Build ChatGPTEnhancer
-# alpha34 adds a lightweight estimated current-conversation context usage percentage to the floating tool button
-# usage estimation parses cached conversation data off the main thread and never polls the server
+# alpha35 guarantees context percentage with cached full data first, then a single fallback GET on cache miss
+# no polling is used; usage JSON parsing stays off the main thread
 # alpha33 lifecycle stability protections remain enabled; route/history/sidebar automation remains disabled
 
 on:
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha34-context-usage
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha34-context-usage.zip
+          name: ChatGPTEnhancer-0.1.0-alpha35-usage-fallback
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha35-usage-fallback.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha34-context-usage-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha35-usage-fallback-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
