@@ -3,8 +3,6 @@
 #import "CECore.h"
 #import "../Storage/CECatalog.h"
 
-static NSInteger const CEProjectHeaderMarkerTag = 0x43454844;
-
 static BOOL CEContextURLLooksRelevant(NSURL *url) {
     NSString *host = url.host.lowercaseString ?: @"";
     if (![host containsString:@"chatgpt"] && ![host containsString:@"openai"]) return NO;
@@ -28,19 +26,21 @@ static void CECollectActuallyVisibleStrings(UIView *view, NSUInteger depth, NSMu
     if (!view || depth > 8 || view.hidden || view.alpha < 0.02 || !view.window) return;
     CGRect frame = [view convertRect:view.bounds toView:view.window];
     if (CGRectIsEmpty(frame) || !CGRectIntersectsRect(frame, view.window.bounds)) return;
-    NSMutableArray<NSString *> *values = [NSMutableArray array];
-    if (view.accessibilityIdentifier.length) [values addObject:view.accessibilityIdentifier];
-    if (view.accessibilityLabel.length) [values addObject:view.accessibilityLabel];
-    if ([view.accessibilityValue isKindOfClass:NSString.class] && [(NSString *)view.accessibilityValue length]) [values addObject:(NSString *)view.accessibilityValue];
-    BOOL enhancerProjectHeader = [view isKindOfClass:UILabel.class] && [view viewWithTag:CEProjectHeaderMarkerTag] != nil;
-    if ([view isKindOfClass:UILabel.class] && !enhancerProjectHeader && ((UILabel *)view).text.length) [values addObject:((UILabel *)view).text];
-    if ([view isKindOfClass:UIButton.class]) {
-        NSString *title = [((UIButton *)view) titleForState:UIControlStateNormal];
-        if (title.length) [values addObject:title];
-    }
-    for (NSString *value in values) {
-        NSString *trimmed = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (trimmed.length && trimmed.length < 240) [output addObject:trimmed];
+    BOOL syntheticConversationTitle = [view isKindOfClass:UILabel.class] && [view viewWithTag:CESyntheticConversationTitleMarkerTag] != nil;
+    if (!syntheticConversationTitle) {
+        NSMutableArray<NSString *> *values = [NSMutableArray array];
+        if (view.accessibilityIdentifier.length) [values addObject:view.accessibilityIdentifier];
+        if (view.accessibilityLabel.length) [values addObject:view.accessibilityLabel];
+        if ([view.accessibilityValue isKindOfClass:NSString.class] && [(NSString *)view.accessibilityValue length]) [values addObject:(NSString *)view.accessibilityValue];
+        if ([view isKindOfClass:UILabel.class] && ((UILabel *)view).text.length) [values addObject:((UILabel *)view).text];
+        if ([view isKindOfClass:UIButton.class]) {
+            NSString *title = [((UIButton *)view) titleForState:UIControlStateNormal];
+            if (title.length) [values addObject:title];
+        }
+        for (NSString *value in values) {
+            NSString *trimmed = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (trimmed.length && trimmed.length < 240) [output addObject:trimmed];
+        }
     }
     for (UIView *child in view.subviews) CECollectActuallyVisibleStrings(child, depth + 1, output);
 }
