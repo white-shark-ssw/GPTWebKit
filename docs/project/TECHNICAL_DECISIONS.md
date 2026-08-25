@@ -55,6 +55,19 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Validation level**: Code written + CI passed + artifact produced for alpha39; alpha39 runtime/manual result remains Unknown / Unverified in repository evidence.
 - **Supersedes**: Older manual reload fallback route.
 
+## TD-005 — Enhancer-generated conversation titles are presentation, never identity evidence
+
+- **Status**: Confirmed
+- **Date**: 2026-08-25
+- **Scope**: Enhancer current-conversation UI / identity resolution
+- **Decision**: When `CEEnhancerUI` rewrites host-app presentation with a conversation title, mark that label as enhancer-synthetic and exclude its own text/accessibility values from all generic current-conversation evidence paths. Only independent host/network/catalog evidence may change `CEConversationContext`.
+- **Evidence**: alpha41 post-build review found a self-feedback cycle was possible: stale context A could write A's title into project chat B, after which visible-title resolution could read the plugin-generated A title and reinforce A. Alpha42 commits isolate the marked label in `CECore`, `CEContextResolver`, accessibility/touch resolution, and floating visible-title resolution; Actions `32855687010` passed.
+- **Alternatives considered**: Let the rewritten header participate in normal visible-title matching; create another header-local current-conversation state owner.
+- **Rejected / do-not-repeat**: Do not treat plugin-generated UI text as proof of active conversation identity and do not create a second conversation authority to compensate.
+- **Affected modules**: `Core/CECore.*`, `Core/CEContextResolver.mm`, `UI/CEEnhancerUI.mm`.
+- **Validation level**: Code written + CI passed + artifact produced for alpha42; runtime/manual/real-device validation pending.
+- **Supersedes**: The incomplete alpha41 project-header evidence handling.
+
 ## Rule
 
 Do not write speculation here as fact. A historical plan is not proof of implementation.
