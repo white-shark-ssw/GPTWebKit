@@ -8,6 +8,7 @@ FOUNDATION_EXPORT NSString * const CEVersion;
 FOUNDATION_EXPORT NSString * const CEConversationContextDidChangeNotification;
 FOUNDATION_EXPORT NSString * const CENetworkTemplateDidChangeNotification;
 FOUNDATION_EXPORT NSString * const CECatalogDidChangeNotification;
+FOUNDATION_EXPORT NSInteger const CESyntheticConversationTitleMarkerTag;
 
 @interface CEConversationContext : NSObject
 @property (nonatomic, copy, nullable, readonly) NSString *conversationID;
