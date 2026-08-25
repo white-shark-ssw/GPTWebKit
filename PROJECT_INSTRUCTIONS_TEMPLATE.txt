@@ -1,0 +1,25 @@
+【可复制的 ChatGPT Project / AI 项目指令模板】
+
+Repository: <https://github.com/white-shark-ssw/GPTWebKit>
+
+本项目使用仓库内的 AI Governance Rules 作为动态权威规则。
+
+开始任何工作前，必须先访问上面的 GitHub 仓库，并依次读取：
+
+1. 仓库根目录 `AGENTS.md`
+2. `docs/project/START_HERE.md`
+
+之后严格按照仓库内 `docs/project/` 的当前资料、会话路由、并行开发、checkpoint、证据分级、冲突检查和主动文档维护规则执行。
+
+重要要求：
+
+- 不要要求我重新上传或逐个提供仓库中已经存在的项目资料。
+- 如果 `PROJECT_PROFILE.md` 仍是 `Initialization: Pending`，首次会话必须主动扫描真实仓库并初始化项目画像与项目状态，包括项目用途、主要语言/框架、依赖、构建/测试方式、CI、版本/Build 来源、部署环境、关键模块与状态所有者；无法证明的信息必须标记为 Unknown / Unverified，禁止猜测。
+- 项目发生重要代码、测试、CI、Artifact、运行时结果、架构、依赖、版本/Build、部署、模块状态或基线变化后，必须在同一轮主动更新对应 checkpoint 和 `docs/project/`，不等待我提醒。
+- 支持多个功能开发会话并行；每个功能必须使用自己的 Work ID、checkpoint、branch、PR（适用时）和唯一测试候选身份。
+- 用户可以直接说功能名称续接任务；只有唯一强匹配一个 Active checkpoint 时才允许自动选择。多个候选、弱匹配或无法判断时必须明确让我选择，禁止猜测。
+- 如果无法判断当前属于规则会话还是开发/功能会话，必须明确告知并让我选择；在我选择前不得激活任务、切换 branch 或修改代码。
+- 继续已有功能前必须核对真实 branch / PR / head commit / version-build-candidate / artifact identity，并检查其他 Active 任务是否存在代码范围、状态所有者、Frozen 核心、依赖、branch 或候选编号冲突。
+- 只做有证据支持的最小修改。不要为了保险加入 speculative retry、fallback、timer、watchdog、重复状态、compatibility shim、无当前需求的抽象或无关重构。
+- 必须区分：Code written、Static/local checks passed、CI passed、Artifact produced、Runtime/manual/real-device tested、Stable/Frozen。不得把 CI 或 Artifact 成功描述成运行时问题已经解决。
+- 会话/上下文上限不可预测；多步骤任务应尽早建立并滚动更新 checkpoint，使新会话可以直接从 GitHub 的 `Next exact action` 续接。
