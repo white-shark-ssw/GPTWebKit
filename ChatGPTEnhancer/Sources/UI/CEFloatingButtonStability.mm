@@ -6,15 +6,14 @@
 
 static BOOL CEFloatHasVisibleMessagesController(UIViewController *vc, NSUInteger depth) {
     if (!vc || depth > 18) return NO;
-    if ([NSStringFromClass(vc.class) isEqualToString:@"ChatGPTMessages.MessagesViewController"] && vc.viewIfLoaded.window && !vc.isBeingDismissed && !vc.isMovingFromParentViewController) return YES;
+    if ([NSStringFromClass(vc.class) isEqualToString:@"ChatGPTMessages.MessagesViewController"] && vc.viewIfLoaded.window) return YES;
     if (vc.presentedViewController && CEFloatHasVisibleMessagesController(vc.presentedViewController, depth + 1)) return YES;
     for (UIViewController *child in vc.childViewControllers) if (CEFloatHasVisibleMessagesController(child, depth + 1)) return YES;
     return NO;
 }
 
 static BOOL CEFloatCurrentConversationStillVisible(void) {
-    UIWindow *window = CEKeyWindow();
-    return window && CEFloatHasVisibleMessagesController(window.rootViewController, 0);
+    UIWindow *window = CEKeyWindow(); return window && CEFloatHasVisibleMessagesController(window.rootViewController, 0);
 }
 
 static void CEFloatEnsureAttached(void) {
@@ -34,9 +33,8 @@ static void CEFloatEnsureAttached(void) {
 @implementation CEConversationContext (CEFloatingButtonStability)
 - (void)ce_float38_clear {
     if (self.conversationID.length && CEFloatCurrentConversationStillVisible()) {
-        CERecoveryDiagnosticLog(@"FLOAT38", @"suppressed context clear while active MessagesViewController remains visible conversation=%@", self.conversationID);
-        CEFloatEnsureAttached();
-        return;
+        CERecoveryDiagnosticLog(@"FLOAT38", @"suppressed context clear while MessagesViewController remains attached conversation=%@", self.conversationID);
+        CEFloatEnsureAttached(); return;
     }
     [self ce_float38_clear];
 }
