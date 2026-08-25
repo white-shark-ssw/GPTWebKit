@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha41 replaces the visible project-chat header project name with the verified current conversation title and marks successful overrides with a tiny gear
+# alpha41 project-header candidate is superseded pre-runtime; alpha42 will isolate plugin-generated header text from all conversation-identity evidence
 # alpha40 re-evaluates the visible current conversation after navigation and prevents floating-tool title/ID cross-contamination
 # alpha39 exact-current reload behavior remains unchanged: no History/sidebar/UIKit fallback and no alternate conversation id
 # alpha38 floating-button/context-percentage stability and alpha33 lifecycle stability protections remain enabled
@@ -9,7 +9,6 @@ on:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
-      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
