@@ -153,13 +153,16 @@ static void CECollectTopLabels(UIView *view, UIWindow *window, NSUInteger depth,
 static NSString *CEBestVisibleConversationTitle(void) {
     UIWindow *window = CEKeyWindow(); if (!window) return nil;
     NSArray<NSString *> *strings = CECollectVisibleStrings(window, 5);
-    for (NSString *text in strings) { NSString *title = CEQuotedConversationTitle(text); if (title.length) return title; }
+    for (NSString *text in strings) {
+        NSString *title = CEQuotedConversationTitle(text);
+        if (title.length && [[CECatalog shared] recordsMatchingTitle:title].count) return title;
+    }
 
     NSMutableArray<UILabel *> *labels = [NSMutableArray array]; CECollectTopLabels(window, window, 0, labels);
     UILabel *best = nil; CGFloat bestScore = -CGFLOAT_MAX;
     for (UILabel *label in labels) {
         NSString *text = [label.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (text.length < 2 || text.length > 120 || [text containsString:@"\n"]) continue;
+        if (text.length < 2 || text.length > 120 || [text containsString:@"\n"] || ![[CECatalog shared] recordsMatchingTitle:text].count) continue;
         NSString *lower = text.lowercaseString;
         if ([lower isEqualToString:@"chatgpt"] || [text isEqualToString:@"聊天"] || [text isEqualToString:@"新聊天"]) continue;
         CGRect frame = [label convertRect:label.bounds toView:window];
@@ -331,16 +334,27 @@ static void CEResolveConversationFromView(UIView *view) {
     });
 }
 - (CEConversationRecord *)currentRecord {
+    NSString *visibleTitle = CEBestVisibleConversationTitle();
+    if (visibleTitle.length) {
+        NSArray<CEConversationRecord *> *matches = [[CECatalog shared] recordsMatchingTitle:visibleTitle];
+        if (matches.count == 1) {
+            CEConversationRecord *visibleRecord = matches.firstObject;
+            if (visibleRecord.conversationID.length) {
+                [[CEConversationContext shared] setConversationID:visibleRecord.conversationID title:visibleRecord.title];
+                return visibleRecord;
+            }
+        }
+        if (matches.count > 1) return nil;
+    }
     NSString *cid = [CEConversationContext shared].conversationID; if (!cid.length) return nil;
     CEConversationRecord *record = [[CECatalog shared] recordForID:cid] ?: [CEConversationRecord new];
     if (!record.conversationID.length) record.conversationID = cid;
-    NSString *visibleTitle = CEBestVisibleConversationTitle();
-    if (visibleTitle.length) { record.title = visibleTitle; [[CECatalog shared] updateTitle:visibleTitle forConversationID:cid]; }
     if (!record.title.length || [record.title isEqualToString:@"当前会话"]) record.title = [CEConversationContext shared].title ?: @"ChatGPT Conversation";
     return record;
 }
 - (void)buttonTapped {
-    CEConversationRecord *record = [self currentRecord]; if (!record.conversationID.length) return;
+    CEConversationRecord *record = [self currentRecord];
+    if (!record.conversationID.length) { CEShowMessage(@"无法确认当前会话。"); return; }
     UIViewController *vc = CETopViewController(); if (!vc) return;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"会话工具" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
     [sheet addAction:[UIAlertAction actionWithTitle:@"拉取最新消息" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures pullLatestCurrentConversation]; }]];
