@@ -11,6 +11,7 @@ static NSDate *CELastTouchDate = nil;
 static NSString *CELastTouchedTitle = nil;
 static BOOL CEMenuBuildGuard = NO;
 static NSString * const CEExtensionMenuIdentifier = @"com.whiteshark.chatgptenhancer.section";
+static NSInteger const CEProjectHeaderMarkerTag = 0x43454844;
 
 static void CECollectMenuTitles(NSArray<UIMenuElement *> *elements, NSMutableArray<NSString *> *out) {
     for (UIMenuElement *element in elements) {
@@ -148,6 +149,53 @@ static void CECollectTopLabels(UIView *view, UIWindow *window, NSUInteger depth,
         if (CGRectGetMinY(frame) >= window.safeAreaInsets.top - 8 && CGRectGetMaxY(frame) <= window.safeAreaInsets.top + 150) [out addObject:(UILabel *)view];
     }
     for (UIView *child in view.subviews) CECollectTopLabels(child, window, depth + 1, out);
+}
+
+static NSString *CETrimmedLabelText(UILabel *label) { return [label.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; }
+
+static UILabel *CEProjectConversationTitleLabel(UIWindow *window) {
+    if (!window) return nil;
+    NSMutableArray<UILabel *> *labels = [NSMutableArray array]; CECollectTopLabels(window, window, 0, labels);
+    UILabel *subtitle = nil; CGRect subtitleFrame = CGRectNull;
+    for (UILabel *label in labels) {
+        if (![CETrimmedLabelText(label) isEqualToString:@"聊天"]) continue;
+        CGRect frame = [label convertRect:label.bounds toView:window];
+        if (!subtitle || CGRectGetMinY(frame) < CGRectGetMinY(subtitleFrame)) { subtitle = label; subtitleFrame = frame; }
+    }
+    if (!subtitle) return nil;
+
+    UILabel *best = nil; CGFloat bestScore = -CGFLOAT_MAX;
+    for (UILabel *label in labels) {
+        if (label == subtitle) continue;
+        NSString *text = CETrimmedLabelText(label); if (text.length < 1 || text.length > 120 || [text containsString:@"\n"]) continue;
+        CGRect frame = [label convertRect:label.bounds toView:window];
+        CGFloat verticalGap = CGRectGetMinY(subtitleFrame) - CGRectGetMaxY(frame);
+        if (verticalGap < -4 || verticalGap > 52) continue;
+        CGFloat centerDelta = fabs(CGRectGetMidX(frame) - CGRectGetMidX(subtitleFrame));
+        if (centerDelta > 70) continue;
+        if (label.font.pointSize + 0.5 < subtitle.font.pointSize) continue;
+        CGFloat score = label.font.pointSize * 4.0 - verticalGap - centerDelta * 0.15;
+        if (score > bestScore) { best = label; bestScore = score; }
+    }
+    return best;
+}
+
+static void CERemoveProjectHeaderMarker(UILabel *label) { [[label viewWithTag:CEProjectHeaderMarkerTag] removeFromSuperview]; }
+
+static void CEInstallProjectHeaderMarker(UILabel *label, NSString *title) {
+    if (!label || !title.length) return;
+    [label.superview layoutIfNeeded];
+    UIImageView *marker = (UIImageView *)[label viewWithTag:CEProjectHeaderMarkerTag];
+    if (![marker isKindOfClass:UIImageView.class]) {
+        marker = [UIImageView new]; marker.tag = CEProjectHeaderMarkerTag; marker.contentMode = UIViewContentModeScaleAspectFit; marker.isAccessibilityElement = NO; [label addSubview:marker];
+    }
+    UIImageSymbolConfiguration *config = [UIImageSymbolConfiguration configurationWithPointSize:8 weight:UIImageSymbolWeightRegular];
+    marker.image = [[UIImage systemImageNamed:@"gearshape.fill"] imageWithConfiguration:config]; marker.tintColor = label.textColor ?: UIColor.labelColor;
+    UIFont *font = label.font ?: [UIFont systemFontOfSize:17]; CGFloat textWidth = ceil([title sizeWithAttributes:@{NSFontAttributeName: font}].width);
+    CGFloat textStart = 0;
+    if (label.textAlignment == NSTextAlignmentCenter) textStart = MAX(0, (CGRectGetWidth(label.bounds) - textWidth) * 0.5);
+    else if (label.textAlignment == NSTextAlignmentRight) textStart = MAX(0, CGRectGetWidth(label.bounds) - textWidth);
+    CGFloat size = 8; marker.frame = CGRectMake(floor(textStart - size - 3), floor((CGRectGetHeight(label.bounds) - size) * 0.5 + 0.5), size, size);
 }
 
 static NSString *CEBestVisibleConversationTitle(void) {
@@ -291,6 +339,61 @@ static void CEResolveConversationFromView(UIView *view) {
 }
 @end
 
+@interface CEProjectConversationHeaderController : NSObject
+@property (nonatomic, weak) UILabel *modifiedLabel;
+@property (nonatomic, copy) NSString *originalTitle;
+@property (nonatomic, copy) NSString *appliedTitle;
+@property (nonatomic, copy) NSString *conversationID;
+@end
+
+@implementation CEProjectConversationHeaderController
++ (instancetype)shared { static CEProjectConversationHeaderController *v; static dispatch_once_t once; dispatch_once(&once, ^{ v = [CEProjectConversationHeaderController new]; }); return v; }
+- (void)start {
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(refresh:) name:CEConversationContextDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(refresh:) name:CECatalogDidChangeNotification object:nil];
+    [self refresh:nil];
+}
+- (void)restoreCurrentModification {
+    UILabel *label = self.modifiedLabel;
+    if (label) {
+        CERemoveProjectHeaderMarker(label);
+        NSString *current = CETrimmedLabelText(label);
+        if (self.appliedTitle.length && self.originalTitle.length && [current isEqualToString:self.appliedTitle]) label.text = self.originalTitle;
+    }
+    self.modifiedLabel = nil; self.originalTitle = nil; self.appliedTitle = nil; self.conversationID = nil;
+}
+- (NSString *)currentConversationTitle {
+    NSString *cid = [CEConversationContext shared].conversationID; if (!cid.length) return nil;
+    CEConversationRecord *record = [[CECatalog shared] recordForID:cid];
+    NSString *title = record.title.length ? record.title : [CEConversationContext shared].title;
+    title = [title stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!title.length || [title isEqualToString:@"当前会话"] || [title isEqualToString:@"ChatGPT Conversation"]) return nil;
+    return title;
+}
+- (void)refresh:(NSNotification *)note {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIWindow *window = CEKeyWindow(); NSString *cid = [CEConversationContext shared].conversationID; NSString *title = [self currentConversationTitle];
+        UILabel *target = window ? CEProjectConversationTitleLabel(window) : nil;
+        if (!cid.length || !title.length || !target) { [self restoreCurrentModification]; return; }
+        if (self.modifiedLabel && self.modifiedLabel != target) [self restoreCurrentModification];
+
+        NSString *current = CETrimmedLabelText(target);
+        if (target == self.modifiedLabel) {
+            if (![current isEqualToString:title]) target.text = title;
+            if ([CETrimmedLabelText(target) isEqualToString:title]) { self.appliedTitle = title; self.conversationID = cid; CEInstallProjectHeaderMarker(target, title); }
+            return;
+        }
+        if ([current isEqualToString:title]) { CERemoveProjectHeaderMarker(target); return; }
+        if (!current.length) return;
+
+        self.modifiedLabel = target; self.originalTitle = current; self.appliedTitle = title; self.conversationID = cid;
+        target.text = title;
+        if ([CETrimmedLabelText(target) isEqualToString:title]) CEInstallProjectHeaderMarker(target, title);
+        else [self restoreCurrentModification];
+    });
+}
+@end
+
 @interface CEFloatingButtonController : NSObject
 @property (nonatomic, strong) UIButton *button;
 @property (nonatomic, weak) UIWindow *window;
@@ -397,6 +500,7 @@ static void CEResolveConversationFromView(UIView *view) {
         if ([UIMenu instancesRespondToSelector:@selector(menuByReplacingChildren:)]) CESwizzleInstanceMethod(UIMenu.class, @selector(menuByReplacingChildren:), @selector(ce_menuByReplacingChildren:));
         SEL contextFactory = @selector(configurationWithIdentifier:previewProvider:actionProvider:);
         if ([UIContextMenuConfiguration respondsToSelector:contextFactory]) CESwizzleClassMethod(UIContextMenuConfiguration.class, contextFactory, @selector(ce_configurationWithIdentifier:previewProvider:actionProvider:));
+        [[CEProjectConversationHeaderController shared] start];
         [[CEFloatingButtonController shared] start];
     });
 }
