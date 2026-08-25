@@ -159,7 +159,12 @@ static NSUInteger CEUsageEstimatePercent(NSData *data, NSString *expectedConvers
     NSString *model = CEUsageCurrentModel(root, container, mapping, currentNode);
     NSString *capacitySource = nil; NSUInteger capacity = CEUsageConversationCapacity(root, container, &capacitySource);
     if (!capacity) capacity = CEChatGPTContextCapacityForModel(model, &capacitySource);
-    NSArray<NSString *> *path = CEUsageCurrentPath(mapping, currentNode); if (!path.count || !capacity) return NSNotFound;
+    NSArray<NSString *> *path = CEUsageCurrentPath(mapping, currentNode);
+    if (!path.count || !capacity) {
+        if (modelOut) *modelOut = model; if (capacityOut) *capacityOut = capacity; if (capacitySourceOut) *capacitySourceOut = capacitySource;
+        if (contextSourceOut) *contextSourceOut = !path.count ? @"unreliable: current path unavailable" : @"unreliable: context capacity unavailable";
+        return NSNotFound;
+    }
 
     double rawTokens = 0; NSUInteger rawMessages = 0; NSInteger latestStrong = NSNotFound, latestWeak = NSNotFound;
     for (NSUInteger i = 0; i < path.count; i++) {
