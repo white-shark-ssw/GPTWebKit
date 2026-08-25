@@ -28,6 +28,6 @@ codesign -f -s - "$BUILD/ChatGPTEnhancer.dylib"
 cp "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/package/"
 cp "$ROOT/Support/ChatGPTEnhancer.plist" "$BUILD/package/"
 cp "$ROOT/README.md" "$BUILD/package/README.txt"
-(cd "$BUILD/package" && /usr/bin/zip -9 -r "../ChatGPTEnhancer-0.1.0-alpha35-usage-fallback.zip" .)
+(cd "$BUILD/package" && /usr/bin/zip -9 -r "../ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage.zip" .)
 file "$BUILD/ChatGPTEnhancer.dylib"
-ls -lh "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/ChatGPTEnhancer-0.1.0-alpha35-usage-fallback.zip"
+ls -lh "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/ChatGPTEnhancer-0.1.0-alpha36-model-aware-usage.zip"
