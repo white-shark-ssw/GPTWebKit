@@ -1,14 +1,15 @@
 name: Build ChatGPTEnhancer
-# alpha47 promotes only explicit POST /backend-api/conversation/init body identity and freezes that exact ID into current-header menu actions
-# current-conversation Pull / Reload / Export moved to the current chat menu; the old conversation-tool floating button is retired
-# arbitrary UI/menu UUIDs and title-only matching are not current-conversation authority; Share remains validation-only
-# alpha39 exact-current reload route delivery still never falls back to History/sidebar/UIKit or another conversation id
+# alpha48 requires both exact same-conversation request delivery and public-UIKit message-view rebuild evidence before Reload may report success
+# project-chat header presentation may use the exact current menu title for the already-proven conversation ID; the synthetic title never becomes identity evidence
+# alpha47 exact conversation/init identity and immutable current-menu targeting remain in force; the retired conversation-tool floating button stays removed
+# manual reload still never falls back to History/sidebar/UIKit navigation or another conversation id
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +39,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha47-exact-menu-target
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha47-exact-menu-target.zip
+          name: ChatGPTEnhancer-0.1.0-alpha48-reload-ui-title
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha48-reload-ui-title.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha47-exact-menu-target-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha48-reload-ui-title-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
