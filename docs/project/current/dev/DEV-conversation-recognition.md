@@ -12,7 +12,7 @@
 ## Resume identity / conflict guard — 2026-08-27
 
 - **Baseline**: `feat/chatgpt-enhancer-v0.1` = `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`, rechecked unchanged before alpha52.
-- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`; PR was rechecked open/draft/mergeable before implementation.
+- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`; PR rechecked open/draft/mergeable before implementation.
 - **Parallel task**: `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43. Alpha52 did not touch percentage-owned files/checkpoint.
 - **Candidate uniqueness**: `ENH-0.1.0-alpha52-sync-refresh-handoff` / `0.1.0-alpha52-sync-refresh-handoff` was allocated uniquely after checking BUILD_TEST_INDEX and the parallel checkpoint.
 - **No Frozen conflict**: product modules remain Active; alpha52 changes only recognition Feature/version/CI files and does not change `CEConversationContext` ownership.
@@ -26,7 +26,7 @@ Trace `conversation-identity-60CF506D-C2A9-4E8A-8A96-B01E1FD8FD70.log`, app `1.2
 - During the observed Reload interval: zero `conversation/init`, zero `/prepare`, zero `/resume`, and 20 verifier samples with `uiRebuildObserved=NO` / `uiSawDisappear=NO`.
 - User independently reported no visible page change. Therefore same-ID route/request delivery can occur without a visible page rebuild.
 - `正在重载当前会话…` was misleading in that failure mode, and the repeated route deliveries increased short-window request volume without demonstrated UI benefit.
-- This trace contained no HTTP 429, so alpha51's 429 terminal behavior remains runtime-unexercised.
+- This trace contained no HTTP 429, so alpha51/52 terminal 429 behavior remains runtime-unexercised.
 
 ## Current candidate — alpha52
 
@@ -36,17 +36,18 @@ Trace `conversation-identity-60CF506D-C2A9-4E8A-8A96-B01E1FD8FD70.log`, app `1.2
 - **Actions**: run `33004675627`, job `98295074960` — completed **success**. Checkout, run-id bookkeeping, Xcode check, Build, package upload and dylib upload all passed.
 - **CI bookkeeping**: `087d03884b6a4c565d126e8c90849bafa0bf28e9`.
 - **Post-CI cleanup/current branch head**: `90c5bb97f332b2c0c4935ad3eaea9432df3e156e`.
-- **Post-CI compare**: `9c06219... → 90c5bb97...` changes only `.github/latest-enhancer-run-id` and removal of the temporary recognition-branch workflow trigger; tested product source is unchanged.
+- **Post-CI compare**: tested source → current head changes only `.github/latest-enhancer-run-id` and removal of the temporary recognition-branch workflow trigger; tested product source is unchanged.
 - **Artifacts**:
   - package `ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff`, id `9620028731`, digest `sha256:7fa4de42d8276e66934b4d4b2551ddf0f0916a069446388a6af4ae657140c075`;
-  - dylib `ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff-dylib`, id `9620029383`, Actions archive digest `sha256:dc87efcc450d5b26a9588606999cea1c481ff7ac33da51d57a88da47eea198ae`.
+  - dylib `ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff-dylib`, id `9620029383`, Actions archive digest `sha256:dc87efcc450d5b26a9588606999cea1c481ff7ac33da51d57a88da47eea198ae`;
+  - extracted `ChatGPTEnhancer.dylib`: arm64 Mach-O, 593616 bytes, sha256 `0b19bb2ec6d2b9a5ff26210bbd8d8945cffa77bb280b38e28ef1e0f9dc7f62d5`.
 - **Validation state**: **Code written → CI passed → Artifact produced. Runtime/manual/real-device: Pending.** Nothing Stable/Frozen.
 
 ## Alpha52 implementation
 
 1. `CEManualReloadConversationID(...)` no longer tells the user a visible reload has begun. Start state is now **`正在请求客户端刷新当前会话…`**.
 2. When exact same-ID request delivery and UI rebuild are both proven, final success is **`✓ 当前会话页面已刷新`**.
-3. When a same-ID request is proven but no UI rebuild appears, the operation now ends truthfully with **`已请求客户端刷新，但页面未发生刷新。`**.
+3. When a same-ID request is proven but no UI rebuild appears, the operation ends with **`已请求客户端刷新，但页面未发生刷新。`**.
 4. After same-ID request delivery is proven, alpha52 **suppresses further exact-route delivery**. It continues observing the existing UI-proof window but does not send route attempt 1/2 merely because the UI has not changed.
 5. Alternate exact-current route delivery remains available only when the previous route produced **no** same-ID request evidence at all. This preserves delivery fallback without repeating requests after delivery is already proven.
 6. Existing exact-ID guards, app-state/context-change cancellation, UI rebuild proof, alpha51 HTTP 429 terminal handling, stale-stream safety, sidebar Rename/Export and menu identity behavior remain unchanged.
@@ -61,7 +62,7 @@ Trace `conversation-identity-60CF506D-C2A9-4E8A-8A96-B01E1FD8FD70.log`, app `1.2
   2. while conversation A is visible, switch normally to conversation B and then back to A so the official app performs a known genuine navigation/rebuild;
   3. do not press Sync or Reload during this A→B→A sequence;
   4. end/export the trace and send it back.
-- This A→B→A sequence is **diagnostic evidence only**. It does not authorize History/sidebar navigation as the production Reload implementation. We will compare genuine host navigation/rebuild traffic with the failed same-conversation custom-route path before deciding the next code change.
+- This A→B→A sequence is **diagnostic evidence only**. It does not authorize History/sidebar navigation as the production Reload implementation. We compare genuine host navigation/rebuild traffic with the failed same-conversation custom-route path before deciding the next code change.
 
 ## Architecture retained / rejected routes
 
