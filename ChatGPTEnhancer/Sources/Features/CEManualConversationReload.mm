@@ -1,12 +1,11 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
-#import <objc/runtime.h>
+#import "CEManualConversationReload.h"
 #import "../Core/CECore.h"
 #import "../Network/CENetworkObserver.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
 #import "../Diagnostics/CEConversationIdentityTrace.h"
 
-static IMP CEManualReloadOriginalIMP = NULL;
 static NSUInteger CEManualReloadGeneration = 0;
 static BOOL CEManualReloadInFlight = NO;
 static NSString *CEManualReloadConversationID = nil;
@@ -47,7 +46,7 @@ static void CEManualReloadOpenAttempt(NSUInteger generation, NSString *conversat
 static void CEManualReloadVerifyAttempt(NSUInteger generation, NSString *conversationID, NSString *nonce, NSUInteger routeAttempt, NSUInteger poll) {
     if (generation != CEManualReloadGeneration || !CEManualReloadInFlight) return;
     NSString *current = [CEConversationContext shared].conversationID;
-    if (current.length && ![current isEqualToString:conversationID]) { CERecoveryDiagnosticLog(@"MANUAL-RELOAD39", @"SAFETY context changed expected=%@ actual=%@", conversationID, current); CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"safety-context-changed expected=%@ actual=%@", conversationID, current); CEManualReloadFinish(generation, NO, @"重载已停止：当前会话发生变化。"); return; }
+    if (!current.length || ![current isEqualToString:conversationID]) { CERecoveryDiagnosticLog(@"MANUAL-RELOAD39", @"SAFETY context changed expected=%@ actual=%@", conversationID, current ?: @"<nil>"); CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"safety-context-changed expected=%@ actual=%@", conversationID, current ?: @"<none>"); CEManualReloadFinish(generation, NO, @"重载已停止：当前会话发生变化。"); return; }
     NSString *source = nil;
     if (CEManualReloadRequestSeen(conversationID, CEManualReloadStartedAt, &source)) { CERecoveryDiagnosticLog(@"MANUAL-RELOAD39", @"SUCCESS routeAttempt=%lu poll=%lu source=%@ conversation=%@", (unsigned long)routeAttempt, (unsigned long)poll, source, conversationID); CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"verified target=%@ source=%@ routeAttempt=%lu poll=%lu", conversationID, source ?: @"<none>", (unsigned long)routeAttempt, (unsigned long)poll); CEManualReloadFinish(generation, YES, @"✓ 当前会话已重载"); return; }
 
@@ -66,10 +65,10 @@ static void CEManualReloadOpenAttempt(NSUInteger generation, NSString *conversat
     if (generation != CEManualReloadGeneration || !CEManualReloadInFlight) return;
     if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) { CEManualReloadFinish(generation, NO, @"重载已停止：App 当前不在前台。"); return; }
     NSString *current = [CEConversationContext shared].conversationID;
-    if (!current.length || ![current isEqualToString:conversationID]) { CEManualReloadFinish(generation, NO, @"重载已停止：无法确认当前会话。"); return; }
+    if (!current.length || ![current isEqualToString:conversationID]) { CEManualReloadFinish(generation, NO, @"重载已停止：当前会话发生变化。"); return; }
     NSURL *route = CEManualReloadRouteURL(conversationID, routeAttempt, nonce);
     if (!route) { CEManualReloadFinish(generation, NO, @"重载未完成，当前页面保持不变。"); return; }
-    CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"open-route generation=%lu routeAttempt=%lu target=%@ contextID=%@", (unsigned long)generation, (unsigned long)routeAttempt, conversationID, current ?: @"<none>");
+    CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"open-route generation=%lu routeAttempt=%lu target=%@ contextID=%@", (unsigned long)generation, (unsigned long)routeAttempt, conversationID, current);
     CERecoveryDiagnosticLog(@"MANUAL-RELOAD39", @"OPEN generation=%lu routeAttempt=%lu conversation=%@ route=%@", (unsigned long)generation, (unsigned long)routeAttempt, conversationID, route.absoluteString);
     [UIApplication.sharedApplication openURL:route options:@{} completionHandler:^(BOOL opened) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -83,34 +82,20 @@ static void CEManualReloadOpenAttempt(NSUInteger generation, NSString *conversat
     }];
 }
 
-static void CEManualReloadCurrentConversation(id self, SEL _cmd) {
-    CEConversationContext *context = [CEConversationContext shared]; CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"proof-begin contextID=%@ contextTitle=%@", context.conversationID ?: @"<none>", context.title ?: @"<none>");
-    NSString *conversationID = [CERefreshVisibleConversationContext() copy]; CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"proof-result id=%@", conversationID ?: @"<none>");
-    if (!conversationID.length) { CEShowMessage(@"无法确认当前可见会话，已取消重载。"); return; }
+void CEManualReloadConversationID(NSString *conversationID) {
+    conversationID = [conversationID copy];
+    CEConversationContext *context = [CEConversationContext shared];
+    CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"exact-target requested=%@ contextID=%@ contextTitle=%@", conversationID ?: @"<none>", context.conversationID ?: @"<none>", context.title ?: @"<none>");
+    if (!conversationID.length || !context.conversationID.length || ![context.conversationID isEqualToString:conversationID]) { CEShowMessage(@"当前会话已变化，已取消重载。"); return; }
     if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) { CEShowMessage(@"App 回到前台后再重载。"); return; }
     if (CEManualReloadInFlight) { if ([CEManualReloadConversationID isEqualToString:conversationID]) CEShowMessage(@"当前会话正在重载…"); else CEShowMessage(@"已有重载任务正在进行。"); return; }
 
-    CEManualReloadInFlight = YES; CEManualReloadConversationID = [conversationID copy]; CEManualReloadStartedAt = NSDate.date;
+    CEManualReloadInFlight = YES; CEManualReloadConversationID = conversationID; CEManualReloadStartedAt = NSDate.date;
     NSUInteger generation = ++CEManualReloadGeneration;
     NSString *nonce = [NSString stringWithFormat:@"%llu", (unsigned long long)(NSDate.date.timeIntervalSince1970 * 1000.0)];
     CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"start generation=%lu target=%@", (unsigned long)generation, conversationID);
-    CERecoveryDiagnosticMark(@"MANUAL RELOAD39 CURRENT CONVERSATION");
+    CERecoveryDiagnosticMark(@"MANUAL RELOAD39 EXACT MENU TARGET");
     CERecoveryDiagnosticLog(@"MANUAL-RELOAD39", @"START generation=%lu conversation=%@ appState=%ld", (unsigned long)generation, conversationID, (long)UIApplication.sharedApplication.applicationState);
     CEShowMessage(@"正在重载当前会话…");
     CEManualReloadOpenAttempt(generation, conversationID, nonce, 0);
-}
-
-static void CEInstallManualReloadOverride(NSUInteger attempt) {
-    Class cls = NSClassFromString(@"CEFeatures"); SEL selector = NSSelectorFromString(@"reloadCurrentConversation"); Method method = cls ? class_getClassMethod(cls, selector) : NULL;
-    if (method) {
-        IMP current = method_getImplementation(method);
-        if (current != (IMP)CEManualReloadCurrentConversation) { CEManualReloadOriginalIMP = current; method_setImplementation(method, (IMP)CEManualReloadCurrentConversation); }
-        CERecoveryDiagnosticLog(@"MANUAL-RELOAD39", @"hook installed class=%@ selector=%@ originalIMP=%p", NSStringFromClass(cls), NSStringFromSelector(selector), CEManualReloadOriginalIMP); return;
-    }
-    if (attempt >= 20) { CERecoveryDiagnosticLog(@"MANUAL-RELOAD39", @"hook unavailable after %lu attempts", (unsigned long)attempt); return; }
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.25 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEInstallManualReloadOverride(attempt + 1); });
-}
-
-__attribute__((constructor)) static void CEManualConversationReloadEntry(void) {
-    @autoreleasepool { if (!CETargetApp()) return; dispatch_async(dispatch_get_main_queue(), ^{ CEInstallManualReloadOverride(0); }); }
 }
