@@ -100,6 +100,12 @@ static BOOL CEMenuTitleConflictsWithTarget(NSString *menuTitle, NSString *target
     return [[CECatalog shared] recordsMatchingTitle:menu].count > 0;
 }
 
+static NSString *CEUsableMenuPresentationTitle(NSString *menuTitle) {
+    NSString *title = [menuTitle stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!title.length || title.length > 160 || [title containsString:@"\n"] || [title isEqualToString:@"聊天"] || [title isEqualToString:@"新聊天"] || [title.lowercaseString isEqualToString:@"chatgpt"]) return nil;
+    return title;
+}
+
 static void CETraceConversationMenu(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *origin, NSString *identifierText, NSString *identifierClass, NSString *menuTitle, NSString *targetID, NSString *targetTitle) {
     if (!CEConversationIdentityTraceIsRecording()) return;
     CEConversationContext *context = [CEConversationContext shared];
@@ -128,6 +134,8 @@ static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElem
     if (CEMenuTitleConflictsWithTarget(menuTitle, targetTitle)) {
         CEConversationIdentityTraceLog(@"MENU-SKIP", @"origin=%@ reason=title-conflict menuTitle=%@ targetID=%@ targetTitle=%@", origin ?: @"unknown", menuTitle ?: @"<none>", targetID ?: @"<none>", targetTitle ?: @"<none>"); return children;
     }
+    NSString *presentationTitle = CEUsableMenuPresentationTitle(menuTitle);
+    if (targetID.length && presentationTitle.length) { [[CECatalog shared] updateTitle:presentationTitle forConversationID:targetID]; targetTitle = presentationTitle; CEConversationIdentityTraceLog(@"HEADER-TITLE", @"menu-presentation target=%@ title=%@", targetID, presentationTitle); }
     CETraceConversationMenu(children, resolvedSource, origin, identifierText, identifierClass, menuTitle, targetID, targetTitle);
 
     NSMutableArray<UIMenuElement *> *enhancerActions = [NSMutableArray array];
@@ -273,7 +281,7 @@ static void CEInstallProjectHeaderMarker(UILabel *label, NSString *title) {
         if (self.modifiedLabel && self.modifiedLabel != target) [self restoreCurrentModification];
         NSString *current = CETrimmedLabelText(target);
         if (target == self.modifiedLabel) { if (![current isEqualToString:title]) target.text = title; if ([CETrimmedLabelText(target) isEqualToString:title]) { self.appliedTitle = title; self.conversationID = cid; CEInstallProjectHeaderMarker(target, title); } return; }
-        if ([current isEqualToString:title]) { CERemoveProjectHeaderMarker(target); return; } if (!current.length) return;
+        if ([current isEqualToString:title]) { CEInstallProjectHeaderMarker(target, title); return; } if (!current.length) return;
         self.modifiedLabel = target; self.originalTitle = current; self.appliedTitle = title; self.conversationID = cid; target.text = title;
         if ([CETrimmedLabelText(target) isEqualToString:title]) CEInstallProjectHeaderMarker(target, title); else [self restoreCurrentModification];
     });
