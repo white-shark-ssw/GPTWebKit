@@ -1,14 +1,15 @@
 name: Build ChatGPTEnhancer
-# alpha46 is an instrumentation-only candidate for persistent sanitized conversation/menu/share identity tracing; it does not change current action targeting behavior
-# alpha45 keeps the floating tool entry visible independently of conversation identity while preserving fail-closed action-time verification
-# alpha44 prevents observed background conversation requests from owning foreground identity and requires unique visible proof before pull/reload/export actions
-# alpha39 exact-current reload behavior remains unchanged: no History/sidebar/UIKit fallback and no alternate conversation id
+# alpha47 promotes only explicit POST /backend-api/conversation/init body identity and freezes that exact ID into current-header menu actions
+# current-conversation Pull / Reload / Export moved to the current chat menu; the old conversation-tool floating button is retired
+# arbitrary UI/menu UUIDs and title-only matching are not current-conversation authority; Share remains validation-only
+# alpha39 exact-current reload route delivery still never falls back to History/sidebar/UIKit or another conversation id
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +39,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha46-conversation-identity-trace
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha46-conversation-identity-trace.zip
+          name: ChatGPTEnhancer-0.1.0-alpha47-exact-menu-target
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha47-exact-menu-target.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha46-conversation-identity-trace-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha47-exact-menu-target-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
