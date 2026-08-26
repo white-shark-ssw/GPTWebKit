@@ -7,6 +7,7 @@
 #import "../Diagnostics/CEConversationIdentityTrace.h"
 #import "CEForegroundStreamRecovery.h"
 #import "CEOrphanedConversationRecovery.h"
+#import "CEManualConversationReload.h"
 
 @interface CEExportJob : NSObject
 @property (nonatomic, strong) CEConversationRecord *record;
@@ -47,6 +48,14 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 @implementation CEFeatures
 
 + (BOOL)isPlaceholderTitle:(NSString *)title { return !title.length || [title isEqualToString:@"当前会话"] || [title isEqualToString:@"ChatGPT Conversation"]; }
+
++ (BOOL)exactTargetStillCurrent:(NSString *)conversationID actionName:(NSString *)actionName {
+    NSString *current = [CEConversationContext shared].conversationID;
+    BOOL matches = conversationID.length && current.length && [current isEqualToString:conversationID];
+    CEConversationIdentityTraceLog(@"ACTION-TARGET", @"action=%@ captured=%@ current=%@ matches=%@", actionName ?: @"unknown", conversationID ?: @"<none>", current ?: @"<none>", matches ? @"YES" : @"NO");
+    if (!matches) CEShowMessage(@"当前会话已变化，已取消操作。");
+    return matches;
+}
 
 + (NSString *)titleFromVisibleUI {
     UIWindow *window = CEKeyWindow(); if (!window) return nil;
@@ -98,7 +107,7 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 
 + (void)showUnresolvedDiagnostics {
     UIViewController *vc = CETopViewController(); if (!vc) return;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"暂时无法识别这个会话" message:@"当前版本已经成功接入官方长按菜单，但还没有拿到这条列表项对应的 conversation ID。可以复制一份不含 Token/Cookie 值的诊断信息给我。" preferredStyle:UIAlertControllerStyleAlert];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"暂时无法识别这个会话" message:@"当前版本没有拿到可证明的精确 conversation ID。可以复制一份不含 Token/Cookie 值的诊断信息给我。" preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(CEKeyWindow(), nil); }]];
     [vc presentViewController:alert animated:YES completion:nil];
@@ -121,6 +130,13 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 
 + (void)exportCandidates:(NSArray<CEConversationRecord *> *)candidates fromContextMenu:(BOOL)fromContextMenu {
     [self chooseFromCandidates:candidates title:@"导出 Markdown" completion:^(CEConversationRecord *record) { [self exportRecord:record requireConfirmation:!fromContextMenu]; }];
+}
+
++ (void)exportConversationID:(NSString *)conversationID title:(NSString *)title {
+    if (![self exactTargetStillCurrent:conversationID actionName:@"export"]) return;
+    CEConversationRecord *catalog = [[CECatalog shared] recordForID:conversationID];
+    CEConversationRecord *record = [CEConversationRecord new]; record.conversationID = [conversationID copy]; record.title = title.length ? [title copy] : (catalog.title.length ? [catalog.title copy] : @"ChatGPT Conversation"); record.updatedAt = catalog.updatedAt; record.projectID = catalog.projectID;
+    [self exportRecord:record requireConfirmation:NO];
 }
 
 + (void)exportRecord:(CEConversationRecord *)record requireConfirmation:(BOOL)requireConfirmation {
@@ -221,20 +237,28 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
     [vc presentViewController:alert animated:YES completion:nil];
 }
 
-+ (void)pullLatestCurrentConversation {
-    CEConversationContext *context = [CEConversationContext shared]; CEConversationIdentityTraceLog(@"ACTION-PULL", @"proof-begin contextID=%@ contextTitle=%@", context.conversationID ?: @"<none>", context.title ?: @"<none>");
-    NSString *conversationID = CERefreshVisibleConversationContext(); CEConversationIdentityTraceLog(@"ACTION-PULL", @"proof-result id=%@", conversationID ?: @"<none>");
-    if (!conversationID.length) { CEShowMessage(@"无法确认当前可见会话，已取消拉取。"); return; }
++ (void)pullLatestConversationID:(NSString *)conversationID {
+    if (![self exactTargetStillCurrent:conversationID actionName:@"pull"]) return;
+    CEConversationIdentityTraceLog(@"ACTION-PULL", @"exact-target id=%@", conversationID);
     CEPullLatestConversationResult(conversationID);
 }
 
++ (void)reloadConversationID:(NSString *)conversationID {
+    if (![self exactTargetStillCurrent:conversationID actionName:@"reload"]) return;
+    CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"exact-target id=%@", conversationID);
+    CEManualReloadConversationID(conversationID);
+}
+
++ (void)pullLatestCurrentConversation {
+    NSString *conversationID = [CEConversationContext shared].conversationID;
+    if (!conversationID.length) { CEShowMessage(@"无法确认当前会话，已取消拉取。"); return; }
+    [self pullLatestConversationID:conversationID];
+}
+
 + (void)reloadCurrentConversation {
-    NSString *conversationID = [CEConversationContext shared].conversationID; CEConversationIdentityTraceLog(@"ACTION-RELOAD-FALLBACK", @"contextID=%@", conversationID ?: @"<none>");
-    if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
-    CECaptureFocusedActiveConversationDiagnostics(@"reload button before any navigation");
-    CERecoveryDiagnosticMark(@"MANUAL RELOAD DIAGNOSTIC ONLY");
-    CERecoveryDiagnosticLog(@"MANUAL-RELOAD", @"alpha25 diagnostic captured live state conversation=%@; destructive route/history replay disabled", conversationID);
-    CEShowMessage(@"已采集当前会话状态；诊断版不会跳转页面。");
+    NSString *conversationID = [CEConversationContext shared].conversationID;
+    if (!conversationID.length) { CEShowMessage(@"无法确认当前会话，已取消重载。"); return; }
+    [self reloadConversationID:conversationID];
 }
 
 + (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
