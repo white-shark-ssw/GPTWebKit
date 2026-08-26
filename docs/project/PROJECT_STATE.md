@@ -6,69 +6,74 @@ _Last updated: 2026-08-26._
 
 - **Stable/Frozen runtime baseline**: `Unknown / Unverified`.
 - `feat/chatgpt-enhancer-v0.1` remains the product base at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
-- `feat/conversation-recognition` remains the newest recognition branch. No recognition fix is accepted yet.
+- `feat/conversation-recognition` remains the newest recognition branch. No recognition candidate is Stable/Frozen yet.
 
 ## Current development candidates
 
-### ChatGPTEnhancer `0.1.0-alpha46-conversation-identity-trace`
+### ChatGPTEnhancer `0.1.0-alpha48-reload-ui-title`
 
 - Work ID `DEV-conversation-recognition`; branch `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- Build/test source `fc78d7d525969699fbd15a3f180e563e93e6d424`; Actions bookkeeping `a99a9b99ec9c26e3537ee5a242f0cfa7c4764f88`; post-CI cleanup head `96d845e7d750ea178ff73c12faed115dff33d14c`.
-- CI passed: Actions `32950198256`, job `98119660626`. Artifacts: package `9599824714`, dylib `9599825427`.
-- Alpha46 is instrumentation-only and **has now completed its real-device trace purpose**.
-- User trace `conversation-identity-871F676C-DD34-40E3-B7FB-561BB0165581.log` contains 784 structured events across 2 app launches / ~239 seconds and includes normal chats, project chats, repeated switching, duplicate-title chats, Share flows and force-close/relaunch.
-- 8 official `POST /backend-api/share/create` requests across 6 unique conversations carried explicit body `conversation_id` values. Two separate conversations both titled `测试会话` produced distinct exact IDs, proving Share knows the exact conversation independently of title.
-- For every captured Share with a preceding explicit `POST /backend-api/conversation/init` body ID in the same recorded process (7/7), the latest explicit init ID exactly matched the later Share target. Explicit init also tracked project chats and duplicate-title chats. No contradictory/background explicit-init ID appeared in this trace.
-- Cold relaunch emitted the restored conversation's exact ID before user interaction through `conversation/init`, `beacons/home?conversation_id`, then matching prepare/detail traffic; later Share confirmed the same ID.
-- Top-right menu/source public structural evidence did **not** expose the backend conversation ID. Parent menu title was correct, but source scans had no explicit conversation ID and action identifiers had no UUID target.
-- 13 unique UUID-looking menu configuration identifiers had zero intersection with the 7 real conversation IDs observed in network evidence. Current generic UUID extraction therefore mislabels structural UI UUIDs as conversation IDs and must not be used as identity proof.
-- Status: **Code written → CI passed → Artifact produced → Runtime/manual instrumentation tested.** This is evidence for the next product candidate, not a fix acceptance.
+- Build/test source `e2b133f0ba050b485e89129e4fe0ecb9bbee2343`; Actions bookkeeping `7b2d9d9e709e431ec414b269bd72b4b33a092001`; current head `17f76c8428dad41484641b9dcf23a78935dbc32f` after workflow-trigger cleanup only.
+- CI passed: Actions `32973529739`, job `98192604072`.
+- Artifacts: package id `9608529953`, dylib id `9608530563`.
+- Alpha48 retains alpha47 exact identity/menu targeting and changes two behaviors:
+  1. Reload success now requires exact same-ID official request delivery **plus** public-UIKit evidence that the current message/conversation view rebuilt/refreshed. Request-only completion cannot report success.
+  2. For the already-proven exact current conversation ID, the official current-chat menu title may refresh presentation metadata. Project-chat top header then replaces the project name with that exact conversation title and adds a small gear marker. The synthetic header never participates in identity evidence.
+- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
 
-### Not accepted `0.1.0-alpha45-visible-button-guard`
+### Alpha47 exact-menu-target — partially tested, superseded for reload semantics
 
-- CI/artifact succeeded, but current-project Reload could still fail closed with `无法确认当前可见会话，已取消重载。`.
-- Alpha46 now confirms the long-lived global context can be stale even while the correct menu title is visible.
+- Alpha47 established the exact-ID architecture: explicit `POST /backend-api/conversation/init` body ID → sole `CEConversationContext` → immutable current-header menu target for Pull/Reload/Export; old conversation-tool floating button retired; percentage task untouched.
+- Actions `32969623709`, job `98180033708`, artifacts produced.
+- Real-device feedback: Reload could report success even when the page did not visibly appear to reload. Source confirmed its success condition was only `CEManualReloadRequestSeen(...)`, so an official request was proof of route/request delivery, not proof that the current page actually reloaded.
+- This is the direct evidence for alpha48's request+UI completion rule.
 
-### Rejected `0.1.0-alpha44-current-conversation-guard`
+### Alpha46 instrumentation — evidence complete
 
-- Removed unsafe generic network writers but made the floating entry disappear when identity was unproven.
+- Alpha46 trace captured 784 events across 2 launches / ~239 seconds including normal/project chats, repeated switching, duplicate-title chats, Share flows and force-close/relaunch.
+- 8 official `POST /backend-api/share/create` requests across 6 unique conversations carried explicit body `conversation_id`. Two same-title `测试会话` chats had distinct exact IDs.
+- For 7/7 Share events with a preceding explicit `POST /backend-api/conversation/init` body ID, the latest explicit init ID matched the Share target. Cold relaunch also restored matching exact ID before user interaction.
+- 13 UUID-looking menu configuration IDs had zero intersection with the real conversation IDs. Arbitrary UUID syntax is not identity evidence.
 
-### Rejected `0.1.0-alpha42-project-conversation-title`
+### Older recognition candidates
 
-- Extended real-device use proved Pull Latest / Reload could cross conversations; generic observed conversation traffic had been allowed to overwrite foreground identity.
+- Alpha45: not accepted because normal project-chat Reload could false-negative current visible proof.
+- Alpha44: rejected because the floating tool disappeared when identity was unknown.
+- Alpha42: rejected because Pull/Reload could cross conversations; generic observed network traffic had been allowed to overwrite foreground identity.
 
 ### Parallel `0.1.0-alpha43-conversation-usage`
 
 - Work ID `DEV-conversation-usage`; branch `feat/conversation-usage`; Draft PR #3 remains stacked on rejected alpha42 recognition.
-- Percentage-specific work remains separate. If all floating UI is later retired, coordinate its percentage bubble with that task.
+- User explicitly instructed the current recognition work to leave percentage behavior alone. Alpha48 does not touch percentage-owned files or that checkpoint.
 
 ## Current architecture / evidence
 
-1. `CEBootstrap` — startup owner.
+1. `CEBootstrap` — sole startup owner.
 2. `CECore` / `CEConversationContext` — sole long-lived active-conversation state owner.
-3. `CEContextResolver` — UIKit/catalog-based proof path; currently too weak for final action targeting.
-4. `CENetworkObserver` — generic passive observer; arbitrary request recency is not identity authority.
+3. `CEContextResolver` — no longer performs periodic UI/title identity guessing; compatibility getter only returns current exact owner.
+4. `CENetworkObserver` — generic passive official-network observation/template/catalog input. Only the specifically validated explicit `conversation/init` request-body ID may promote foreground identity into the existing context owner.
 5. `CEAPIClient` — sole enhancer-originated request owner.
-6. `CECatalog` — conversation ID/title/catalog owner.
-7. `CEEnhancerUI` — host UIKit/menu integration.
-8. `Diagnostics/CEConversationIdentityTrace` — alpha46 evidence recorder only, not an identity authority.
+6. `CECatalog` — conversation ID/title/project catalog and presentation title owner.
+7. `CEEnhancerUI` — host UIKit/menu integration, exact current-menu action capture, project-header presentation.
+8. `CEConversationUIReloadEvidence` — public-UIKit ephemeral snapshot helper for Reload completion evidence; not an identity or persistent state owner.
+9. `CEConversationIdentityTrace` — optional sanitized runtime evidence recorder; not an identity authority.
 
-## Current development direction after alpha46
+## Current behavior contracts
 
-- The strongest non-side-effect runtime signal found is **`POST /backend-api/conversation/init` with an explicit request-body `conversation_id`**. Alpha46 validates it against official Share across repeated switching, project chats, duplicate titles and cold relaunch.
-- This does **not** restore the old “latest network request wins” design. Only a semantically proven endpoint/field may become foreground evidence; generic GET detail/background traffic remains passive.
-- Official `POST /backend-api/share/create` body `conversation_id` is the best current action-time ground-truth oracle, but Share is side-effectful and must never be silently invoked just to identify a chat.
-- Arbitrary UUID-looking UIKit/menu identifiers are not conversation IDs. Identity parsing must be source/field-aware rather than shape-only.
-- A future menu action should capture an immutable exact ID at menu-build time and pass that target directly to Pull/Reload/Export. Menu title is presentation/consistency evidence only, never duplicate-title identity authority.
-- After this exact-ID path is implemented and accepted on device, Pull/Reload/Export can move into the conversation menu and the current floating action tool can be retired. Header-title cosmetics remain deferred.
+- Current-conversation Pull/Reload/Export use immutable exact ID captured by the top-right current-chat menu. If exact current context changes before tap, action cancels.
+- Generic/background request recency, title-only matching and arbitrary UI UUIDs cannot decide the target.
+- Official Share remains validation-only and is never silently invoked for discovery.
+- **Reload request delivery is not Reload completion.** A success message requires both exact same-ID request proof and current message-view rebuild/refresh proof.
+- If request proof exists but UI rebuild cannot be proven, the result must explicitly remain unconfirmed rather than saying success.
+- Project-header rewritten title is presentation-only. It may be derived from the already-proven exact target's official menu/catalog title and displayed with a gear marker, but it cannot feed identity logic.
+- The retired conversation-tool floating button stays removed; percentage UI belongs to the parallel task and is untouched.
 
 ## Known issues / constraints
 
-- ChatGPT private backend/runtime/UI surfaces can change; runtime evidence is for app version `1.2026.202` and the tested iOS environment.
+- ChatGPT private backend/runtime/UI surfaces can change; current evidence is tied to the tested app/runtime environment.
 - No automated unit/UI suite is verified; CI success is not runtime proof.
-- Absolute “100% forever” cannot be inferred from one app version, so unsupported states must still fail closed rather than guess.
-- Share request creation is a side effect and is not an acceptable hidden identity lookup.
-- Generic UUID regex extraction is unsafe on arbitrary UI/configuration strings.
+- Alpha48's public-UIKit UI-rebuild proof deliberately fails closed. If the host updates model data while reusing the same scroll and visible message view objects, it may produce a false-negative “request sent but page refresh not confirmed”; that must be refined from real-device evidence rather than reverting to request-only success.
+- Absolute “100% forever” cannot be inferred from one host version. Unsupported states must fail closed instead of guessing another conversation.
 
 ## Evidence rule
 
