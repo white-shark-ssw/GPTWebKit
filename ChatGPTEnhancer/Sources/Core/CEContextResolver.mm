@@ -3,25 +3,6 @@
 #import "CECore.h"
 #import "../Storage/CECatalog.h"
 
-static BOOL CEContextURLLooksRelevant(NSURL *url) {
-    NSString *host = url.host.lowercaseString ?: @"";
-    if (![host containsString:@"chatgpt"] && ![host containsString:@"openai"]) return NO;
-    NSString *path = url.path.lowercaseString ?: @"";
-    return [path containsString:@"conversation"] || [path containsString:@"backend-api"];
-}
-
-@implementation NSURLSessionTask (ChatGPTEnhancerContextProbe)
-- (void)ce_context_resume {
-    NSURLRequest *request = self.currentRequest ?: self.originalRequest;
-    NSURL *url = request.URL;
-    if (url && CEContextURLLooksRelevant(url)) {
-        NSString *conversationID = CEExtractConversationIDFromString(url.absoluteString);
-        if (conversationID.length) [[CEConversationContext shared] setConversationID:conversationID title:nil];
-    }
-    [self ce_context_resume];
-}
-@end
-
 static void CECollectActuallyVisibleStrings(UIView *view, NSUInteger depth, NSMutableOrderedSet<NSString *> *output) {
     if (!view || depth > 8 || view.hidden || view.alpha < 0.02 || !view.window) return;
     CGRect frame = [view convertRect:view.bounds toView:view.window];
@@ -45,6 +26,37 @@ static void CECollectActuallyVisibleStrings(UIView *view, NSUInteger depth, NSMu
     for (UIView *child in view.subviews) CECollectActuallyVisibleStrings(child, depth + 1, output);
 }
 
+NSString *CERefreshVisibleConversationContext(void) {
+    UIWindow *window = CEKeyWindow(); if (!window) return nil;
+    NSMutableOrderedSet<NSString *> *strings = [NSMutableOrderedSet orderedSet]; CECollectActuallyVisibleStrings(window, 0, strings);
+
+    NSMutableDictionary<NSString *, CEConversationRecord *> *explicitIDs = [NSMutableDictionary dictionary];
+    for (NSString *value in strings) {
+        NSString *conversationID = CEExtractConversationIDFromString(value);
+        CEConversationRecord *record = conversationID.length ? [[CECatalog shared] recordForID:conversationID] : nil;
+        if (record.conversationID.length) explicitIDs[record.conversationID] = record;
+    }
+    if (explicitIDs.count == 1) {
+        CEConversationRecord *record = explicitIDs.allValues.firstObject;
+        [[CEConversationContext shared] setConversationID:record.conversationID title:record.title];
+        return record.conversationID;
+    }
+    if (explicitIDs.count > 1) return nil;
+
+    NSMutableDictionary<NSString *, CEConversationRecord *> *titleMatches = [NSMutableDictionary dictionary];
+    for (NSString *value in strings) {
+        NSArray<CEConversationRecord *> *matches = [[CECatalog shared] recordsMatchingTitle:value];
+        if (matches.count == 1) {
+            CEConversationRecord *record = matches.firstObject;
+            if (record.conversationID.length) titleMatches[record.conversationID] = record;
+        }
+    }
+    if (titleMatches.count != 1) return nil;
+    CEConversationRecord *record = titleMatches.allValues.firstObject;
+    [[CEConversationContext shared] setConversationID:record.conversationID title:record.title];
+    return record.conversationID;
+}
+
 @interface CEContextResolver : NSObject
 @property (nonatomic, strong) NSTimer *timer;
 @end
@@ -55,41 +67,13 @@ static void CECollectActuallyVisibleStrings(UIView *view, NSUInteger depth, NSMu
 - (void)start {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        CESwizzleInstanceMethod(NSURLSessionTask.class, @selector(resume), @selector(ce_context_resume));
         [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(resolveNow) name:CECatalogDidChangeNotification object:nil];
         self.timer = [NSTimer scheduledTimerWithTimeInterval:1.0 target:self selector:@selector(resolveNow) userInfo:nil repeats:YES];
         [self resolveNow];
     });
 }
 
-- (void)resolveNow {
-    UIWindow *window = CEKeyWindow();
-    if (!window) return;
-    NSMutableOrderedSet<NSString *> *strings = [NSMutableOrderedSet orderedSet];
-    CECollectActuallyVisibleStrings(window, 0, strings);
-
-    for (NSString *value in strings) {
-        NSString *conversationID = CEExtractConversationIDFromString(value);
-        CEConversationRecord *record = conversationID.length ? [[CECatalog shared] recordForID:conversationID] : nil;
-        if (record.conversationID.length) {
-            [[CEConversationContext shared] setConversationID:record.conversationID title:record.title];
-            return;
-        }
-    }
-
-    NSMutableDictionary<NSString *, CEConversationRecord *> *unique = [NSMutableDictionary dictionary];
-    for (NSString *value in strings) {
-        NSArray<CEConversationRecord *> *matches = [[CECatalog shared] recordsMatchingTitle:value];
-        if (matches.count == 1) {
-            CEConversationRecord *record = matches.firstObject;
-            if (record.conversationID.length) unique[record.conversationID] = record;
-        }
-    }
-    if (unique.count == 1) {
-        CEConversationRecord *record = unique.allValues.firstObject;
-        [[CEConversationContext shared] setConversationID:record.conversationID title:record.title];
-    }
-}
+- (void)resolveNow { CERefreshVisibleConversationContext(); }
 @end
 
 __attribute__((constructor)) static void CEContextResolverEntry(void) {
