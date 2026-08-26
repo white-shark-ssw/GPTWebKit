@@ -26,13 +26,13 @@
 - **Tests**: no automated unit/UI test root verified.
 - **Key owners**:
   - `Core/CECore` / `CEConversationContext` — shared helpers and sole active-conversation state authority.
-  - `Core/CEContextResolver` — resolves active conversation from currently visible UIKit/catalog-backed evidence; alpha44 no longer derives active identity from generic network task resume.
-  - `Network/CENetworkObserver` — passive official-network observation, request templates/events/project/catalog input. Alpha44 explicitly removes observed-request conversation IDs as foreground identity writes.
+  - `Core/CEContextResolver` — resolves active conversation from currently visible UIKit/catalog-backed evidence; no generic network task owns foreground identity.
+  - `Network/CENetworkObserver` — passive official-network observation, request templates/events/project/catalog input. Observed request conversation IDs do not mutate active identity.
   - `Network/CEAPIClient` — sole enhancer-originated ChatGPT request owner.
   - `Storage/CECatalog` — conversation ID/title/update-time/project catalog.
-  - `UI/CEEnhancerUI` — host UIKit integration and action-time visible-conversation verification.
+  - `UI/CEEnhancerUI` — host UIKit integration, floating-tool lifecycle and action-time visible-conversation verification. Floating-button visibility is intentionally independent of identity proof in alpha45.
   - `Export/CEMarkdownExporter` — Markdown generation.
-  - `Features/*` — pull/rename/reload/recovery; Pull and manual Reload now independently require fresh visible proof in alpha44.
+  - `Features/*` — pull/rename/reload/recovery; Pull and manual Reload independently require fresh visible proof.
   - `Diagnostics/*` — runtime probes/recovery diagnostics.
 
 ## Build and validation
@@ -41,15 +41,15 @@
 - **Test command**: no automated test command verified.
 - **Lint/static checks**: no dedicated suite verified.
 - **Enhancer CI**: `.github/workflows/build-enhancer.yml`, macOS 15. Normal push trigger remains `feat/chatgpt-enhancer-v0.1`; isolated candidate branches temporarily add their own trigger for CI and remove it afterward.
-- **Newest enhancer artifact**: `0.1.0-alpha44-current-conversation-guard`; Actions run `32937976994`, job `98082904535`; package id `9595516821`, dylib id `9595517523`. Runtime/manual acceptance pending.
-- **Rejected previous artifact**: alpha42 passed CI but failed real-device recognition: Pull/Reload could cross conversations after extended use. Header title override also had no visible effect.
+- **Newest enhancer artifact**: `0.1.0-alpha45-visible-button-guard`; Actions run `32939338703`, job `98086902604`; package id `9595962373`, dylib id `9595962949`. Runtime/manual acceptance pending.
+- **Rejected previous artifact**: alpha44 passed CI but failed real-device usability because the floating button disappeared when identity was not yet proven. Alpha42 previously failed real-device recognition because Pull/Reload could cross conversations after extended use.
 - **Parallel artifact**: alpha43 belongs to `DEV-conversation-usage` and is stacked on rejected alpha42 recognition; it is not an accepted recognition baseline.
 
 ## Versioning and candidate identity
 
 - **Enhancer version source**: `CEVersion` in `ChatGPTEnhancer/Sources/Core/CECore.mm`.
 - **Duplicated identity locations**: `CECore.mm`, `ChatGPTEnhancer/build.sh`, `.github/workflows/build-enhancer.yml` artifact/package names must match.
-- **Current recognition candidate**: `0.1.0-alpha44-current-conversation-guard`.
+- **Current recognition candidate**: `0.1.0-alpha45-visible-button-guard`.
 - **Build number**: no separate product build number verified; Actions run ID is build evidence only.
 - **Release/tag scheme**: no formal release/tag process verified.
 - **Parallel rule**: each Active dev task owns a unique candidate/artifact identity.
@@ -60,12 +60,14 @@
 - **Compiler target**: `arm64-apple-ios17.0`.
 - **Auth/request context**: host authentication/account/request templates remain memory-only.
 - **Current identity safety rule**: background/observed conversation requests are not foreground identity authority. Current-conversation actions must fail closed when current visible identity cannot be uniquely proven.
+- **Floating entry rule**: floating-tool visibility is UI availability only, not current-conversation proof; the entry point may remain visible while guarded actions refuse due to unknown/ambiguous identity.
 
 ## Documentation evidence
 
 - Base branch remains `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8` as rechecked 2026-08-26.
 - Alpha42 runtime failure: user real-device result 2026-08-26, recorded in `PROJECT_STATE`, checkpoint and `BUILD_TEST_INDEX`.
-- Alpha44 source/build: Draft PR #2; build/test source `668540cbabf300d08c929a1daa057ea4959f2f01`; Actions `32937976994`; package digest `sha256:c084a7e6bce60d4df0a7378ae351b75a2de0669d898fd5f9a019e504c791eb99`; dylib digest `sha256:e36cfdd0571b9ee34fb629e58f066947b231602194c2a1301b17c5ab2a28c7a9`.
+- Alpha44 runtime failure: user real-device result 2026-08-26, floating button missing due to ID-gated visibility.
+- Alpha45 source/build: Draft PR #2; build/test source `037b4aba99b45f30e04a8f9714231a545a0137c2`; Actions `32939338703`; package digest `sha256:04e46a8f48643fee95968161798b74a8cb7b963beeadc0e2fab14a339fbeb839`; dylib digest `sha256:7868dbe9a0ba84ae0985bb8cea2c136640a5b6c13e7b1b5596a11982e2e97c59`.
 - Legacy tracks remain separate and are not current enhancer baseline evidence.
 
 ## Auto-refresh rule
