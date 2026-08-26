@@ -10,57 +10,64 @@ _Last updated: 2026-08-27._
 
 ## Current development candidate
 
-### ChatGPTEnhancer `0.1.0-alpha50-sidebar-menu-actions`
+### ChatGPTEnhancer `0.1.0-alpha51-sync-latest-rate-limit`
 
 - Work ID `DEV-conversation-recognition`; branch `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- Build/test source `44b7baf84458c19c963ce0a7ee0d869da28dfe08`; Actions bookkeeping `7988e2c06c38c419885f815e4960a892c08fe28f`; post-CI branch head `a52f4d0bd5406a61fc7c43e9cbae788f8dae43ac`.
-- CI passed: Actions `32984372907`, job `98228416235`.
-- Artifacts: package id `9612825155`; dylib id `9612825334`.
-- Validation: **Code written → CI passed → Artifact produced → Runtime/manual partially tested.**
+- Build/test source `bbc8696d7c11f2d6030d7e44cdc3c979f38dba77`; CI bookkeeping `798631ce879dd32e5f774659789d03c3772ad1f5`; current branch head `8722e5f2a0a7bd6513997825b1a25991e5d342b7` after workflow-trigger cleanup.
+- CI passed: Actions `33000977913`, job `98282430781`.
+- Artifacts: package id `9618537159`; dylib id `9618537770`.
+- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
 
-## Runtime findings
+## Alpha51 behavior
+
+- Current top-right action is renamed from `拉取最新消息` to **`同步最新消息`**.
+- Sync keeps the immutable exact-current conversation ID contract and rechecks the same ID after the asynchronous server fetch and before Reload handoff.
+- A short-lived in-flight guard prevents repeated taps from creating concurrent Sync GET requests.
+- `CEAPIClient` no longer automatically retries HTTP 429. A 429 ends that request and reports numeric `Retry-After` when available, otherwise asks the user to retry later. Existing non-429 transport/5xx/auth retry behavior is unchanged.
+- The previous `1/3` text was plugin retry count after a server 429, not an OpenAI quota counter. HTTP 429 itself is server-side rate limiting; short-window request bursts are a plausible trigger, but exact OpenAI account/IP/endpoint thresholds are undocumented.
+- Sync does not claim page success from the plugin JSON GET. If the server still reports generation in progress, no forced refresh occurs. If the latest server result is finished and the exact current ID is unchanged, Sync cancels stale tracked streams using the pre-existing safety path and invokes existing exact-current manual Reload. Final Reload success still requires same-ID request plus UI rebuild proof.
+- No Catalog paging change was made because no current runtime evidence attributes a specific 429 to Catalog request volume.
+
+## Existing runtime findings retained
 
 ### Exact-current/menu architecture
 
-- Current top-right menu actions use the immutable exact conversation ID proven by explicit `POST /backend-api/conversation/init` body `conversation_id` and fail closed if current context changes.
-- Alpha49 device feedback confirmed the current top-right custom menu is present and usable. Alpha50 restores only sidebar/non-current `重命名会话` + `导出 Markdown`; selected-row runtime acceptance remains pending.
+- Explicit `POST /backend-api/conversation/init` body `conversation_id` remains the proven foreground existing-chat identity signal.
+- Current top-right Sync / Reload / Rename / Export freeze that exact ID and fail closed if context changes.
+- Sidebar Rename/Export remain row-scoped catalog-candidate actions and do not borrow active context.
 
 ### Project header — paused
 
-- Alpha50 trace `A3EA89F2-CE1A-48B9-A0FB-06C7E8A9FAE9` proves the final current chat exactly as `6a8d9489-31e8-83ec-ad29-343a6b883e6d / 会话百分比v1` and proves title acquisition is correct.
-- The visible project header still does not change. Actual project-chat windows expose zero matching top UIKit `UILabel`s and zero `HEADER-TARGET`; the current `聊天 UILabel + nearby title UILabel` strategy is runtime-rejected on app `1.2026.202`.
-- User explicitly asks to pause this header problem for now. Do not continue the UILabel route or allocate work for it until requested.
+- Alpha50 trace `A3EA89F2-CE1A-48B9-A0FB-06C7E8A9FAE9` proves exact identity/title acquisition but rejects the current UIKit `聊天 UILabel + nearby title UILabel` presentation target on app `1.2026.202`.
+- User explicitly asked to pause this problem. Alpha51 does not modify project-title code.
 
-### Pull Latest rate limiting
+### Reload / generation recovery
 
-- User frequently sees `请求频率受限，正在重试 1/3…` when using `拉取最新消息`.
-- Source inspection proves this message is emitted only when `CEAPIClient` receives **HTTP 429**. Manual Pull issues `GET /backend-api/conversation/<exact-current-id>` and forwards API-client retry progress directly to UI.
-- Current generic API-client policy automatically retries 429 up to three times after the first request using short delays (`0.7 / 1.5 / 3.0s`) unless numeric `Retry-After` is supplied; even then the delay is capped at 10 seconds. This can amplify a server rate limit instead of reducing request pressure.
-- `CECatalog` can also generate substantial enhancer-originated background request volume by paging global conversations and known project conversations. This is a source-proven potential contributor, but current identity traces intentionally exclude enhancer-internal requests, so a specific user's 429 cannot yet be attributed to catalog traffic without sanitized internal request/status evidence.
-- Current Pull fetch is not a full UI refresh: it checks/analyzes server conversation state and may cancel stale tracked stream tasks, but its internal response is not directly applied to the current page. Product semantics should be revisited before calling it a true “pull latest messages” UI refresh.
+- Reload request delivery is not Reload completion; existing request+UI proof remains required.
+- Page rebuild is not proof that an interrupted generation recovered. No speculative `/resume`, watchdog or generation retry was added.
 
 ## Current architecture / contracts
 
 1. `CEBootstrap` — sole startup owner.
 2. `CECore` / `CEConversationContext` — sole active-conversation authority.
 3. `CENetworkObserver` — passive host-network observation; only validated explicit `conversation/init` body ID may promote foreground identity.
-4. `CEAPIClient` — sole enhancer-originated request owner.
+4. `CEAPIClient` — sole enhancer-originated request owner; HTTP 429 is terminal for the current enhancer request rather than an automatic retry trigger.
 5. `CECatalog` — conversation catalog/title state.
-6. `CEEnhancerUI` — host menu/UI integration; current project-header UILabel mutation path is runtime-rejected on the tested host build.
+6. `CEEnhancerUI` — host menu/UI integration.
 7. `CEConversationUIReloadEvidence` — ephemeral Reload UI proof.
 8. `CEConversationIdentityTrace` — optional sanitized runtime evidence, never identity authority.
 
 ## Parallel task
 
 - `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43.
-- Current recognition work does not modify percentage-owned source/checkpoint.
+- Alpha51 did not modify percentage-owned source/checkpoint.
 
 ## Known issues / next evidence
 
-- Pull Latest 429 handling should be changed only after user asks to proceed. Minimal direction: do not burst-retry 429 for manual Pull; report server rate-limit information accurately.
-- A broader catalog-traffic reduction requires runtime internal request-count/status evidence before attribution is treated as fact.
-- Reload UI-proof and interrupted-generation recovery remain separate pending issues.
-- Project-header presentation is paused by user.
+- Alpha51 Sync/rate-limit behavior requires real-device validation; CI/artifact success is not runtime proof.
+- Sidebar Rename/Export selected-row acceptance and Reload UI-proof remain pending.
+- A broader Catalog traffic reduction requires sanitized internal request-count/status evidence before attribution is treated as fact.
+- Project-header presentation remains paused by user.
 
 ## Evidence rule
 
