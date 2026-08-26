@@ -23,6 +23,34 @@ static BOOL CERequestHasAuth(NSURLRequest *request) {
     return NO;
 }
 
+static void CECollectExplicitConversationIDs(id value, NSMutableOrderedSet<NSString *> *out, NSUInteger depth) {
+    if (!value || depth > 8) return;
+    if ([value isKindOfClass:NSArray.class]) { for (id child in value) CECollectExplicitConversationIDs(child, out, depth + 1); return; }
+    if (![value isKindOfClass:NSDictionary.class]) return;
+    NSDictionary *dictionary = value;
+    for (id rawKey in dictionary) {
+        NSString *key = [rawKey isKindOfClass:NSString.class] ? [(NSString *)rawKey lowercaseString] : @""; id child = dictionary[rawKey];
+        if (([key isEqualToString:@"conversation_id"] || [key isEqualToString:@"conversationid"]) && [child isKindOfClass:NSString.class]) {
+            NSString *cid = CEExtractConversationIDFromString(child); if (cid.length) [out addObject:cid];
+        }
+        if ([child isKindOfClass:NSDictionary.class] || [child isKindOfClass:NSArray.class]) CECollectExplicitConversationIDs(child, out, depth + 1);
+    }
+}
+
+static NSString *CEExplicitConversationInitID(NSURLRequest *request) {
+    if (!request.URL || ![request.HTTPMethod.uppercaseString isEqualToString:@"POST"] || ![request.URL.path.lowercaseString isEqualToString:@"/backend-api/conversation/init"] || !request.HTTPBody.length) return nil;
+    id json = [NSJSONSerialization JSONObjectWithData:request.HTTPBody options:0 error:nil]; if (!json) return nil;
+    NSMutableOrderedSet<NSString *> *ids = [NSMutableOrderedSet orderedSet]; CECollectExplicitConversationIDs(json, ids, 0);
+    return ids.count == 1 ? ids.firstObject : nil;
+}
+
+static void CEApplyExplicitConversationInitIdentity(NSURLRequest *request) {
+    NSString *conversationID = CEExplicitConversationInitID(request); if (!conversationID.length) return;
+    CEConversationRecord *record = [[CECatalog shared] recordForID:conversationID];
+    [[CEConversationContext shared] setConversationID:conversationID title:record.title];
+    CEConversationIdentityTraceLog(@"IDENTITY-INIT", @"accepted exact conversation/init id=%@ title=%@", conversationID, record.title ?: @"<none>");
+}
+
 static NSInteger CETemplateScore(NSURLRequest *request) {
     if (!request.URL || !CERequestHasAuth(request)) return -1000;
     NSString *path = request.URL.path.lowercaseString ?: @"";
@@ -152,6 +180,7 @@ static void CEInstallSessionDelegateCapture(id delegate) {
     if (![self isChatGPTRequest:request]) return;
     NSURL *url = request.URL; if (!url) return;
     CEConversationIdentityTraceLogRequest(request);
+    CEApplyExplicitConversationInitIdentity(request);
     NSString *path = url.path ?: @"";
     NSInteger score = CETemplateScore(request);
     if (session) self.requestSession = session;
@@ -256,10 +285,7 @@ static void CEInstallSessionDelegateCapture(id delegate) {
 }
 - (NSURLSessionUploadTask *)ce_uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
-    if (!internal) {
-        [[CENetworkObserver shared] observeRequest:clean session:self];
-        if (bodyData.length) { NSMutableURLRequest *traceRequest = [clean mutableCopy]; traceRequest.HTTPBody = bodyData; CEConversationIdentityTraceLogRequest(traceRequest); }
-    }
+    if (!internal) { NSMutableURLRequest *observed = [clean mutableCopy]; observed.HTTPBody = bodyData; [[CENetworkObserver shared] observeRequest:observed session:self]; }
     void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
         if (!internal && error) CEConversationIdentityTraceLogResponse(clean, response, error);
         if (!internal && !error) [[CENetworkObserver shared] observeResponseData:data response:response request:clean]; if (completionHandler) completionHandler(data, response, error);
@@ -268,10 +294,7 @@ static void CEInstallSessionDelegateCapture(id delegate) {
 }
 - (NSURLSessionUploadTask *)ce_uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
-    if (!internal) {
-        [[CENetworkObserver shared] observeRequest:clean session:self];
-        if (bodyData.length) { NSMutableURLRequest *traceRequest = [clean mutableCopy]; traceRequest.HTTPBody = bodyData; CEConversationIdentityTraceLogRequest(traceRequest); }
-    }
+    if (!internal) { NSMutableURLRequest *observed = [clean mutableCopy]; observed.HTTPBody = bodyData; [[CENetworkObserver shared] observeRequest:observed session:self]; }
     NSURLSessionUploadTask *task = [self ce_uploadTaskWithRequest:clean fromData:bodyData]; CEAssociateSession(task, self); if (internal) CEMarkInternalTask(task); return task;
 }
 @end
