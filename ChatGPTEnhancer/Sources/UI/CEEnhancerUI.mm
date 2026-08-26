@@ -4,11 +4,13 @@
 #import "../Features/CEFeatures.h"
 #import "../Diagnostics/CEDiagnostics.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
+#import "../Diagnostics/CEConversationIdentityTrace.h"
 #import <objc/runtime.h>
 
 static __weak UIView *CELastTouchedView = nil;
 static NSDate *CELastTouchDate = nil;
 static NSString *CELastTouchedTitle = nil;
+static CGPoint CELastTouchPoint = {0, 0};
 static BOOL CEMenuBuildGuard = NO;
 static NSString * const CEExtensionMenuIdentifier = @"com.whiteshark.chatgptenhancer.section";
 static NSInteger const CEProjectHeaderMarkerTag = 0x43454844;
@@ -238,27 +240,102 @@ static NSArray<CEConversationRecord *> *CECandidatesForSourceView(UIView *source
     return view ? [[CECatalog shared] candidatesForView:view] : @[];
 }
 
-static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *identifierText, NSString *titleHint) {
+static NSString *CETraceSafeStructuralText(NSString *value) {
+    if (!value.length) return @"<none>";
+    NSString *cid = CEExtractConversationIDFromString(value); if (cid.length) return [NSString stringWithFormat:@"conversationID=%@", cid];
+    if (value.length > 180) return [NSString stringWithFormat:@"<redacted len=%lu>", (unsigned long)value.length];
+    NSCharacterSet *allowed = [NSCharacterSet characterSetWithCharactersInString:@"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-:/"];
+    if ([value rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound) return value;
+    return [NSString stringWithFormat:@"<redacted len=%lu>", (unsigned long)value.length];
+}
+
+static void CETraceMenuElements(NSArray<UIMenuElement *> *elements, NSString *prefix, NSUInteger depth) {
+    if (!CEConversationIdentityTraceIsRecording() || depth > 8) return;
+    NSUInteger index = 0;
+    for (UIMenuElement *element in elements) {
+        NSString *path = [NSString stringWithFormat:@"%@%lu", prefix ?: @"", (unsigned long)index++];
+        if ([element isKindOfClass:UIAction.class]) {
+            UIAction *action = (UIAction *)element;
+            CEConversationIdentityTraceLog(@"MENU-ELEMENT", @"path=%@ type=action title=%@ identifier=%@ attributes=%lu state=%ld", path, action.title ?: @"", CETraceSafeStructuralText(action.identifier), (unsigned long)action.attributes, (long)action.state);
+        } else if ([element isKindOfClass:UIMenu.class]) {
+            UIMenu *menu = (UIMenu *)element;
+            CEConversationIdentityTraceLog(@"MENU-ELEMENT", @"path=%@ type=menu title=%@ identifier=%@ options=%lu children=%lu", path, menu.title ?: @"", CETraceSafeStructuralText(menu.identifier), (unsigned long)menu.options, (unsigned long)menu.children.count);
+            CETraceMenuElements(menu.children, [path stringByAppendingString:@"."], depth + 1);
+        } else CEConversationIdentityTraceLog(@"MENU-ELEMENT", @"path=%@ type=%@", path, NSStringFromClass(element.class));
+    }
+}
+
+static void CETraceSourceEvidence(UIView *sourceView) {
+    if (!CEConversationIdentityTraceIsRecording()) return;
+    UIView *view = sourceView ?: CELastTouchedView;
+    if (!view) { CEConversationIdentityTraceLog(@"MENU-SOURCE", @"source=<nil> lastTouch={%.1f,%.1f}", CELastTouchPoint.x, CELastTouchPoint.y); return; }
+    CGRect frame = view.window ? [view convertRect:view.bounds toView:view.window] : view.frame;
+    CEConversationIdentityTraceLog(@"MENU-SOURCE", @"class=%@ frame=%@ accessibilityIdentifier=%@ lastTouch={%.1f,%.1f}", NSStringFromClass(view.class), NSStringFromCGRect(frame), CETraceSafeStructuralText(view.accessibilityIdentifier), CELastTouchPoint.x, CELastTouchPoint.y);
+    NSMutableOrderedSet<NSString *> *ids = [NSMutableOrderedSet orderedSet]; NSMutableOrderedSet<NSString *> *titles = [NSMutableOrderedSet orderedSet];
+    for (NSString *text in CECollectVisibleStrings(view, 4)) {
+        NSString *cid = CEExtractConversationIDFromString(text); if (cid.length) [ids addObject:cid];
+        if ([[CECatalog shared] recordsMatchingTitle:text].count) [titles addObject:text];
+        NSString *quoted = CEQuotedConversationTitle(text); if (quoted.length && [[CECatalog shared] recordsMatchingTitle:quoted].count) [titles addObject:quoted];
+    }
+    CEConversationIdentityTraceLog(@"MENU-SOURCE", @"explicitConversationIDs=%@ catalogTitles=%@", ids.count ? [ids.array componentsJoinedByString:@","] : @"<none>", titles.count ? [titles.array componentsJoinedByString:@" || "] : @"<none>");
+}
+
+static void CETraceCandidates(NSString *category, NSArray<CEConversationRecord *> *candidates) {
+    if (!CEConversationIdentityTraceIsRecording()) return;
+    CEConversationIdentityTraceLog(category, @"candidateCount=%lu", (unsigned long)candidates.count);
+    NSUInteger index = 0;
+    for (CEConversationRecord *record in candidates) CEConversationIdentityTraceLog(category, @"candidate[%lu] id=%@ title=%@", (unsigned long)index++, record.conversationID ?: @"<none>", record.title ?: @"<none>");
+}
+
+static void CETraceConversationMenu(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *candidateIdentifierText, NSString *titleHint, NSString *origin, NSString *traceIdentifierText, NSString *traceIdentifierClass) {
+    if (!CEConversationIdentityTraceIsRecording()) return;
+    CEConversationContext *context = [CEConversationContext shared];
+    CEConversationIdentityTraceLog(@"MENU", @"origin=%@ configIdentifierClass=%@ configIdentifier=%@ titleHint=%@ contextID=%@ contextTitle=%@", origin ?: @"unknown", traceIdentifierClass ?: @"<none>", CETraceSafeStructuralText(traceIdentifierText), titleHint ?: @"<none>", context.conversationID ?: @"<none>", context.title ?: @"<none>");
+    CETraceSourceEvidence(sourceView);
+    CETraceMenuElements(children, @"", 0);
+    CETraceCandidates(@"MENU-CANDIDATES", CECandidatesForSourceView(sourceView, candidateIdentifierText, titleHint));
+}
+
+static void CEPresentIdentityTraceFile(NSURL *url) {
+    if (!url) { CEShowMessage(@"识别日志文件不可用。"); return; }
+    dispatch_async(dispatch_get_main_queue(), ^{
+        UIViewController *vc = CETopViewController(); if (!vc) return;
+        UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[url] asCopy:YES]; picker.shouldShowFileExtensions = YES; [vc presentViewController:picker animated:YES completion:nil];
+    });
+}
+
+static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *identifierText, NSString *titleHint, NSString *origin, NSString *traceIdentifierText, NSString *traceIdentifierClass) {
     if (CEMenuBuildGuard || CEHasExtensionSection(children) || !CELooksLikeConversationMenu(children)) return children;
     if (!sourceView && (!CELastTouchedView || !CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 20.0)) return children;
 
     __weak UIView *weakSource = sourceView ?: CELastTouchedView;
     NSString *capturedIdentifier = [identifierText copy];
     NSString *capturedTitle = titleHint.length ? [titleHint copy] : ((CELastTouchDate && [[NSDate date] timeIntervalSinceDate:CELastTouchDate] <= 20.0) ? [CELastTouchedTitle copy] : nil);
+    NSString *capturedTraceIdentifier = [traceIdentifierText copy]; NSString *capturedTraceIdentifierClass = [traceIdentifierClass copy]; NSString *capturedOrigin = [origin copy]; NSArray<UIMenuElement *> *capturedChildren = [children copy];
+    CETraceConversationMenu(children, weakSource, capturedIdentifier, capturedTitle, origin, traceIdentifierText, traceIdentifierClass);
+
     UIAction *rename = [UIAction actionWithTitle:@"重命名会话" image:[UIImage systemImageNamed:@"square.and.pencil"] identifier:@"com.whiteshark.chatgptenhancer.rename" handler:^(__unused UIAction *action) {
-        [CEFeatures renameCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier, capturedTitle) sourceView:weakSource];
+        NSArray<CEConversationRecord *> *candidates = CECandidatesForSourceView(weakSource, capturedIdentifier, capturedTitle); CETraceCandidates(@"ACTION-RENAME", candidates); [CEFeatures renameCandidates:candidates sourceView:weakSource];
     }];
     UIAction *exportMD = [UIAction actionWithTitle:@"导出 Markdown" image:[UIImage systemImageNamed:@"doc.text"] identifier:@"com.whiteshark.chatgptenhancer.export" handler:^(__unused UIAction *action) {
-        [CEFeatures exportCandidates:CECandidatesForSourceView(weakSource, capturedIdentifier, capturedTitle) fromContextMenu:YES];
+        NSArray<CEConversationRecord *> *candidates = CECandidatesForSourceView(weakSource, capturedIdentifier, capturedTitle); CETraceCandidates(@"ACTION-EXPORT", candidates); [CEFeatures exportCandidates:candidates fromContextMenu:YES];
+    }];
+    BOOL traceRecording = CEConversationIdentityTraceIsRecording();
+    UIAction *trace = [UIAction actionWithTitle:(traceRecording ? @"结束并导出识别日志" : @"开始会话识别记录") image:[UIImage systemImageNamed:(traceRecording ? @"square.and.arrow.up" : @"record.circle")] identifier:@"com.whiteshark.chatgptenhancer.identity-trace" handler:^(__unused UIAction *action) {
+        if (traceRecording) {
+            CEConversationIdentityTraceLog(@"USER", @"finish identity trace from menu origin=%@", capturedOrigin ?: @"unknown"); NSURL *url = CEConversationIdentityTraceFinish(); CEPresentIdentityTraceFile(url);
+        } else {
+            CEConversationIdentityTraceBegin(); CETraceConversationMenu(capturedChildren, weakSource, capturedIdentifier, capturedTitle, @"trace-begin-context", capturedTraceIdentifier, capturedTraceIdentifierClass); CEShowMessage(@"会话识别记录已开始；关闭并重新打开 ChatGPT 后仍会继续记录。");
+        }
     }];
 
     CEMenuBuildGuard = YES;
-    UIMenu *section = [UIMenu menuWithTitle:@"" image:nil identifier:CEExtensionMenuIdentifier options:UIMenuOptionsDisplayInline children:@[rename, exportMD]];
+    UIMenu *section = [UIMenu menuWithTitle:@"" image:nil identifier:CEExtensionMenuIdentifier options:UIMenuOptionsDisplayInline children:@[rename, exportMD, trace]];
     CEMenuBuildGuard = NO;
     return [children arrayByAddingObject:section];
 }
 
-static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) { return CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil); }
+static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) { return CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil, @"menu-factory", nil, nil); }
 
 static void CEResolveConversationFromView(UIView *view) {
     if (!view) return;
@@ -282,7 +359,7 @@ static void CEResolveConversationFromView(UIView *view) {
     NSSet<UITouch *> *touches = event.allTouches;
     for (UITouch *touch in touches) {
         if (touch.phase != UITouchPhaseBegan) continue;
-        CGPoint point = [touch locationInView:self];
+        CGPoint point = [touch locationInView:self]; CELastTouchPoint = point;
         UIView *hit = [self hitTest:point withEvent:event];
         if (hit) {
             CELastTouchedView = hit; CELastTouchDate = [NSDate date];
@@ -309,16 +386,18 @@ static void CEResolveConversationFromView(UIView *view) {
 + (instancetype)ce_menuWithTitle:(NSString *)title image:(UIImage *)image identifier:(UIMenuIdentifier)identifier options:(UIMenuOptions)options children:(NSArray<UIMenuElement *> *)children {
     if (CEMenuBuildGuard) return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:children];
     if ([identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:children];
-    return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:CEAugmentedChildren(children)];
+    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil, @"menu-factory-identifier", [identifier description], identifier ? NSStringFromClass([(id)identifier class]) : nil);
+    return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:augmented];
 }
 + (instancetype)ce_menuWithTitle:(NSString *)title subtitle:(NSString *)subtitle image:(UIImage *)image identifier:(UIMenuIdentifier)identifier options:(UIMenuOptions)options children:(NSArray<UIMenuElement *> *)children API_AVAILABLE(ios(15.0)) {
     if (CEMenuBuildGuard) return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:children];
     if ([identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:children];
-    return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:CEAugmentedChildren(children)];
+    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil, @"menu-factory-modern", [identifier description], identifier ? NSStringFromClass([(id)identifier class]) : nil);
+    return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:augmented];
 }
 - (UIMenu *)ce_menuByReplacingChildren:(NSArray<UIMenuElement *> *)children {
     if (CEMenuBuildGuard || [self.identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuByReplacingChildren:children];
-    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil);
+    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, CELastTouchedView, nil, nil, @"menu-replace", [self.identifier description], self.identifier ? NSStringFromClass([(id)self.identifier class]) : nil);
     return [self ce_menuByReplacingChildren:augmented];
 }
 @end
@@ -326,12 +405,12 @@ static void CEResolveConversationFromView(UIView *view) {
 @implementation UIContextMenuConfiguration (ChatGPTEnhancerContextMenu)
 + (instancetype)ce_configurationWithIdentifier:(id<NSCopying>)identifier previewProvider:(UIContextMenuContentPreviewProvider)previewProvider actionProvider:(UIContextMenuActionProvider)actionProvider {
     __weak UIView *sourceView = CELastTouchedView;
-    NSString *identifierText = [(id)identifier description];
+    NSString *identifierText = [(id)identifier description]; NSString *identifierClass = identifier ? NSStringFromClass([(id)identifier class]) : nil;
     NSString *titleHint = [CELastTouchedTitle copy];
     UIContextMenuActionProvider wrappedProvider = ^UIMenu *(NSArray<UIMenuElement *> *suggestedActions) {
         UIMenu *menu = actionProvider ? actionProvider(suggestedActions) : [UIMenu menuWithTitle:@"" children:suggestedActions];
         if (!menu) return nil;
-        NSArray<UIMenuElement *> *children = CEAugmentedChildrenForSource(menu.children, sourceView, identifierText, titleHint);
+        NSArray<UIMenuElement *> *children = CEAugmentedChildrenForSource(menu.children, sourceView, identifierText, titleHint, @"context-menu-config", identifierText, identifierClass);
         CEMenuBuildGuard = YES;
         UIMenu *result = [menu menuByReplacingChildren:children];
         CEMenuBuildGuard = NO;
