@@ -1,14 +1,15 @@
 name: Build ChatGPTEnhancer
-# alpha50 restores sidebar/non-current conversation Rename + Markdown export without borrowing the active conversation id
-# current top-right Pull/Reload/Rename/Export keeps alpha49 immutable exact-current targeting
-# duplicate sidebar titles remain explicit candidate selection; arbitrary menu/config UUIDs are never sidebar identity
-# Reload completion, project-header presentation and interrupted-generation recovery behavior are otherwise unchanged
+# alpha51 renames current Pull Latest to Sync Latest and hands a finished server result into exact-current Reload for visible page refresh
+# HTTP 429 is surfaced directly instead of short automatic rate-limit retries; concurrent manual Sync taps are guarded
+# current exact conversation identity and alpha50 sidebar Rename/Markdown behavior remain unchanged
+# project-header presentation is paused and not modified by this candidate
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +39,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha50-sidebar-menu-actions
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha50-sidebar-menu-actions.zip
+          name: ChatGPTEnhancer-0.1.0-alpha51-sync-latest-rate-limit
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha51-sync-latest-rate-limit.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha50-sidebar-menu-actions-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha51-sync-latest-rate-limit-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
