@@ -47,12 +47,12 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Status**: Confirmed
 - **Date**: 2026-08-25
 - **Scope**: Enhancer manual conversation reload
-- **Decision**: Reload only the exact active conversation ID. Retry delivery through the official app's own custom route for the same conversation, and verify success by observing official detail/resume requests. Stop if app state/context changes.
-- **Evidence**: Commit `8e520cba370870173a5ef08392636e1ca8036308`; `.github/workflows/build-enhancer.yml` alpha39 comments.
+- **Decision**: Reload only the exact active conversation ID. Retry delivery through the official app's own custom route for the same conversation. Stop if app state/context changes. A request for that exact ID proves route/request delivery only; completion semantics are further constrained by TD-010.
+- **Evidence**: Commit `8e520cba370870173a5ef08392636e1ca8036308`; alpha39 route behavior; alpha47/48 continuation.
 - **Alternatives considered**: History-row/sidebar automation, UIKit pop/push navigation, using another conversation ID, orphaned-conversation fallback.
 - **Rejected / do-not-repeat**: Do not use History rows, sidebar automation, UIKit pop/push, or another conversation ID as reload fallback unless a future explicit decision with new runtime evidence supersedes this rule.
 - **Affected modules**: `Features/CEManualConversationReload.mm`, Network observer, current conversation context.
-- **Validation level**: Code written + CI passed + artifact produced for alpha39; candidate-specific current-identity correctness is tracked separately.
+- **Validation level**: Exact-ID route behavior has CI/artifact lineage; candidate-specific runtime correctness is tracked separately.
 - **Supersedes**: Older manual reload fallback route.
 
 ## TD-005 — Enhancer-generated conversation titles are presentation, never identity evidence
@@ -60,12 +60,12 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Status**: Confirmed
 - **Date**: 2026-08-25
 - **Scope**: Enhancer current-conversation UI / identity resolution
-- **Decision**: When `CEEnhancerUI` rewrites host-app presentation with a conversation title, mark that label as enhancer-synthetic and exclude its own text/accessibility values from all generic current-conversation evidence paths. Only independent host/catalog evidence may change `CEConversationContext`.
-- **Evidence**: alpha41 post-build review found a self-feedback cycle was possible: stale context A could write A's title into project chat B, after which visible-title resolution could read the plugin-generated A title and reinforce A. Alpha42 commits isolate the marked label in `CECore`, `CEContextResolver`, accessibility/touch resolution, and floating visible-title resolution.
-- **Alternatives considered**: Let the rewritten header participate in normal visible-title matching; create another header-local current-conversation state owner.
-- **Rejected / do-not-repeat**: Do not treat plugin-generated UI text as proof of active conversation identity and do not create a second conversation authority to compensate.
-- **Affected modules**: `Core/CECore.*`, `Core/CEContextResolver.mm`, `UI/CEEnhancerUI.mm`.
-- **Validation level**: Code written + CI passed + artifact produced. Alpha42 later failed the broader current-identity invariant for a separate network-driven reason; this decision is not itself runtime-proven.
+- **Decision**: When `CEEnhancerUI` rewrites host-app presentation with a conversation title, mark that label as enhancer-synthetic and exclude its own text/accessibility values from all generic current-conversation evidence paths. Only independent semantic host/network evidence may change `CEConversationContext`. For an already-proven exact conversation ID, an official current-chat menu/catalog title may update presentation metadata and the project header, but it still cannot select, change or reinforce identity.
+- **Evidence**: Alpha41 post-build review found a self-feedback cycle was possible: stale context A could write A's title into project chat B, after which visible-title resolution could read the plugin-generated A title and reinforce A. Alpha42 isolated marked synthetic presentation. Alpha46/47 later established exact ID independently of title; alpha48 uses the exact current menu title only after the target ID is already proven.
+- **Alternatives considered**: Let the rewritten header participate in visible-title matching; create another header-local current-conversation state owner; use title to choose target ID.
+- **Rejected / do-not-repeat**: Do not treat plugin-generated UI text, official visible title, Rename prefill or project header text as proof of active conversation identity and do not create a second conversation authority to compensate.
+- **Affected modules**: `Core/CECore.*`, `UI/CEEnhancerUI.mm`, Storage presentation metadata.
+- **Validation level**: Synthetic-title exclusion has code/CI lineage; alpha48 project-header presentation runtime acceptance is pending.
 - **Supersedes**: The incomplete alpha41 project-header evidence handling.
 
 ## TD-006 — Standalone ChatGPT client uses native iOS presentation, not WebView chat rendering
@@ -94,19 +94,19 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Affected modules**: Core, Network, UI, Features.
 - **Validation level**: Runtime failure + source evidence.
 - **Supersedes**: Alpha42 generic observed-request authority.
-- **Notes**: TD-009 narrows this rule with new alpha46 evidence for one specific semantic endpoint/field; it does not restore generic network authority.
+- **Notes**: TD-009 narrows this rule with alpha46 evidence for one specific semantic endpoint/field; it does not restore generic network authority.
 
 ## TD-008 — Floating tool availability is separate from conversation identity
 
-- **Status**: Confirmed
+- **Status**: Confirmed / historical while floating tool existed
 - **Date**: 2026-08-26
 - **Scope**: ChatGPTEnhancer floating tools / current-conversation UX
-- **Decision**: The floating tool button is an application UI entry point, not proof that a conversation ID is known. Its visibility/lifecycle must not depend on `CEConversationContext.conversationID` while that UX exists.
-- **Evidence**: Alpha44 removed unsafe network identity writes, after which the button disappeared because visibility was gated by non-empty context. Alpha45 removed only that visibility gate.
+- **Decision**: A floating tool button is application UI availability, not proof that a conversation ID is known. Its lifecycle must never be used as identity evidence. Alpha47 later deliberately retired the conversation-tool floating button in favor of exact current-chat menu actions; percentage UI remains a separate task.
+- **Evidence**: Alpha44 removed unsafe network identity writes, after which the button disappeared because visibility was gated by non-empty context. Alpha45 separated UI availability from identity. User later approved retiring the conversation-tool floating surface.
 - **Alternatives considered**: Restore network-derived identity for presentation; hide tools until identity is known.
-- **Rejected / do-not-repeat**: Do not couple UI entry visibility to identity authority.
+- **Rejected / do-not-repeat**: Do not couple any future entry surface visibility to identity authority.
 - **Affected modules**: `UI/CEEnhancerUI.mm`.
-- **Validation level**: Runtime failure + source evidence + alpha45 CI/artifact.
+- **Validation level**: Runtime failure + source evidence + later product UX decision.
 - **Supersedes**: Alpha44 ID-gated button lifecycle.
 
 ## TD-009 — Conversation identity evidence is semantic/source-aware, not UUID-shape-aware
@@ -114,13 +114,27 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Status**: Confirmed
 - **Date**: 2026-08-26
 - **Scope**: ChatGPTEnhancer current-conversation identity parsing and action targeting
-- **Decision**: A UUID-looking string is not a conversation ID merely because it matches UUID syntax. Identity evidence must come from a semantically proven conversation location/field. Alpha46 proves `POST /backend-api/share/create` request-body `conversation_id` is an exact action-scoped ground-truth oracle, and provides strong evidence that `POST /backend-api/conversation/init` with an explicit body `conversation_id` is a foreground existing-conversation navigation signal. Arbitrary menu/configuration UUIDs must never be promoted to conversation identity.
-- **Evidence**: Alpha46 real-device trace contained 13 unique UUID-looking menu/configuration identifiers with **zero intersection** with the 7 real conversation IDs observed in network traffic. Current `CEExtractConversationIDFromString(...)` uses a generic UUID regex, so the diagnostic logger mislabeled those structural UUIDs as `conversationID=...`, demonstrating the parser's context-free weakness. The same trace captured 8 Share-create requests across 6 unique chats; each carried explicit body `conversation_id`, including two same-title `测试会话` chats with different IDs. For 7/7 Share events with a preceding explicit `conversation/init` body ID, the latest explicit init ID matched Share exactly. Cold relaunch emitted init + `beacons/home?conversation_id` + matching detail before user interaction.
+- **Decision**: A UUID-looking string is not a conversation ID merely because it matches UUID syntax. Identity evidence must come from a semantically proven conversation location/field. Alpha46 proves `POST /backend-api/share/create` request-body `conversation_id` is an exact action-scoped ground-truth oracle, and provides strong evidence that `POST /backend-api/conversation/init` with an explicit body `conversation_id` is a foreground existing-conversation navigation signal. Alpha47 promotes only that explicit init field into the sole context owner and freezes it into current-menu actions. Arbitrary menu/configuration UUIDs must never be promoted to conversation identity.
+- **Evidence**: Alpha46 real-device trace contained 13 unique UUID-looking menu/configuration identifiers with zero intersection with the 7 real conversation IDs observed in network traffic. The same trace captured 8 Share-create requests across 6 unique chats; each carried explicit body `conversation_id`, including two same-title `测试会话` chats with different IDs. For 7/7 Share events with a preceding explicit `conversation/init` body ID, the latest explicit init ID matched Share exactly. Cold relaunch emitted init + matching home/prepare/detail evidence before user interaction.
 - **Alternatives considered**: Continue extracting any UUID from `UIContextMenuConfiguration.identifier`; use visible title as primary target; restore “latest conversation request wins”; silently create Share links to discover current ID.
 - **Rejected / do-not-repeat**: Do not treat arbitrary structural UUIDs as conversation IDs. Do not use title-only targeting. Do not silently call `/share/create` for identity discovery because it has a user-visible/privacy-relevant side effect. Do not generalize the proven `conversation/init` field back into generic network recency authority.
-- **Affected modules**: `Core/CECore.*`, `Network/CENetworkObserver.*`, `UI/CEEnhancerUI.mm`, conversation-recognition feature consumers.
-- **Validation level**: Real-device alpha46 trace + current source inspection. Share exactness is runtime-proven for tested flows; `conversation/init` is strongly validated in this trace but still requires successor-candidate action-target acceptance testing.
+- **Affected modules**: Core, Network, UI, conversation-recognition feature consumers.
+- **Validation level**: Real-device alpha46 trace + alpha47 CI/artifact + partial runtime menu evidence. Broader exact-target acceptance remains pending.
 - **Supersedes**: Any implicit assumption that UUID syntax alone is sufficient conversation identity evidence.
+
+## TD-010 — Reload request delivery is not Reload completion
+
+- **Status**: Confirmed
+- **Date**: 2026-08-26
+- **Scope**: ChatGPTEnhancer exact-current manual Reload completion semantics
+- **Decision**: Observing the official request for the exact current conversation proves that the custom-route/reload request was delivered, but it does **not** prove that the current conversation page completed a reload. `✓ 当前会话已重载` may only be shown when both (1) exact same-ID official reload/detail request evidence and (2) current conversation UI/message-view refresh or rebuild evidence are present. If only request evidence is present, report the refresh as unconfirmed rather than success. Reuse the established same-ID reload attempt/poll lifecycle; do not introduce another timer/retry family/state authority.
+- **Evidence**: Alpha47 real-device user feedback observed at least one Reload that showed success while the page did not appear to unload/reload. Source inspection showed alpha47's `CEManualReloadVerifyAttempt(...)` returned success immediately when `CEManualReloadRequestSeen(...)` became true. That code could prove request traffic only. Alpha48 therefore adds public-UIKit ephemeral conversation-view snapshots to the existing poll lifecycle and requires request + UI rebuild evidence.
+- **Completion evidence in alpha48**: conversation scroll view identity replacement, substantial visible message/text/accessibility anchor object turnover, or visible conversation content disappearing and then returning. A visible blank screen itself is not required.
+- **Alternatives considered**: Keep request-only success; force an artificial blank screen; add a new watchdog/timer; use History/sidebar navigation; use another conversation ID.
+- **Rejected / do-not-repeat**: Do not equate request observation with completed Reload. Do not manufacture a visual blank merely to satisfy the proof. Do not add unrelated retry/watchdog paths or alternate-ID/navigation fallbacks.
+- **Affected modules**: `Features/CEManualConversationReload.mm`, `UI/CEConversationUIReloadEvidence.mm`, `UI/CEEnhancerUI.h`.
+- **Validation level**: User runtime failure evidence for alpha47 + alpha48 Code written → CI passed → Artifact produced. Alpha48 real-device completion classification is Pending.
+- **Supersedes**: The request-only success condition used through alpha47 while preserving TD-004 exact-ID route constraints.
 
 ## Rule
 
