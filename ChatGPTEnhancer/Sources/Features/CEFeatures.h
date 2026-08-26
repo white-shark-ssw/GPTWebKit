@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 + (void)exportRecord:(CEConversationRecord *)record requireConfirmation:(BOOL)requireConfirmation;
 + (void)exportConversationID:(NSString *)conversationID title:(nullable NSString *)title;
 + (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(nullable UIView *)sourceView;
++ (void)renameConversationID:(NSString *)conversationID title:(nullable NSString *)title;
 + (void)pullLatestConversationID:(NSString *)conversationID;
 + (void)reloadConversationID:(NSString *)conversationID;
 + (void)pullLatestCurrentConversation;
