@@ -1,14 +1,15 @@
 name: Build ChatGPTEnhancer
-# alpha52 makes Sync/Reload handoff wording truthful and stops repeated exact-route delivery once same-ID request delivery is proven without UI rebuild
-# alternate exact-current route delivery remains only for cases where no same-ID request was observed; no new refresh mechanism is guessed
-# alpha51 HTTP 429 terminal handling, exact conversation identity, and alpha50 sidebar Rename/Markdown behavior remain unchanged
-# project-header presentation and percentage work are out of scope
+# alpha53 adds diagnostic-only refresh-path tracing for exact init/prepare/detail host requests
+# call-site/navigation signatures are sanitized structural evidence inside the existing user-started trace
+# alpha52 truthful Sync/Reload messaging, request-burst suppression, alpha51 429 handling, exact identity, and sidebar actions remain unchanged
+# no production refresh mechanism, project-header work, or percentage work is added
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +39,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff.zip
+          name: ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
