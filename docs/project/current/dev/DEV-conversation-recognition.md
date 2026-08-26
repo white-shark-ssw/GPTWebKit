@@ -31,25 +31,35 @@
 
 ## Authoritative alpha48 runtime evidence — 2026-08-26
 
-User supplied a real-device screenshot from project chat `OnePlayer 播放器` and described the exact sequence:
+User supplied a real-device screenshot from project chat `OnePlayer 播放器` and then exported trace session `6CC3B3D6-2F4F-40A1-9D84-CABB7D0C7F3B` from alpha48 / ChatGPT app `1.2026.202`.
 
-1. A response had already emitted substantial visible reasoning/content, then the client disconnected/timed out.
-2. User invoked plugin `重载当前会话`.
-3. The conversation page visibly refreshed/reloaded, so alpha48's new UI-rebuild detector is plausibly observing a real page refresh in this case rather than request-only delivery.
-4. After the refresh, the last turn remained indefinitely at `正在思考`; user judges that this turn is very likely never to produce an answer and appears stuck.
-5. The project header still shows project name `OnePlayer 播放器`; requested conversation-title replacement + gear marker has **no visible effect**.
+### Project title presentation still failed
 
-### Interpretation
+- Screenshot still shows the project name in the centered header; requested conversation-title replacement + gear marker has no visible effect.
+- The trace repeatedly records `HEADER-TITLE | menu-presentation target=6a8cbe3d-eaf8-83ec-92eb-68694f8baa0e title=轮播图优化v1`, proving the exact-ID current-menu path already has the correct conversation title.
+- Therefore the remaining failure is presentation-target discovery/application, not title acquisition. Current source searches only UIKit `UILabel` objects under `CEKeyWindow()`. Runtime evidence does **not** yet prove whether the miss is caused by the transient context-menu key window, SwiftUI/non-UILabel header rendering, or both. The earlier assumption that key-window selection alone explains the failure is downgraded to a hypothesis pending targeted header view-tree evidence.
 
-- **Reload completion and generation recovery are separate states.** Alpha48 can now distinguish request delivery from page/UI rebuild, but a successful UI rebuild does not prove that an interrupted in-flight generation/stream has been resumed, reconciled, failed, or reached a terminal state. The screenshot exposes a new state gap: `page reloaded` while the host still renders a non-terminal `正在思考` placeholder that may have no live generation stream behind it.
-- Do **not** add a speculative `/resume` call, retry loop, timer/watchdog, or status override yet. Current source only observes `/backend-api/f/conversation/resume`; it does not prove when/why the official client legitimately invokes it after a timeout, nor whether the stuck state is server-side `in_progress`, a missing stream reattachment, or stale client presentation.
-- Existing alpha48 identity trace already records sanitized request paths, status/error, lifecycle, exact Reload action target, route-delivery, and UI-rebuild verification. The next evidence should first reproduce this interrupted-generation case with identity trace enabled before modifying recovery behavior.
+### Reload stayed on the exact conversation and triggered real host reload requests
 
-### Header source finding
+- Reload action captured and retained exact target `6a8cbe3d-eaf8-83ec-92eb-68694f8baa0e`; context ID matched throughout. No wrong-conversation targeting appears in this trace.
+- Route attempt 0 opened successfully and immediately produced host requests for the same ID: `POST /backend-api/conversation/init`, `POST /backend-api/f/conversation/prepare`, and `GET /backend-api/conversation/<id>`.
+- `requestObserved` became `YES` from the exact detail request. Later exact-route attempts did not produce another recorded conversation-init/detail sequence in this trace; the request proof remained from the first delivery.
 
-- `CEProjectConversationHeaderController.refresh:` currently calls `CEKeyWindow()` and searches only that one window for the exact `聊天` subtitle/title pair.
-- The exact conversation title is updated during current-header context-menu construction. At that moment iOS may make the context-menu/presentation window the key window; that overlay window does not contain the underlying project header. `refresh:` then sees no target and there is no later retry when the menu closes.
-- This is a source-supported explanation for “菜单里已经有正确会话标题，但项目顶部仍保持项目名”. A future minimal header fix should search foreground scene windows for the real project-header label instead of assuming the current key window is the host content window. It must not add a periodic title timer and must preserve synthetic-title exclusion.
+### Alpha48 UI-rebuild proof false-negatived on a visually refreshed page
+
+- The reload baseline was logged as `baselineUI=unproven`.
+- Through all polls and all three route attempts, `uiRebuildObserved=NO` and `uiSawDisappear=NO`.
+- Final classifier result was `success=NO ... requestObserved=YES uiRebuildObserved=NO` with message `已触发当前会话请求，但未确认页面完成刷新。`
+- User independently reports the conversation page visibly refreshed. Therefore alpha48's current public-UIKit snapshot did **not** identify the real conversation/message presentation tree in this host view and produced a real-device false-negative. This corrects the earlier screenshot-only assumption that the alpha48 detector had plausibly observed the refresh.
+- Do not restore request-only success; the evidence source itself must be corrected from actual host view-tree evidence.
+
+### Interrupted generation remained stuck after page reload
+
+- Original scenario: assistant reasoning/content had already progressed, then the client disconnected/timed out. After Reload the page visually refreshed, but the last turn stayed indefinitely at `正在思考` and appeared unlikely to answer.
+- The exported trace began **after** the original disconnect/timeout, so it contains no authoritative event for the failure that interrupted the generation.
+- During Reload the trace shows exact same-ID `conversation/init → f/conversation/prepare → conversation detail` but no recorded `POST /backend-api/f/conversation/resume` and no other explicit conversation streaming/recovery request in the captured window.
+- This proves only that Reload re-entered/prepared/refetched the exact conversation. It does **not** prove the interrupted generation stream resumed, and it does not prove `/f/conversation/resume` is the missing operation.
+- A Pull action was invoked during the reload window and used the same exact target ID. Enhancer-originated request details are intentionally excluded from passive host-network tracing, so that action provides no evidence about the server-side generation state.
 
 ## Identity architecture retained from alpha46/alpha47
 
@@ -75,7 +85,13 @@ User supplied a real-device screenshot from project chat `OnePlayer 播放器` a
 
 ## Next exact action
 
-**Do not change generation recovery code yet.** Ask the user to use alpha48's existing `开始会话识别记录`, then reproduce one interrupted/timeout generation followed by `重载当前会话`, wait long enough to establish whether `正在思考` remains stuck, and export the trace. Inspect the exact request/response/error sequence around Reload, especially conversation detail, prepare/resume and any stream/network completion errors. From that evidence decide whether the true owner is server message status, stream reattachment, or stale client UI. In parallel, the project-header key-window limitation is already source-supported and can be fixed minimally in the next candidate without changing identity authority.
+**Do not change generation recovery behavior from this trace alone.** Two evidence gaps remain:
+
+1. **Header presentation**: capture the actual top-header host view/window structure while the project header is visible. Then fix only the proven target-discovery mechanism; exact conversation title acquisition is already verified.
+2. **Interrupted generation recovery**: reproduce with identity trace started **before sending the prompt**, so the trace includes normal send/stream setup, the disconnect/timeout completion/error, Reload, and any official recovery/reconnect request. Compare with a successful continuation/recovery if available. Only then decide whether Reload should also trigger a proven official generation-recovery action or explicitly report that page reload succeeded but generation was not recovered.
+3. **Reload UI proof**: inspect the real host message presentation tree because alpha48 logged `baselineUI=unproven` and never saw a rebuild despite the user's visual refresh. Replace only the incorrect snapshot target/evidence source; do not revert to request-only success.
+
+Do not allocate alpha49 until the next product change is evidence-backed.
 
 ## Rejected / do-not-repeat
 
