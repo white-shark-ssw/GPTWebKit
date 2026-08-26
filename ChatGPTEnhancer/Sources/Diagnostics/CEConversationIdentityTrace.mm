@@ -143,11 +143,45 @@ static NSArray<NSString *> *CETraceConversationIDsFromURL(NSURL *url) {
     return out.array;
 }
 
+static BOOL CETraceIsRefreshSemanticRequest(NSURLRequest *request, NSArray<NSString *> *urlIDs, NSArray<NSString *> *bodyIDs) {
+    NSString *path = request.URL.path.lowercaseString ?: @""; NSString *method = request.HTTPMethod.uppercaseString ?: @"GET";
+    if ([method isEqualToString:@"POST"] && [path isEqualToString:@"/backend-api/conversation/init"] && bodyIDs.count == 1) return YES;
+    if ([method isEqualToString:@"POST"] && ([path isEqualToString:@"/backend-api/f/conversation/prepare"] || [path isEqualToString:@"/backend-api/conversation/prepare"]) && bodyIDs.count == 1) return YES;
+    if ([method isEqualToString:@"GET"] && urlIDs.count == 1 && ([path hasPrefix:@"/backend-api/conversation/"] || [path hasPrefix:@"/backend-api/f/conversation/"])) return YES;
+    return NO;
+}
+
+static NSString *CETraceCompactStack(void) {
+    NSMutableArray<NSString *> *frames = [NSMutableArray array];
+    for (NSString *raw in NSThread.callStackSymbols ?: @[]) {
+        if ([raw containsString:@"ChatGPTEnhancer"] || [raw containsString:@"CEConversationIdentityTrace"] || [raw containsString:@"CENetworkObserver"]) continue;
+        NSString *frame = [raw stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (!frame.length) continue;
+        static NSRegularExpression *addressRE; static dispatch_once_t once;
+        dispatch_once(&once, ^{ addressRE = [NSRegularExpression regularExpressionWithPattern:@"0x[0-9a-fA-F]+" options:0 error:nil]; });
+        frame = [addressRE stringByReplacingMatchesInString:frame options:0 range:NSMakeRange(0, frame.length) withTemplate:@"0x…"];
+        if (frame.length > 220) frame = [[frame substringToIndex:220] stringByAppendingString:@"…"];
+        [frames addObject:frame]; if (frames.count >= 8) break;
+    }
+    return frames.count ? [frames componentsJoinedByString:@" || "] : @"<none>";
+}
+
+static void CETraceRefreshPathContext(NSURLRequest *request, NSArray<NSString *> *urlIDs, NSArray<NSString *> *bodyIDs) {
+    if (!CETraceIsRefreshSemanticRequest(request, urlIDs, bodyIDs)) return;
+    UIViewController *top = CETopViewController(); UINavigationController *nav = top.navigationController; UIWindow *key = CEKeyWindow(); UIViewController *root = key.rootViewController;
+    NSString *targetID = bodyIDs.firstObject ?: urlIDs.firstObject ?: @"<none>";
+    CETraceAppend(@"REFRESH-PATH", [NSString stringWithFormat:@"method=%@ path=%@ target=%@ keyWindow=%@ rootVC=%@ topVC=%@ presentedVC=%@ nav=%@ navCount=%lu navVisible=%@ stack=%@",
+        request.HTTPMethod ?: @"GET", request.URL.path ?: @"/", targetID,
+        key ? NSStringFromClass(key.class) : @"<none>", root ? NSStringFromClass(root.class) : @"<none>", top ? NSStringFromClass(top.class) : @"<none>", top.presentedViewController ? NSStringFromClass(top.presentedViewController.class) : @"<none>",
+        nav ? NSStringFromClass(nav.class) : @"<none>", (unsigned long)nav.viewControllers.count, nav.visibleViewController ? NSStringFromClass(nav.visibleViewController.class) : @"<none>", CETraceCompactStack()]);
+}
+
 void CEConversationIdentityTraceLogRequest(NSURLRequest *request) {
     if (!CEConversationIdentityTraceIsRecording() || !request.URL) return;
     NSArray<NSString *> *urlIDs = CETraceConversationIDsFromURL(request.URL); NSArray<NSString *> *bodyIDs = CETraceConversationIDsFromBody(request.HTTPBody); NSArray<NSString *> *queryNames = CETraceQueryNames(request.URL);
     NSString *path = request.URL.path ?: @"/"; BOOL share = [path.lowercaseString containsString:@"share"];
     CETraceAppend(share ? @"NET-SHARE-REQ" : @"NET-REQ", [NSString stringWithFormat:@"method=%@ path=%@ queryNames=%@ urlConversationIDs=%@ bodyConversationIDs=%@", request.HTTPMethod ?: @"GET", path, queryNames.count ? [queryNames componentsJoinedByString:@","] : @"<none>", urlIDs.count ? [urlIDs componentsJoinedByString:@","] : @"<none>", bodyIDs.count ? [bodyIDs componentsJoinedByString:@","] : @"<none>"]);
+    CETraceRefreshPathContext(request, urlIDs, bodyIDs);
 }
 
 void CEConversationIdentityTraceLogResponse(NSURLRequest *request, NSURLResponse *response, NSError *error) {
