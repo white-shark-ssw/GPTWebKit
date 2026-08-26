@@ -13,7 +13,7 @@ This file contains evidence-backed rules specific to this repository/product.
 
 - Do not hard-code private ChatGPT Swift class names while a public UIKit/Foundation runtime alternative exists.
 - Sensitive Authorization/cookie/account/request-template material copied from the host app remains memory-only and must not be persisted.
-- User-started diagnostic persistence may store only minimum sanitized identity-correlation evidence: conversation ID/title and structural menu/request/UI metadata are allowed; Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents are prohibited.
+- User-started diagnostic persistence may store only minimum sanitized identity-correlation evidence: conversation ID/title and structural menu/request/UI metadata are allowed. For the alpha53 refresh-path investigation, bounded view-controller/navigation class names and sanitized call-stack symbols for exact init/prepare/detail requests are also allowed. Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents remain prohibited.
 - Enhancer compile target is arm64 iOS 17.0 and current build links Foundation, UIKit, QuartzCore and CoreGraphics.
 - Compatibility changes for undocumented ChatGPT runtime/backend behavior require current source/runtime evidence, not guessed API structure.
 
@@ -32,6 +32,7 @@ This file contains evidence-backed rules specific to this repository/product.
 - **Server Sync GET success is not visible synchronization.** It proves server-state retrieval only.
 - **Reload/request delivery is not Reload completion.** `openURL(...)=YES` or a same-ID conversation detail request proves delivery only; UI refresh/rebuild must also be proven before success is reported.
 - **Once exact same-ID request delivery is proven, do not automatically repeat the same refresh route merely because the UI did not rebuild.** Continue observing the existing proof window and fail truthfully if the page remains unchanged. Alternate same-ID delivery is permitted only when prior route delivery produced no same-ID request evidence.
+- **Genuine host navigation traffic is evidence of a host state transition, not a replay recipe.** Alpha52 runtime evidence shows normal exact navigation emits `conversation/init → prepare → detail` (often with a second prepare), while failed same-current custom-route refresh can emit only detail GET. Do not manually replay init/prepare requests and assume the host UI will rebuild; the actual host-side navigation/refresh owner must be evidenced first.
 - **Reload UI refresh/rebuild is not interrupted-generation recovery.** A rebuilt page that remains `正在思考` is not proof that the old stream resumed or terminated correctly.
 - HTTP 429 is terminal for the current enhancer request; do not amplify server throttling with short automatic 429 retries. Numeric `Retry-After` may be surfaced when present; do not invent quota thresholds or cooldowns.
 - Enhancer-generated project conversation titles are presentation only and must never become identity evidence.
@@ -54,6 +55,7 @@ No product module is currently marked Frozen, but these confirmed contracts must
 - Sync GET success is not page synchronization.
 - Request delivery is not page reload completion.
 - Repeated same-route delivery after request delivery is already proven is prohibited without new runtime evidence.
+- Genuine navigation init/prepare/detail traffic must not be treated as authorization to replay those requests from the enhancer.
 - Page rebuild is not interrupted-generation recovery.
 
 ## Code style / naming constraints
@@ -76,6 +78,7 @@ No product module is currently marked Frozen, but these confirmed contracts must
 - Do not silently invoke `/backend-api/share/create` for identity.
 - Do not add speculative `/resume`, generation retry loop, watchdog or forced terminal-status override because a page is stuck at `正在思考`; first capture the host's real request/error/status sequence.
 - Do not treat the diagnostic A→B→A navigation sequence as authorization to implement History/sidebar navigation as production Reload. It is evidence collection only.
+- Do not manually originate/replay `conversation/init` or `conversation/prepare` merely because genuine navigation emits those requests; network consequences are not the host UI state owner.
 - Do not treat legacy `GPTWebKit` WebView/native behavior as current enhancer architecture by default.
 
 ## Rule maintenance
