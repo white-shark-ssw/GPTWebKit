@@ -6,78 +6,61 @@
 
 - **Work ID**: `DEV-conversation-recognition`
 - **Routing aliases / keywords**: `优化会话识别 / 会话识别 / 当前会话识别 / 会话切换识别 / conversation recognition`
-- **Task**: 优化 ChatGPTEnhancer 当前会话识别，保证导出、拉取、重载只作用于真实当前会话。项目顶部标题替换继续降为次要问题；alpha46 已完成真机取证，alpha47 正在实现精确菜单目标。
-- **Acceptance invariant**: **拉取、重载、导出必须使用真实当前 conversation ID，不得串会话；同名会话必须精确区分；正常已打开会话不得依赖标题猜测或频繁误报无法确认。**
-- **Baseline**: `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`, rechecked 2026-08-26 and unchanged.
-- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`; pre-alpha47 PR/head identity was `96d845e7d750ea178ff73c12faed115dff33d14c`, open/draft/mergeable. Current alpha47 code/package head is `ebd1455e7cef5133d25bc517a0c5e9ddfafc0410` before final workflow/CI synchronization.
-- **Current candidate**: `ENH-0.1.0-alpha47-exact-menu-target` / product `0.1.0-alpha47-exact-menu-target`. Alpha43 remains reserved by parallel `DEV-conversation-usage`; alpha46 is the completed instrumentation candidate. No alpha47 CI/artifact yet.
-- **Parallel preflight**: `DEV-conversation-usage` remains Active on `feat/conversation-usage` at rechecked head `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43. User explicitly said “百分比不用管他了”; alpha47 has not modified percentage-owned files/checkpoint.
+- **Task**: 优化 ChatGPTEnhancer 当前会话识别与精确当前会话操作，保证导出、拉取、重载只作用于真实当前会话；当前追加两个同一精确身份链路上的需求：重载只有在真实页面刷新被证明后才能提示成功；项目会话顶部项目名应使用精确 ID 对应的真实会话标题替换，并以小齿轮/扳手图标标记为插件展示，且该标题绝不反向参与身份识别。
+- **Acceptance invariant**: **拉取、重载、导出必须使用真实当前 conversation ID，不得串会话；同名会话必须精确区分；Reload 请求发生不等于 Reload 成功，只有页面/消息视图完成可证明的重新加载后才能显示成功；插件生成的标题只能是 presentation，永远不是 identity evidence。**
 
-## Authoritative runtime evidence
+## Resume identity guard — 2026-08-26
 
-### Prior failures
+- **Baseline**: `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`, rechecked and unchanged.
+- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`; PR is open/draft/mergeable.
+- **Alpha47 tested source**: `d297f65971fb6239cad2be7eb7fa9f8f8aab9f6d`; Actions bookkeeping head `8c6e43bb4c4fde576152a7906075354d8817e5a0`; post-build trigger cleanup `52ea5d9024054c72503af23d87249e8acda7b95c` changes workflow only.
+- **Alpha47 candidate**: `ENH-0.1.0-alpha47-exact-menu-target` / `0.1.0-alpha47-exact-menu-target`; Actions `32969623709`, job `98180033708`; package artifact id `9607073111`, digest `sha256:c5c4f8aeafecd67b5babbfe8130253bb8d56e9e178df7e50e771d7e2676ffbc2`; dylib artifact id `9607074065`, digest `sha256:2c8815d8beeefa703ac7a139d55b243d905eb5fd51b14ff3d1964f5d6decf5cb`.
+- **Alpha47 runtime evidence**: user confirms the menu UX is present and reports at least one Reload showing success while the page did not visibly appear to unload/reload. This means current Reload success semantics are insufficient: observing a same-ID official detail/resume request proves request delivery only, not actual current-page reload completion. Alpha47 is therefore not accepted as complete Reload behavior.
+- **Parallel preflight**: `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43. User explicitly said “百分比不用管他了”; this task must continue to leave percentage-owned files/checkpoint untouched.
+- **New candidate allocated**: `ENH-0.1.0-alpha48-reload-ui-title` / product `0.1.0-alpha48-reload-ui-title`. Alpha48 is unique in current BUILD_TEST_INDEX and does not reuse alpha43/alpha47 identities.
 
-- **alpha42 — rejected**: Pull Latest / Reload crossed to other conversations; generic observed network traffic could overwrite foreground identity.
-- **alpha44 — rejected**: floating conversation-tool button disappeared when identity was unproven.
-- **alpha45 — not accepted**: project chat could false-negative `无法确认当前可见会话` even though menu-scoped Rename showed the right title.
+## Authoritative identity evidence retained
 
-### alpha46 trace — completed successfully as instrumentation
+- Alpha46 trace proved explicit `POST /backend-api/conversation/init` body `conversation_id` tracks foreground existing-chat navigation across normal/project chats, A↔B, duplicate titles and cold relaunch; Share-create body IDs independently matched 7/7 observed init targets.
+- Arbitrary UUID-looking menu/configuration identifiers are not conversation IDs.
+- Alpha47 moved current-chat Pull/Reload/Export into the top-right current conversation menu, captures immutable exact IDs, removed the old conversation-tool floating button, and left percentage UI untouched.
+- Generic/background conversation traffic, title-only matching, UIKit/menu UUIDs and Share side effects remain prohibited identity sources.
 
-User uploaded `conversation-identity-871F676C-DD34-40E3-B7FB-561BB0165581.log`: 784 structured events across 2 app launches / ~239 seconds, including normal chats, project chats, repeated switching, duplicate-title chats, Share flows and force-close/relaunch.
+## Alpha48 scope / design constraints
 
-- 8 official `POST /backend-api/share/create` requests across 6 unique conversations carried explicit body `conversation_id`.
-- Two distinct chats both titled `测试会话` produced different exact IDs, proving title is not identity authority.
-- For every Share event with a preceding explicit `POST /backend-api/conversation/init` body ID in the recorded process (7/7), the latest explicit init ID exactly matched Share.
-- Explicit init tracked project chats, repeated A↔B, both duplicate-title chats and cold relaunch. No contradictory/background explicit-init ID appeared in this trace.
-- Cold relaunch emitted restored-chat `conversation/init`, matching `beacons/home?conversation_id`, prepare/detail and later Share before UI guessing was needed.
-- Top-right menu/source structural metadata did not expose the backend conversation ID.
-- 13 UUID-looking menu/configuration IDs had zero intersection with 7 real conversation IDs. Arbitrary UUID syntax is not conversation identity evidence.
-- Current global/UI-derived context was directly observed stale on both duplicate-title chats while Share proved the actual target.
-
-## Alpha47 implementation — Code written at `ebd1455e...`
-
-1. `CEConversationContext`: changing to a new exact ID with no known title clears the previous conversation title instead of carrying it across IDs.
-2. `CEContextResolver`: retired the 1-second UIKit/title resolver and its constructor. Compatibility `CERefreshVisibleConversationContext()` now only returns the sole exact context owner; it no longer scans or writes identity.
-3. `CENetworkObserver`: only exact `POST /backend-api/conversation/init` with exactly one explicit JSON `conversation_id` / `conversationId` value can update foreground `CEConversationContext`. Generic requests/resume traffic remain passive. Upload `fromData:` bodies are passed through the same semantic parser. Alpha46 trace logging remains available.
-4. `CEEnhancerUI`: removed touch/title context mutation and left-edge context clearing. Arbitrary configuration UUIDs are no longer promoted to targets. Menu instrumentation no longer labels a bare structural UUID as a conversation ID.
-5. Current-chat menu targeting: only a conversation menu tied to the current top-header touch/source region is augmented; this prevents a sidebar row menu from inheriting the open chat's ID. If a known host menu title conflicts with the catalog title of the exact context, augmentation is skipped rather than using the stale target.
-6. Menu creation snapshots exact `conversationID` (+ title only for presentation/export naming). `拉取最新消息`, `重载当前会话`, `导出 Markdown` receive that immutable captured ID. On tap, the target must still equal the current exact context or the action is cancelled.
-7. `CEManualConversationReload`: removed runtime method override/constructor and heuristic target lookup. It now exposes `CEManualReloadConversationID(exactID)` while preserving the established same-ID route delivery retries and official-request verification. It stops if context changes away from the captured target.
-8. `CEFeatures`: added exact-ID Pull/Reload/Export entry points. Legacy current wrappers read only the exact context owner and no longer run visible-title proof.
-9. Conversation-tool floating button/controller is removed from `CEEnhancerUI` startup/code. User explicitly approved this. Percentage UI from `DEV-conversation-usage` is untouched.
-10. Project-header presentation code remains in place but is not part of alpha47 acceptance; it consumes exact context/catalog only and never feeds identity.
-11. Candidate version/bootstrap/package identity is synchronized to `0.1.0-alpha47-exact-menu-target`; workflow artifact identity still needs final synchronization before CI.
-
-## Static/source review so far
-
-- Compare `96d845e... → ebd1455...` touches only recognition-owned Core/Network/UI/Features files plus `CEManualConversationReload.h` and `build.sh`; no percentage files changed.
-- Current PR patch search shows old network/UI/title context writers removed; the only new foreground `setConversationID` writer is the explicit semantic `conversation/init` path.
-- A function/static-variable name collision found during review in manual reload was corrected before CI (`CEManualReloadTargetID`).
-- No local iOS SDK build evidence exists yet. Compile validation must come from final GitHub Actions run.
+1. **Reload completion semantics**: preserve exact-ID custom-route delivery and same-ID safety. The existing official request observation remains the first proof that reload delivery occurred, but it must no longer directly produce `✓ 当前会话已重载`.
+2. Add the smallest public-UIKit evidence needed to distinguish “request happened” from “current message UI actually refreshed/rebuilt”. Reuse the existing reload attempt/poll lifecycle; do not add an independent watchdog/timer/state authority.
+3. A successful Reload requires both: (a) same exact conversation official reload/detail request after route delivery; and (b) current conversation content UI shows a post-route refresh/rebuild event attributable to that reload. If only (a) occurs, do not claim success; continue only the existing same-ID route attempts, then report that the request was sent but page refresh was not confirmed.
+4. **Project header title**: derive the display title from the exact current conversation ID via `CECatalog`/fetched conversation data. Replace the project-name header only for the project-chat header shape already recognized by current code, and add a small `gearshape.fill` or wrench-style `UIImageView` immediately left of the rewritten title.
+5. The rewritten header must remain marked synthetic and excluded from identity evidence per TD-005. It may never write or reinforce `CEConversationContext`.
+6. Do not touch percentage-owned source/UI.
+7. Do not add History/sidebar/UIKit navigation fallback, alternate IDs, generic request recency authority, title-based execution target, new periodic timer, retry family, or second conversation authority.
 
 ## Validation state
 
 - alpha46: Code written → CI passed → Artifact produced → Runtime/manual instrumentation tested successfully.
-- alpha47: **Code written. Static source review in progress. CI / Artifact / Runtime pending.**
+- alpha47: Code written → CI passed → Artifact produced → Runtime/manual partially tested; exact menu targeting still needs broader stress acceptance, and Reload completion semantics are **not accepted** because request observation can produce a success message without proven UI reload.
+- alpha48: **Candidate allocated; code not yet written.**
 - Nothing is Stable/Frozen.
 
-## Required alpha47 real-device acceptance
+## Required alpha48 real-device acceptance
 
-1. Conversation-tool floating button is gone; percentage UI is outside this task and may remain.
-2. Normal A → top-right current-chat menu → Pull/Reload/Export all target A.
-3. A→B fast and slow switching → menu actions target B without stale A.
-4. Two chats with identical titles → each current-chat menu action uses its own exact ID; no title chooser.
-5. Project chat → menu actions use exact project-conversation ID.
-6. Force-close/relaunch into last chat → after host init, menu actions target restored chat.
-7. Keep identity trace available during stress acceptance; optional user-triggered official Share may be used as ground-truth comparison, never silently invoked.
-8. Sidebar/other-row menu must not receive current-chat actions using the open chat's ID.
+1. Normal/project/same-title chats retain exact menu targeting from alpha47; no cross-conversation action.
+2. Reload success message appears only when exact same-ID reload request **and** current message UI refresh/rebuild are both observed.
+3. If request occurs without provable UI refresh, it must not say success; final message must distinguish “请求已触发但未确认页面刷新”.
+4. Actual successful reload should show real message-view refresh/reconstruction; visible blanking is not mandatory if the host keeps old UI for continuity.
+5. Project chat header replaces project name with the exact conversation's real title and shows a small plugin marker icon on its left.
+6. Switching to another project conversation updates the rewritten title from exact ID; duplicate titles do not affect identity.
+7. Plugin-rewritten title never changes identity and never becomes evidence for Pull/Reload/Export.
+8. Percentage feature remains untouched.
 
 ## Next exact action
 
-Finish source review, synchronize `build-enhancer.yml` to alpha47 and temporarily add the feature branch trigger for one final candidate build. Immediately before CI recheck base + parallel heads and compare scope. Run one Actions build, record exact build/test source + bot bookkeeping + artifact IDs/digests, remove the temporary trigger without changing product source, update PR/docs, then hand the exact dylib to the user for real-device stress acceptance.
+Inspect the current alpha47 reload/UI implementation and current public UIKit hierarchy evidence hooks, implement the minimum alpha48 reload-completion proof plus exact-ID project header presentation, synchronize version/package/workflow identity, recheck base + parallel heads immediately before final CI, run one isolated alpha48 Actions build, record artifact identity, remove the temporary branch trigger without changing product source, update PR/docs, and hand the exact dylib to the user for real-device acceptance.
 
 ## Rejected / do-not-repeat
 
+- request observed == reload completed;
 - generic latest-request foreground authority;
 - arbitrary UUID-shaped UI/configuration identifiers as conversation IDs;
 - title-only execution target;
@@ -85,7 +68,8 @@ Finish source review, synchronize `build-enhancer.yml` to alpha47 and temporaril
 - silently invoking Share/create to discover ID;
 - second long-lived conversation authority;
 - periodic UI-title identity timer;
-- speculative identity retry/watchdog/debounce;
+- speculative extra reload retry/watchdog/debounce;
 - private Swift class hard-coding;
-- injecting current-chat exact target into arbitrary sidebar row menus;
+- History/sidebar/UIKit navigation fallback or alternate conversation ID;
+- enhancer-generated title as identity evidence;
 - touching percentage-owned files in this work.
