@@ -143,6 +143,7 @@ static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElem
         NSString *capturedID = [targetID copy]; NSString *capturedTitle = [targetTitle copy];
         [enhancerActions addObject:[UIAction actionWithTitle:@"拉取最新消息" image:[UIImage systemImageNamed:@"arrow.down.circle"] identifier:@"com.whiteshark.chatgptenhancer.pull" handler:^(__unused UIAction *action) { [CEFeatures pullLatestConversationID:capturedID]; }]];
         [enhancerActions addObject:[UIAction actionWithTitle:@"重载当前会话" image:[UIImage systemImageNamed:@"arrow.clockwise"] identifier:@"com.whiteshark.chatgptenhancer.reload" handler:^(__unused UIAction *action) { [CEFeatures reloadConversationID:capturedID]; }]];
+        [enhancerActions addObject:[UIAction actionWithTitle:@"重命名会话" image:[UIImage systemImageNamed:@"square.and.pencil"] identifier:@"com.whiteshark.chatgptenhancer.rename" handler:^(__unused UIAction *action) { [CEFeatures renameConversationID:capturedID title:capturedTitle]; }]];
         [enhancerActions addObject:[UIAction actionWithTitle:@"导出 Markdown" image:[UIImage systemImageNamed:@"doc.text"] identifier:@"com.whiteshark.chatgptenhancer.export" handler:^(__unused UIAction *action) { [CEFeatures exportConversationID:capturedID title:capturedTitle]; }]];
     } else {
         UIAction *unavailable = [UIAction actionWithTitle:@"会话识别未就绪" image:[UIImage systemImageNamed:@"exclamationmark.circle"] identifier:@"com.whiteshark.chatgptenhancer.unavailable" handler:^(__unused UIAction *action) { CEShowMessage(@"尚未收到当前会话的精确识别信息。"); }];
@@ -239,6 +240,28 @@ static UILabel *CEProjectConversationTitleLabel(UIWindow *window) {
     return best;
 }
 
+static void CETraceProjectHeaderWindows(void) {
+    if (!CEConversationIdentityTraceIsRecording()) return;
+    NSUInteger windowIndex = 0;
+    for (UIWindow *window in CEForegroundWindows()) {
+        NSMutableArray<UILabel *> *labels = [NSMutableArray array]; CECollectTopLabels(window, window, 0, labels);
+        CEConversationIdentityTraceLog(@"HEADER-WINDOW", @"window[%lu] class=%@ key=%@ level=%.1f frame=%@ topLabelCount=%lu", (unsigned long)windowIndex++, NSStringFromClass(window.class), window.isKeyWindow ? @"YES" : @"NO", window.windowLevel, NSStringFromCGRect(window.frame), (unsigned long)labels.count);
+        NSUInteger labelIndex = 0;
+        for (UILabel *label in labels) {
+            NSString *text = CETrimmedLabelText(label); CGRect frame = [label convertRect:label.bounds toView:window];
+            CEConversationIdentityTraceLog(@"HEADER-LABEL", @"label[%lu] class=%@ frame=%@ text=%@", (unsigned long)labelIndex++, NSStringFromClass(label.class), NSStringFromCGRect(frame), text.length ? text : @"<none>");
+        }
+    }
+}
+
+static UILabel *CEProjectConversationTitleTarget(void) {
+    for (UIWindow *window in CEForegroundWindows()) {
+        UILabel *label = CEProjectConversationTitleLabel(window);
+        if (label) { CEConversationIdentityTraceLog(@"HEADER-TARGET", @"windowClass=%@ key=%@ title=%@", NSStringFromClass(window.class), window.isKeyWindow ? @"YES" : @"NO", CETrimmedLabelText(label)); return label; }
+    }
+    CETraceProjectHeaderWindows(); return nil;
+}
+
 static void CERemoveProjectHeaderMarker(UILabel *label) { [[label viewWithTag:CEProjectHeaderMarkerTag] removeFromSuperview]; }
 
 static void CEInstallProjectHeaderMarker(UILabel *label, NSString *title) {
@@ -276,7 +299,7 @@ static void CEInstallProjectHeaderMarker(UILabel *label, NSString *title) {
 }
 - (void)refresh:(NSNotification *)note {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *window = CEKeyWindow(); NSString *cid = [CEConversationContext shared].conversationID; NSString *title = [self currentConversationTitle]; UILabel *target = window ? CEProjectConversationTitleLabel(window) : nil;
+        NSString *cid = [CEConversationContext shared].conversationID; NSString *title = [self currentConversationTitle]; UILabel *target = CEProjectConversationTitleTarget();
         if (!cid.length || !title.length || !target) { [self restoreCurrentModification]; return; }
         if (self.modifiedLabel && self.modifiedLabel != target) [self restoreCurrentModification];
         NSString *current = CETrimmedLabelText(target);
