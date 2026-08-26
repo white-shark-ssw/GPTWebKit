@@ -21,6 +21,7 @@ FOUNDATION_EXPORT NSInteger const CESyntheticConversationTitleMarkerTag;
 @end
 
 BOOL CETargetApp(void);
+NSArray<UIWindow *> *CEForegroundWindows(void);
 UIWindow * _Nullable CEKeyWindow(void);
 UIViewController * _Nullable CETopViewController(void);
 void CEShowMessage(NSString *message);
