@@ -58,18 +58,17 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 }
 
 + (NSString *)titleFromVisibleUI {
-    UIWindow *window = CEKeyWindow(); if (!window) return nil;
     NSMutableOrderedSet<NSString *> *strings = [NSMutableOrderedSet orderedSet];
-    CEFeatureCollectAccessibility(window, 0, strings);
-    for (NSString *text in CECollectVisibleStrings(window, 12)) if (text.length) [strings addObject:text];
+    for (UIWindow *window in CEForegroundWindows()) {
+        CEFeatureCollectAccessibility(window, 0, strings);
+        for (NSString *text in CECollectVisibleStrings(window, 12)) if (text.length) [strings addObject:text];
+    }
+    if (!strings.count) { UIWindow *window = CEKeyWindow(); if (window) { CEFeatureCollectAccessibility(window, 0, strings); for (NSString *text in CECollectVisibleStrings(window, 12)) if (text.length) [strings addObject:text]; } }
 
     static NSArray<NSRegularExpression *> *patterns; static dispatch_once_t once;
     dispatch_once(&once, ^{
         NSMutableArray *compiled = [NSMutableArray array];
-        NSArray *raw = @[
-            @"给\\s*[“\\\"「『]\\s*(.{2,160}?)\\s*[”\\\"」』]\\s*(?:发送消息|发消息)",
-            @"Message\\s*[“\\\"]\\s*(.{2,160}?)\\s*[”\\\"]"
-        ];
+        NSArray *raw = @[@"给\\s*[“\\\"「『]\\s*(.{2,160}?)\\s*[”\\\"」』]\\s*(?:发送消息|发消息)", @"Message\\s*[“\\\"]\\s*(.{2,160}?)\\s*[”\\\"]"];
         for (NSString *pattern in raw) { NSRegularExpression *re = [NSRegularExpression regularExpressionWithPattern:pattern options:NSRegularExpressionCaseInsensitive error:nil]; if (re) [compiled addObject:re]; }
         patterns = compiled;
     });
@@ -128,176 +127,93 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
     [vc presentViewController:sheet animated:YES completion:nil];
 }
 
-+ (void)exportCandidates:(NSArray<CEConversationRecord *> *)candidates fromContextMenu:(BOOL)fromContextMenu {
-    [self chooseFromCandidates:candidates title:@"导出 Markdown" completion:^(CEConversationRecord *record) { [self exportRecord:record requireConfirmation:!fromContextMenu]; }];
-}
++ (void)exportCandidates:(NSArray<CEConversationRecord *> *)candidates fromContextMenu:(BOOL)fromContextMenu { [self chooseFromCandidates:candidates title:@"导出 Markdown" completion:^(CEConversationRecord *record) { [self exportRecord:record requireConfirmation:!fromContextMenu]; }]; }
 
 + (void)exportConversationID:(NSString *)conversationID title:(NSString *)title {
     if (![self exactTargetStillCurrent:conversationID actionName:@"export"]) return;
-    CEConversationRecord *catalog = [[CECatalog shared] recordForID:conversationID];
-    CEConversationRecord *record = [CEConversationRecord new]; record.conversationID = [conversationID copy]; record.title = title.length ? [title copy] : (catalog.title.length ? [catalog.title copy] : @"ChatGPT Conversation"); record.updatedAt = catalog.updatedAt; record.projectID = catalog.projectID;
+    CEConversationRecord *catalog = [[CECatalog shared] recordForID:conversationID]; CEConversationRecord *record = [CEConversationRecord new]; record.conversationID = [conversationID copy]; record.title = title.length ? [title copy] : (catalog.title.length ? [catalog.title copy] : @"ChatGPT Conversation"); record.updatedAt = catalog.updatedAt; record.projectID = catalog.projectID;
     [self exportRecord:record requireConfirmation:NO];
 }
 
 + (void)exportRecord:(CEConversationRecord *)record requireConfirmation:(BOOL)requireConfirmation {
-    record = [self resolvedRecord:record];
-    CEConversationIdentityTraceLog(@"ACTION-EXPORT-RECORD", @"id=%@ title=%@ requireConfirmation=%@", record.conversationID ?: @"<none>", record.title ?: @"<none>", requireConfirmation ? @"YES" : @"NO");
+    record = [self resolvedRecord:record]; CEConversationIdentityTraceLog(@"ACTION-EXPORT-RECORD", @"id=%@ title=%@ requireConfirmation=%@", record.conversationID ?: @"<none>", record.title ?: @"<none>", requireConfirmation ? @"YES" : @"NO");
     if (!record.conversationID.length) { CEShowMessage(@"无法识别会话 ID。"); return; }
     if (!requireConfirmation) { [self beginExportRecord:record]; return; }
-    UIViewController *vc = CETopViewController(); if (!vc) return;
-    NSString *message = [self isPlaceholderTitle:record.title] ? @"确定导出当前会话吗？" : [NSString stringWithFormat:@"确定导出当前《%@》会话吗？", record.title];
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导出 Markdown" message:message preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self beginExportRecord:record]; }]];
-    [vc presentViewController:alert animated:YES completion:nil];
+    UIViewController *vc = CETopViewController(); if (!vc) return; NSString *message = [self isPlaceholderTitle:record.title] ? @"确定导出当前会话吗？" : [NSString stringWithFormat:@"确定导出当前《%@》会话吗？", record.title];
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导出 Markdown" message:message preferredStyle:UIAlertControllerStyleAlert]; [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self beginExportRecord:record]; }]]; [vc presentViewController:alert animated:YES completion:nil];
 }
 
 + (void)applyFetchedTitleForJob:(CEExportJob *)job {
-    NSString *title = [self titleFromConversationData:job.data];
-    if (!title.length) return;
-    BOOL hadPlaceholder = [self isPlaceholderTitle:job.record.title];
-    job.record.title = title;
-    [[CECatalog shared] updateTitle:title forConversationID:job.record.conversationID];
-    if (hadPlaceholder) job.filename = title;
-    UIAlertController *rename = job.renameAlert;
-    if (hadPlaceholder && rename.textFields.firstObject && !job.userConfirmed) rename.textFields.firstObject.text = title;
+    NSString *title = [self titleFromConversationData:job.data]; if (!title.length) return; BOOL hadPlaceholder = [self isPlaceholderTitle:job.record.title]; job.record.title = title; [[CECatalog shared] updateTitle:title forConversationID:job.record.conversationID]; if (hadPlaceholder) job.filename = title; UIAlertController *rename = job.renameAlert; if (hadPlaceholder && rename.textFields.firstObject && !job.userConfirmed) rename.textFields.firstObject.text = title;
 }
 
 + (void)beginExportRecord:(CEConversationRecord *)record {
-    record = [self resolvedRecord:record];
-    CEExportJob *job = [CEExportJob new]; job.record = record; job.filename = [self isPlaceholderTitle:record.title] ? @"ChatGPT Conversation" : record.title;
-
+    record = [self resolvedRecord:record]; CEExportJob *job = [CEExportJob new]; job.record = record; job.filename = [self isPlaceholderTitle:record.title] ? @"ChatGPT Conversation" : record.title;
     NSData *cached = [[CECatalog shared] conversationDataForID:record.conversationID];
-    if (cached.length) {
-        job.fetchFinished = YES; job.data = cached; [self applyFetchedTitleForJob:job];
-    } else {
+    if (cached.length) { job.fetchFinished = YES; job.data = cached; [self applyFetchedTitleForJob:job]; }
+    else {
         NSString *path = [NSString stringWithFormat:@"/backend-api/conversation/%@", [record.conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
-        [[CEAPIClient shared] getPath:path progress:^(NSString *message) {
-            job.progressMessage = message;
-            if (job.progressAlert) job.progressAlert.message = [NSString stringWithFormat:@"%@\n\n", message];
-        } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
-            job.fetchFinished = YES; job.data = data; job.error = error; [self applyFetchedTitleForJob:job];
-            if (job.userConfirmed && !job.userCancelled) [self finishExportJob:job];
-        }];
+        [[CEAPIClient shared] getPath:path progress:^(NSString *message) { job.progressMessage = message; if (job.progressAlert) job.progressAlert.message = [NSString stringWithFormat:@"%@\n\n", message]; } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) { job.fetchFinished = YES; job.data = data; job.error = error; [self applyFetchedTitleForJob:job]; if (job.userConfirmed && !job.userCancelled) [self finishExportJob:job]; }];
     }
-
-    UIViewController *vc = CETopViewController(); if (!vc) return;
-    UIAlertController *rename = [UIAlertController alertControllerWithTitle:@"重命名 Markdown" message:cached.length ? @"已读取当前会话，可直接导出。" : @"正在尝试取得当前完整会话。" preferredStyle:UIAlertControllerStyleAlert];
-    job.renameAlert = rename;
-    [rename addTextFieldWithConfigurationHandler:^(UITextField *field) {
-        field.text = job.filename; field.clearButtonMode = UITextFieldViewModeWhileEditing; field.autocorrectionType = UITextAutocorrectionTypeNo; field.spellCheckingType = UITextSpellCheckingTypeNo;
-    }];
-    [rename addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [rename addAction:[UIAlertAction actionWithTitle:@"导出" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        NSString *name = [rename.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        job.filename = name.length ? name : job.filename; job.userConfirmed = YES;
-        if (job.fetchFinished) [self finishExportJob:job]; else [self showProgressForJob:job];
-    }]];
-    [vc presentViewController:rename animated:YES completion:^{ [rename.textFields.firstObject selectAll:nil]; }];
+    UIViewController *vc = CETopViewController(); if (!vc) return; UIAlertController *rename = [UIAlertController alertControllerWithTitle:@"重命名 Markdown" message:cached.length ? @"已读取当前会话，可直接导出。" : @"正在尝试取得当前完整会话。" preferredStyle:UIAlertControllerStyleAlert]; job.renameAlert = rename;
+    [rename addTextFieldWithConfigurationHandler:^(UITextField *field) { field.text = job.filename; field.clearButtonMode = UITextFieldViewModeWhileEditing; field.autocorrectionType = UITextAutocorrectionTypeNo; field.spellCheckingType = UITextSpellCheckingTypeNo; }];
+    [rename addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [rename addAction:[UIAlertAction actionWithTitle:@"导出" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { NSString *name = [rename.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; job.filename = name.length ? name : job.filename; job.userConfirmed = YES; if (job.fetchFinished) [self finishExportJob:job]; else [self showProgressForJob:job]; }]]; [vc presentViewController:rename animated:YES completion:^{ [rename.textFields.firstObject selectAll:nil]; }];
 }
 
 + (void)showProgressForJob:(CEExportJob *)job {
-    UIViewController *vc = CETopViewController(); if (!vc) return;
-    NSString *message = job.progressMessage.length ? job.progressMessage : @"正在获取完整会话并生成 Markdown…";
-    UIAlertController *progress = [UIAlertController alertControllerWithTitle:@"正在导出…" message:[NSString stringWithFormat:@"%@\n\n", message] preferredStyle:UIAlertControllerStyleAlert];
-    UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium]; spinner.translatesAutoresizingMaskIntoConstraints = NO; [spinner startAnimating];
-    [progress.view addSubview:spinner]; [NSLayoutConstraint activateConstraints:@[[spinner.centerXAnchor constraintEqualToAnchor:progress.view.centerXAnchor], [spinner.bottomAnchor constraintEqualToAnchor:progress.view.bottomAnchor constant:-18]]];
-    [progress addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *action) { job.userCancelled = YES; job.progressAlert = nil; }]];
-    job.progressAlert = progress; [vc presentViewController:progress animated:YES completion:nil];
+    UIViewController *vc = CETopViewController(); if (!vc) return; NSString *message = job.progressMessage.length ? job.progressMessage : @"正在获取完整会话并生成 Markdown…"; UIAlertController *progress = [UIAlertController alertControllerWithTitle:@"正在导出…" message:[NSString stringWithFormat:@"%@\n\n", message] preferredStyle:UIAlertControllerStyleAlert]; UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium]; spinner.translatesAutoresizingMaskIntoConstraints = NO; [spinner startAnimating]; [progress.view addSubview:spinner]; [NSLayoutConstraint activateConstraints:@[[spinner.centerXAnchor constraintEqualToAnchor:progress.view.centerXAnchor], [spinner.bottomAnchor constraintEqualToAnchor:progress.view.bottomAnchor constant:-18]]]; [progress addAction:[UIAlertAction actionWithTitle:@"关闭" style:UIAlertActionStyleCancel handler:^(__unused UIAlertAction *action) { job.userCancelled = YES; job.progressAlert = nil; }]]; job.progressAlert = progress; [vc presentViewController:progress animated:YES completion:nil];
 }
 
 + (void)finishExportJob:(CEExportJob *)job {
     if (job.userCancelled) return;
     if (job.error || !job.data.length) {
-        NSError *failure = job.error ?: [NSError errorWithDomain:@"ChatGPTEnhancer" code:-70 userInfo:@{NSLocalizedDescriptionKey:@"完整会话没有返回数据。"}];
-        void (^showError)(void) = ^{ [self showExportError:failure record:job.record filename:job.filename]; };
-        if (job.progressAlert.presentingViewController) [job.progressAlert dismissViewControllerAnimated:YES completion:showError]; else showError();
-        return;
+        NSError *failure = job.error ?: [NSError errorWithDomain:@"ChatGPTEnhancer" code:-70 userInfo:@{NSLocalizedDescriptionKey:@"完整会话没有返回数据。"}]; void (^showError)(void) = ^{ [self showExportError:failure record:job.record filename:job.filename]; };
+        if (job.progressAlert.presentingViewController) [job.progressAlert dismissViewControllerAnimated:YES completion:showError]; else showError(); return;
     }
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSError *error = nil; NSString *markdown = [CEMarkdownExporter markdownFromConversationData:job.data fallbackTitle:job.record.title error:&error];
-        NSURL *url = markdown ? [CEMarkdownExporter writeMarkdown:markdown filename:job.filename error:&error] : nil;
+        NSError *error = nil; NSString *markdown = [CEMarkdownExporter markdownFromConversationData:job.data fallbackTitle:job.record.title error:&error]; NSURL *url = markdown ? [CEMarkdownExporter writeMarkdown:markdown filename:job.filename error:&error] : nil;
         dispatch_async(dispatch_get_main_queue(), ^{
-            void (^present)(void) = ^{
-                if (!url) { [self showExportError:error ?: [NSError errorWithDomain:@"ChatGPTEnhancer" code:-71 userInfo:@{NSLocalizedDescriptionKey:@"Markdown 生成失败。"}] record:job.record filename:job.filename]; return; }
-                UIViewController *vc = CETopViewController(); if (!vc) return;
-                UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[url] asCopy:YES]; picker.shouldShowFileExtensions = YES; [vc presentViewController:picker animated:YES completion:nil];
-            };
+            void (^present)(void) = ^{ if (!url) { [self showExportError:error ?: [NSError errorWithDomain:@"ChatGPTEnhancer" code:-71 userInfo:@{NSLocalizedDescriptionKey:@"Markdown 生成失败。"}] record:job.record filename:job.filename]; return; } UIViewController *vc = CETopViewController(); if (!vc) return; UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForExportingURLs:@[url] asCopy:YES]; picker.shouldShowFileExtensions = YES; [vc presentViewController:picker animated:YES completion:nil]; };
             if (job.progressAlert.presentingViewController) [job.progressAlert dismissViewControllerAnimated:YES completion:present]; else present();
         });
     });
 }
 
 + (void)showExportError:(NSError *)error record:(CEConversationRecord *)record filename:(NSString *)filename {
-    UIViewController *vc = CETopViewController(); if (!vc) return;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导出失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(CEKeyWindow(), nil); }]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self beginExportRecord:record]; }]];
-    [vc presentViewController:alert animated:YES completion:nil];
+    UIViewController *vc = CETopViewController(); if (!vc) return; UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"导出失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert]; [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(CEKeyWindow(), nil); }]]; [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self beginExportRecord:record]; }]]; [vc presentViewController:alert animated:YES completion:nil];
 }
 
-+ (void)pullLatestConversationID:(NSString *)conversationID {
-    if (![self exactTargetStillCurrent:conversationID actionName:@"pull"]) return;
-    CEConversationIdentityTraceLog(@"ACTION-PULL", @"exact-target id=%@", conversationID);
-    CEPullLatestConversationResult(conversationID);
++ (void)pullLatestConversationID:(NSString *)conversationID { if (![self exactTargetStillCurrent:conversationID actionName:@"pull"]) return; CEConversationIdentityTraceLog(@"ACTION-PULL", @"exact-target id=%@", conversationID); CEPullLatestConversationResult(conversationID); }
++ (void)reloadConversationID:(NSString *)conversationID { if (![self exactTargetStillCurrent:conversationID actionName:@"reload"]) return; CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"exact-target id=%@", conversationID); CEManualReloadConversationID(conversationID); }
++ (void)pullLatestCurrentConversation { NSString *conversationID = [CEConversationContext shared].conversationID; if (!conversationID.length) { CEShowMessage(@"无法确认当前会话，已取消拉取。"); return; } [self pullLatestConversationID:conversationID]; }
++ (void)reloadCurrentConversation { NSString *conversationID = [CEConversationContext shared].conversationID; if (!conversationID.length) { CEShowMessage(@"无法确认当前会话，已取消重载。"); return; } [self reloadConversationID:conversationID]; }
+
++ (void)renameConversationID:(NSString *)conversationID title:(NSString *)title {
+    if (![self exactTargetStillCurrent:conversationID actionName:@"rename"]) return;
+    CEConversationRecord *catalog = [[CECatalog shared] recordForID:conversationID]; CEConversationRecord *record = [CEConversationRecord new]; record.conversationID = [conversationID copy]; record.title = title.length ? [title copy] : (catalog.title.length ? [catalog.title copy] : @"当前会话"); record.updatedAt = catalog.updatedAt; record.projectID = catalog.projectID;
+    CEConversationIdentityTraceLog(@"ACTION-RENAME", @"exact-target id=%@ title=%@", conversationID, record.title ?: @"<none>"); [self promptRenameRecord:record sourceView:nil];
 }
 
-+ (void)reloadConversationID:(NSString *)conversationID {
-    if (![self exactTargetStillCurrent:conversationID actionName:@"reload"]) return;
-    CEConversationIdentityTraceLog(@"ACTION-RELOAD", @"exact-target id=%@", conversationID);
-    CEManualReloadConversationID(conversationID);
-}
-
-+ (void)pullLatestCurrentConversation {
-    NSString *conversationID = [CEConversationContext shared].conversationID;
-    if (!conversationID.length) { CEShowMessage(@"无法确认当前会话，已取消拉取。"); return; }
-    [self pullLatestConversationID:conversationID];
-}
-
-+ (void)reloadCurrentConversation {
-    NSString *conversationID = [CEConversationContext shared].conversationID;
-    if (!conversationID.length) { CEShowMessage(@"无法确认当前会话，已取消重载。"); return; }
-    [self reloadConversationID:conversationID];
-}
-
-+ (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView {
-    [self chooseFromCandidates:candidates title:@"重命名会话" completion:^(CEConversationRecord *record) { [self promptRenameRecord:record sourceView:sourceView]; }];
-}
++ (void)renameCandidates:(NSArray<CEConversationRecord *> *)candidates sourceView:(UIView *)sourceView { [self chooseFromCandidates:candidates title:@"重命名会话" completion:^(CEConversationRecord *record) { [self promptRenameRecord:record sourceView:sourceView]; }]; }
 
 + (void)promptRenameRecord:(CEConversationRecord *)record sourceView:(UIView *)sourceView {
-    UIViewController *vc = CETopViewController(); if (!vc) return;
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名会话" message:nil preferredStyle:UIAlertControllerStyleAlert];
+    UIViewController *vc = CETopViewController(); if (!vc) return; UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名会话" message:nil preferredStyle:UIAlertControllerStyleAlert];
     [alert addTextFieldWithConfigurationHandler:^(UITextField *field) { field.text = [self isPlaceholderTitle:record.title] ? @"" : record.title; field.clearButtonMode = UITextFieldViewModeWhileEditing; field.autocorrectionType = UITextAutocorrectionTypeNo; }];
-    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-    [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-        NSString *newTitle = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
-        if (!newTitle.length || [newTitle isEqualToString:record.title]) return;
-        [self performRenameRecord:record newTitle:newTitle sourceView:sourceView];
-    }]];
-    [vc presentViewController:alert animated:YES completion:^{ [alert.textFields.firstObject selectAll:nil]; }];
+    [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { NSString *newTitle = [alert.textFields.firstObject.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (!newTitle.length || [newTitle isEqualToString:record.title]) return; [self performRenameRecord:record newTitle:newTitle sourceView:sourceView]; }]]; [vc presentViewController:alert animated:YES completion:^{ [alert.textFields.firstObject selectAll:nil]; }];
 }
 
 + (void)performRenameRecord:(CEConversationRecord *)record newTitle:(NSString *)newTitle sourceView:(UIView *)sourceView {
-    NSString *path = [NSString stringWithFormat:@"/backend-api/conversation/%@", [record.conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
-    CEShowMessage(@"正在重命名…");
+    if (![self exactTargetStillCurrent:record.conversationID actionName:@"rename-confirm"]) return;
+    NSString *path = [NSString stringWithFormat:@"/backend-api/conversation/%@", [record.conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]]; CEShowMessage(@"正在重命名…");
     [[CEAPIClient shared] patchPath:path jsonBody:@{@"title":newTitle} progress:^(NSString *message) { CEShowMessage(message); } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
         if (error) {
-            UIViewController *vc = CETopViewController(); if (!vc) return;
-            UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
-            [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]];
-            [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(sourceView ?: CEKeyWindow(), nil); }]];
-            [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self performRenameRecord:record newTitle:newTitle sourceView:sourceView]; }]];
-            [vc presentViewController:alert animated:YES completion:nil]; return;
+            UIViewController *vc = CETopViewController(); if (!vc) return; UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"重命名失败" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert]; [alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:nil]]; [alert addAction:[UIAlertAction actionWithTitle:@"复制诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { CECopyDiagnostics(sourceView ?: CEKeyWindow(), nil); }]]; [alert addAction:[UIAlertAction actionWithTitle:@"重试" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [self performRenameRecord:record newTitle:newTitle sourceView:sourceView]; }]]; [vc presentViewController:alert animated:YES completion:nil]; return;
         }
-        NSString *oldTitle = record.title; [[CECatalog shared] updateTitle:newTitle forConversationID:record.conversationID]; [self replaceVisibleText:oldTitle with:newTitle inView:CEKeyWindow()]; CEShowMessage(@"✓ 已重命名");
+        NSString *oldTitle = record.title; [[CECatalog shared] updateTitle:newTitle forConversationID:record.conversationID]; for (UIWindow *window in CEForegroundWindows()) [self replaceVisibleText:oldTitle with:newTitle inView:window]; CEShowMessage(@"✓ 已重命名");
     }];
 }
 
 + (void)replaceVisibleText:(NSString *)oldText with:(NSString *)newText inView:(UIView *)view {
-    if (!view) return;
-    if ([view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqualToString:oldText]) ((UILabel *)view).text = newText;
-    if ([view.accessibilityLabel isEqualToString:oldText]) view.accessibilityLabel = newText;
-    for (UIView *child in view.subviews) [self replaceVisibleText:oldText with:newText inView:child];
+    if (!view) return; if ([view isKindOfClass:UILabel.class] && [((UILabel *)view).text isEqualToString:oldText]) ((UILabel *)view).text = newText; if ([view.accessibilityLabel isEqualToString:oldText]) view.accessibilityLabel = newText; for (UIView *child in view.subviews) [self replaceVisibleText:oldText with:newText inView:child];
 }
 @end
