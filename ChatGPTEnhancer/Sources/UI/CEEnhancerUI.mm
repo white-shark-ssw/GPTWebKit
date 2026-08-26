@@ -56,8 +56,7 @@ static UIView *CERecentMenuSource(UIView *sourceView) {
 static BOOL CEIsCurrentConversationHeaderSource(UIView *sourceView) {
     UIView *view = CERecentMenuSource(sourceView); UIWindow *window = view.window ?: CEKeyWindow(); if (!view || !window) return NO;
     CGRect frame = [view convertRect:view.bounds toView:window];
-    CGFloat headerTop = MAX(0.0, window.safeAreaInsets.top - 20.0);
-    CGFloat headerBottom = MAX(120.0, window.safeAreaInsets.top + 84.0);
+    CGFloat headerTop = MAX(0.0, window.safeAreaInsets.top - 20.0); CGFloat headerBottom = MAX(120.0, window.safeAreaInsets.top + 84.0);
     if (!CGRectIsEmpty(frame) && CGRectGetMidY(frame) >= headerTop && CGRectGetMidY(frame) <= headerBottom) return YES;
     if (!CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 2.0) return NO;
     return CELastTouchPoint.y >= headerTop && CELastTouchPoint.y <= headerBottom;
@@ -95,10 +94,16 @@ static void CETraceMenuSource(UIView *sourceView) {
     CEConversationIdentityTraceLog(@"MENU-SOURCE", @"class=%@ frame=%@ accessibilityIdentifier=%@ lastTouch={%.1f,%.1f} currentHeader=%@", NSStringFromClass(view.class), NSStringFromCGRect(frame), CETraceSafeStructuralText(view.accessibilityIdentifier), CELastTouchPoint.x, CELastTouchPoint.y, CEIsCurrentConversationHeaderSource(view) ? @"YES" : @"NO");
 }
 
-static void CETraceConversationMenu(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *origin, NSString *identifierText, NSString *identifierClass, NSString *targetID, NSString *targetTitle) {
+static BOOL CEMenuTitleConflictsWithTarget(NSString *menuTitle, NSString *targetTitle) {
+    NSString *menu = [menuTitle stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; NSString *target = [targetTitle stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    if (!menu.length || !target.length || [menu isEqualToString:target]) return NO;
+    return [[CECatalog shared] recordsMatchingTitle:menu].count > 0;
+}
+
+static void CETraceConversationMenu(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *origin, NSString *identifierText, NSString *identifierClass, NSString *menuTitle, NSString *targetID, NSString *targetTitle) {
     if (!CEConversationIdentityTraceIsRecording()) return;
     CEConversationContext *context = [CEConversationContext shared];
-    CEConversationIdentityTraceLog(@"MENU", @"origin=%@ configIdentifierClass=%@ configIdentifier=%@ contextID=%@ contextTitle=%@ capturedTargetID=%@ capturedTitle=%@", origin ?: @"unknown", identifierClass ?: @"<none>", CETraceSafeStructuralText(identifierText), context.conversationID ?: @"<none>", context.title ?: @"<none>", targetID ?: @"<none>", targetTitle ?: @"<none>");
+    CEConversationIdentityTraceLog(@"MENU", @"origin=%@ configIdentifierClass=%@ configIdentifier=%@ menuTitle=%@ contextID=%@ contextTitle=%@ capturedTargetID=%@ capturedTitle=%@", origin ?: @"unknown", identifierClass ?: @"<none>", CETraceSafeStructuralText(identifierText), menuTitle ?: @"<none>", context.conversationID ?: @"<none>", context.title ?: @"<none>", targetID ?: @"<none>", targetTitle ?: @"<none>");
     CETraceMenuSource(sourceView); CETraceMenuElements(children, @"", 0);
 }
 
@@ -110,7 +115,7 @@ static void CEPresentIdentityTraceFile(NSURL *url) {
     });
 }
 
-static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *origin, NSString *identifierText, NSString *identifierClass) {
+static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *origin, NSString *identifierText, NSString *identifierClass, NSString *menuTitle) {
     if (CEMenuBuildGuard || CEHasExtensionSection(children) || !CELooksLikeConversationMenu(children)) return children;
     UIView *resolvedSource = CERecentMenuSource(sourceView);
     if (!CEIsCurrentConversationHeaderSource(resolvedSource)) {
@@ -118,10 +123,12 @@ static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElem
         return children;
     }
 
-    CEConversationContext *context = [CEConversationContext shared]; NSString *targetID = [context.conversationID copy];
-    CEConversationRecord *catalog = targetID.length ? [[CECatalog shared] recordForID:targetID] : nil;
-    NSString *targetTitle = [catalog.title.length ? catalog.title : context.title copy];
-    CETraceConversationMenu(children, resolvedSource, origin, identifierText, identifierClass, targetID, targetTitle);
+    CEConversationContext *context = [CEConversationContext shared]; NSString *targetID = [context.conversationID copy]; CEConversationRecord *catalog = targetID.length ? [[CECatalog shared] recordForID:targetID] : nil;
+    NSString *targetTitle = [(catalog.title.length ? catalog.title : context.title) copy];
+    if (CEMenuTitleConflictsWithTarget(menuTitle, targetTitle)) {
+        CEConversationIdentityTraceLog(@"MENU-SKIP", @"origin=%@ reason=title-conflict menuTitle=%@ targetID=%@ targetTitle=%@", origin ?: @"unknown", menuTitle ?: @"<none>", targetID ?: @"<none>", targetTitle ?: @"<none>"); return children;
+    }
+    CETraceConversationMenu(children, resolvedSource, origin, identifierText, identifierClass, menuTitle, targetID, targetTitle);
 
     NSMutableArray<UIMenuElement *> *enhancerActions = [NSMutableArray array];
     if (targetID.length) {
@@ -134,19 +141,17 @@ static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElem
         unavailable.attributes = UIMenuElementAttributesDisabled; [enhancerActions addObject:unavailable];
     }
 
-    BOOL traceRecording = CEConversationIdentityTraceIsRecording(); NSString *capturedOrigin = [origin copy];
+    BOOL traceRecording = CEConversationIdentityTraceIsRecording(); NSString *capturedOrigin = [origin copy]; NSString *capturedTraceTarget = [targetID copy];
     [enhancerActions addObject:[UIAction actionWithTitle:(traceRecording ? @"结束并导出识别日志" : @"开始会话识别记录") image:[UIImage systemImageNamed:(traceRecording ? @"square.and.arrow.up" : @"record.circle")] identifier:@"com.whiteshark.chatgptenhancer.identity-trace" handler:^(__unused UIAction *action) {
         if (traceRecording) { CEConversationIdentityTraceLog(@"USER", @"finish identity trace from menu origin=%@", capturedOrigin ?: @"unknown"); CEPresentIdentityTraceFile(CEConversationIdentityTraceFinish()); }
-        else { CEConversationIdentityTraceBegin(); CEConversationIdentityTraceLog(@"USER", @"begin identity trace from menu origin=%@ target=%@", capturedOrigin ?: @"unknown", targetID ?: @"<none>"); CEShowMessage(@"会话识别记录已开始；关闭并重新打开 ChatGPT 后仍会继续记录。"); }
+        else { CEConversationIdentityTraceBegin(); CEConversationIdentityTraceLog(@"USER", @"begin identity trace from menu origin=%@ target=%@", capturedOrigin ?: @"unknown", capturedTraceTarget ?: @"<none>"); CEShowMessage(@"会话识别记录已开始；关闭并重新打开 ChatGPT 后仍会继续记录。"); }
     }]];
 
-    CEMenuBuildGuard = YES;
-    UIMenu *section = [UIMenu menuWithTitle:@"" image:nil identifier:CEExtensionMenuIdentifier options:UIMenuOptionsDisplayInline children:enhancerActions];
-    CEMenuBuildGuard = NO;
+    CEMenuBuildGuard = YES; UIMenu *section = [UIMenu menuWithTitle:@"" image:nil identifier:CEExtensionMenuIdentifier options:UIMenuOptionsDisplayInline children:enhancerActions]; CEMenuBuildGuard = NO;
     return [children arrayByAddingObject:section];
 }
 
-static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *children) { return CEAugmentedChildrenForSource(children, nil, @"menu-factory", nil, nil); }
+static NSArray<UIMenuElement *> *CEAugmentedChildren(NSString *title, NSArray<UIMenuElement *> *children) { return CEAugmentedChildrenForSource(children, nil, @"menu-factory", nil, nil, title); }
 
 @implementation UIWindow (ChatGPTEnhancerTouch)
 - (void)ce_sendEvent:(UIEvent *)event {
@@ -161,23 +166,23 @@ static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *c
 @implementation UIMenu (ChatGPTEnhancerMenu)
 + (instancetype)ce_menuWithTitle:(NSString *)title children:(NSArray<UIMenuElement *> *)children {
     if (CEMenuBuildGuard) return [self ce_menuWithTitle:title children:children];
-    return [self ce_menuWithTitle:title children:CEAugmentedChildren(children)];
+    return [self ce_menuWithTitle:title children:CEAugmentedChildren(title, children)];
 }
 + (instancetype)ce_menuWithTitle:(NSString *)title image:(UIImage *)image identifier:(UIMenuIdentifier)identifier options:(UIMenuOptions)options children:(NSArray<UIMenuElement *> *)children {
     if (CEMenuBuildGuard) return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:children];
     if ([identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:children];
-    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, nil, @"menu-factory-identifier", [identifier description], identifier ? NSStringFromClass([(id)identifier class]) : nil);
+    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, nil, @"menu-factory-identifier", [identifier description], identifier ? NSStringFromClass([(id)identifier class]) : nil, title);
     return [self ce_menuWithTitle:title image:image identifier:identifier options:options children:augmented];
 }
 + (instancetype)ce_menuWithTitle:(NSString *)title subtitle:(NSString *)subtitle image:(UIImage *)image identifier:(UIMenuIdentifier)identifier options:(UIMenuOptions)options children:(NSArray<UIMenuElement *> *)children API_AVAILABLE(ios(15.0)) {
     if (CEMenuBuildGuard) return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:children];
     if ([identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:children];
-    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, nil, @"menu-factory-modern", [identifier description], identifier ? NSStringFromClass([(id)identifier class]) : nil);
+    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, nil, @"menu-factory-modern", [identifier description], identifier ? NSStringFromClass([(id)identifier class]) : nil, title);
     return [self ce_menuWithTitle:title subtitle:subtitle image:image identifier:identifier options:options children:augmented];
 }
 - (UIMenu *)ce_menuByReplacingChildren:(NSArray<UIMenuElement *> *)children {
     if (CEMenuBuildGuard || [self.identifier isEqualToString:CEExtensionMenuIdentifier]) return [self ce_menuByReplacingChildren:children];
-    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, nil, @"menu-replace", [self.identifier description], self.identifier ? NSStringFromClass([(id)self.identifier class]) : nil);
+    NSArray<UIMenuElement *> *augmented = CEAugmentedChildrenForSource(children, nil, @"menu-replace", [self.identifier description], self.identifier ? NSStringFromClass([(id)self.identifier class]) : nil, self.title);
     return [self ce_menuByReplacingChildren:augmented];
 }
 @end
@@ -187,7 +192,7 @@ static NSArray<UIMenuElement *> *CEAugmentedChildren(NSArray<UIMenuElement *> *c
     __weak UIView *sourceView = CERecentMenuSource(nil); NSString *identifierText = [(id)identifier description]; NSString *identifierClass = identifier ? NSStringFromClass([(id)identifier class]) : nil;
     UIContextMenuActionProvider wrappedProvider = ^UIMenu *(NSArray<UIMenuElement *> *suggestedActions) {
         UIMenu *menu = actionProvider ? actionProvider(suggestedActions) : [UIMenu menuWithTitle:@"" children:suggestedActions]; if (!menu) return nil;
-        NSArray<UIMenuElement *> *children = CEAugmentedChildrenForSource(menu.children, sourceView, @"context-menu-config", identifierText, identifierClass);
+        NSArray<UIMenuElement *> *children = CEAugmentedChildrenForSource(menu.children, sourceView, @"context-menu-config", identifierText, identifierClass, menu.title);
         CEMenuBuildGuard = YES; UIMenu *result = [menu menuByReplacingChildren:children]; CEMenuBuildGuard = NO; return result;
     };
     return [self ce_configurationWithIdentifier:identifier previewProvider:previewProvider actionProvider:wrappedProvider];
