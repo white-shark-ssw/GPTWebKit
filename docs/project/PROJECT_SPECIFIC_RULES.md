@@ -13,7 +13,7 @@ This file contains rules specific to this repository/product. These rules are ev
 
 - Do not hard-code private ChatGPT Swift class names while a public UIKit/Foundation runtime alternative exists. Current compatibility strategy intentionally hooks public UIKit/Foundation surfaces and recognizes request/menu behavior at runtime.
 - Sensitive Authorization/cookie/account/request-template material copied from the host app must remain memory-only and must not be persisted.
-- User-started diagnostic persistence may store only the minimum sanitized identity correlation evidence required by the current investigation. Conversation ID/title and structural menu/request metadata are allowed for that explicit trace session; Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents are prohibited from persistence.
+- User-started diagnostic persistence may store only the minimum sanitized identity correlation evidence required by the current investigation. Conversation ID/title and structural menu/request/UI metadata are allowed for that explicit trace session; Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents are prohibited from persistence.
 - Enhancer compile target is arm64 iOS 17.0; current build links Foundation, UIKit, QuartzCore and CoreGraphics.
 - The project depends on undocumented ChatGPT runtime/backend behavior; any compatibility change must be supported by current source/runtime evidence, not guessed API structure.
 
@@ -22,8 +22,9 @@ This file contains rules specific to this repository/product. These rules are ev
 - `CEConversationContext` is the sole long-lived authority for active conversation identity.
 - `CENetworkObserver` owns passive official-network observation and request-template/event capture. **Generic observed request URLs/conversation IDs are not foreground conversation authority and must not directly mutate `CEConversationContext`.** A narrowly scoped semantic signal may update the same owner only when its exact endpoint/field has direct runtime evidence.
 - Conversation identity parsing is **source/field-aware, not UUID-shape-aware**. A UUID found in an arbitrary UIKit/menu/configuration string is not a conversation ID. Accept exact IDs only from semantically proven conversation fields/paths such as explicit JSON `conversation_id` or backend conversation routes whose identity semantics are verified.
-- Pull Latest, manual Reload, and current-conversation Export must never execute on a stale/guessed conversation ID.
-- Menu-scoped exact action target is ephemeral evidence captured for that action, not a second long-lived current-conversation state owner.
+- Pull Latest, manual Reload, current-conversation Rename, and current-conversation Export must never execute on a stale/guessed conversation ID.
+- Menu-scoped exact action target is ephemeral evidence captured for that action, not a second long-lived current-conversation state owner. Pull / Reload / Rename / Export must use the exact ID captured by the proven current-chat menu and fail closed if the sole current context no longer matches before execution.
+- Rename must recheck the exact captured conversation ID immediately before issuing its PATCH after the user finishes editing the title; title/source-view/menu UUID candidate heuristics must not select the rename target.
 - Title-only matching is not sufficient authority for destructive/current-conversation actions; duplicate-title cases must be supported without guessing.
 - Official Share-create body `conversation_id` is proven ground-truth identity evidence for the Share action, but `/share/create` is side-effectful and must not be invoked silently just to discover identity.
 - **Reload request delivery is not Reload completion.** Do not report success from request observation alone; current conversation UI refresh/rebuild must also be proven.
@@ -41,6 +42,7 @@ No module is marked Frozen by initialization. The following confirmed contracts 
 - Authentication/request templates are memory-only.
 - Export does not load a conversation UI.
 - Manual reload is exact-current-conversation only.
+- Current-menu Rename is exact-current-conversation only and requires a final same-ID guard before PATCH.
 - Generic/background official network traffic does not determine foreground conversation identity.
 - Arbitrary UUID syntax is not conversation identity evidence.
 - Reload success cannot be inferred from request delivery alone.
@@ -55,7 +57,8 @@ No module is marked Frozen by initialization. The following confirmed contracts 
 
 - For manual conversation reload, do **not** fall back to History-row automation, Sidebar automation, UIKit pop/push, or another conversation ID.
 - Do not restore the alpha42 behavior where arbitrary observed conversation traffic or a generic `NSURLSessionTask.resume` probe writes an observed conversation ID into `CEConversationContext`.
-- Do not execute Pull/Reload/current Export merely because `CEConversationContext` still contains an old ID when current exact proof failed.
+- Do not execute Pull/Reload/Rename/current Export merely because `CEConversationContext` still contains an old ID when current exact proof failed.
+- Do not restore alpha46 `CECandidatesForSourceView(...)` or equivalent title/source/identifier candidate guessing as current-chat Rename/Pull/Reload/Export authority.
 - Do not persist Authorization, cookies, account IDs, raw host request templates, full headers, raw request/response bodies or message contents, including in diagnostic logging.
 - Do not introduce a second active-conversation authority, second enhancer request client, second catalog authority or feature-local UI hook framework without an explicit architectural decision.
 - Do not treat a correct visible title, Rename prefill, Share title, or arbitrary UUID-looking menu/configuration identifier as proof of exact conversation ID.
