@@ -8,7 +8,7 @@
 
 - **Project name**: `GPTWebKit` repository; current active product track is `ChatGPTEnhancer`.
 - **Repository**: `white-shark-ssw/GPTWebKit`.
-- **Project purpose**: iOS tooling that augments ChatGPT usage. The active track injects a dylib into the official ChatGPT iOS app to add conversation export/management/reload/diagnostic UI and current-conversation-aware behavior. Older branches contain standalone/native ChatGPT utility and WebView experiments.
+- **Project purpose**: iOS tooling that augments ChatGPT usage. The active track injects a dylib into the official ChatGPT iOS app to add conversation export/management/reload/diagnostic UI and exact-current-conversation-aware behavior. Older branches contain standalone/native ChatGPT utility and WebView experiments.
 - **Product type**: current track — injected iOS dynamic library / host-app enhancer. Legacy tracks — native iOS app / WebView utility.
 - **Primary users/runtime**: official ChatGPT iOS bundle `com.openai.chat`, iOS 17.0+, plain dylib injection such as TrollFools / 巨魔注入器.
 
@@ -26,14 +26,15 @@
 - **Tests**: no automated unit/UI test root verified.
 - **Key owners**:
   - `Core/CECore` / `CEConversationContext` — shared helpers and sole long-lived active-conversation state authority.
-  - `Core/CEContextResolver` — resolves active conversation from currently visible UIKit/catalog-backed evidence; generic network task resume does not own foreground identity.
-  - `Network/CENetworkObserver` — passive official-network observation, request templates/events/project/catalog input; alpha46 additionally emits sanitized trace evidence but observed request IDs still do not mutate active identity.
+  - `Core/CEContextResolver` — compatibility getter for current exact context; the old periodic UIKit/title resolver is retired.
+  - `Network/CENetworkObserver` — official-network observation/template/events/catalog input. Generic observed request IDs are passive; only the specifically validated explicit `POST /backend-api/conversation/init` request-body conversation ID may promote foreground identity into the existing context owner.
   - `Network/CEAPIClient` — sole enhancer-originated ChatGPT request owner.
-  - `Storage/CECatalog` — conversation ID/title/update-time/project catalog.
-  - `UI/CEEnhancerUI` — host UIKit integration, menu augmentation, floating-tool lifecycle and current action entry surfaces.
+  - `Storage/CECatalog` — conversation ID/title/update-time/project catalog and presentation title owner.
+  - `UI/CEEnhancerUI` — host UIKit integration, current-header menu augmentation, project-header presentation.
+  - `UI/CEConversationUIReloadEvidence` — public-UIKit ephemeral current-message-view snapshot/rebuild evidence for manual Reload completion; not an identity owner.
   - `Export/CEMarkdownExporter` — Markdown generation.
-  - `Features/*` — pull/rename/reload/recovery; current Pull/Reload remain fail-closed while alpha46 records proof/target evidence.
-  - `Diagnostics/CEConversationIdentityTrace` — experimental persistent sanitized menu/network/Share identity evidence recorder; not an identity authority.
+  - `Features/*` — exact-ID Pull/Rename/Reload/recovery behavior.
+  - `Diagnostics/CEConversationIdentityTrace` — optional persistent sanitized menu/network/Share identity evidence recorder; not an identity authority.
   - other `Diagnostics/*` — runtime probes/recovery diagnostics.
 
 ## Build and validation
@@ -41,16 +42,16 @@
 - **Build command**: `bash ./ChatGPTEnhancer/build.sh` on macOS/Xcode/iPhoneOS SDK.
 - **Test command**: no automated test command verified.
 - **Lint/static checks**: no dedicated suite verified.
-- **Enhancer CI**: `.github/workflows/build-enhancer.yml`, macOS 15. Normal push trigger remains `feat/chatgpt-enhancer-v0.1`; isolated candidate branches temporarily add their own trigger for one CI candidate and remove it afterward.
-- **Newest enhancer artifact**: `0.1.0-alpha46-conversation-identity-trace`; Actions run `32950198256`, job `98119660626`; package id `9599824714`, dylib id `9599825427`. Runtime/manual trace validation pending.
-- **Previous recognition evidence**: alpha45 is not accepted because current project chat can still false-negative on exact visible proof; alpha44 rejected due missing floating button; alpha42 rejected due real-device cross-conversation Pull/Reload.
-- **Parallel artifact**: alpha43 belongs to `DEV-conversation-usage` and is stacked on rejected alpha42 recognition; it is not an accepted recognition baseline.
+- **Enhancer CI**: `.github/workflows/build-enhancer.yml`, macOS 15. Normal push trigger is `feat/chatgpt-enhancer-v0.1`; isolated candidate branches temporarily add their own trigger for one CI candidate and remove it afterward.
+- **Newest enhancer artifact**: `0.1.0-alpha48-reload-ui-title`; Actions `32973529739`, job `98192604072`; package id `9608529953`, dylib id `9608530563`. Runtime/manual acceptance pending.
+- **Current validation**: alpha48 = Code written → CI passed → Artifact produced. Alpha47 reached partial real-device testing but exposed request-only false Reload success semantics. Alpha46 completed its instrumentation purpose and provided the identity evidence used by alpha47/48.
+- **Parallel artifact**: alpha43 belongs to `DEV-conversation-usage` and remains a separate Active candidate stacked on older rejected recognition. Current recognition work does not modify percentage-owned source.
 
 ## Versioning and candidate identity
 
 - **Enhancer version source**: `CEVersion` in `ChatGPTEnhancer/Sources/Core/CECore.mm`.
 - **Duplicated identity locations**: `CECore.mm`, `ChatGPTEnhancer/build.sh`, `.github/workflows/build-enhancer.yml` artifact/package names must match.
-- **Current recognition candidate**: `0.1.0-alpha46-conversation-identity-trace`.
+- **Current recognition candidate**: `0.1.0-alpha48-reload-ui-title`.
 - **Build number**: no separate product build number verified; Actions run ID is build evidence only.
 - **Release/tag scheme**: no formal release/tag process verified.
 - **Parallel rule**: each Active dev task owns a unique candidate/artifact identity.
@@ -60,15 +61,18 @@
 - **Platform**: arm64 iOS 17.0+ inside official ChatGPT iOS app.
 - **Compiler target**: `arm64-apple-ios17.0`.
 - **Auth/request context**: host authentication/account/request templates remain memory-only.
-- **Current identity safety rule**: background/observed conversation requests are not foreground identity authority. Current-conversation actions must not use stale cached IDs when current exact target is unproven.
-- **Diagnostic persistence exception scope**: alpha46 may persist only explicitly user-started sanitized identity correlation data (conversation IDs/titles plus structural menu/request metadata). Authorization, cookies, account IDs, raw request templates, full headers, raw bodies and message contents remain prohibited from persistence.
+- **Current identity rule**: exact foreground identity is semantic/source-aware. Generic/background conversation request recency, arbitrary UIKit/menu UUIDs and title-only matching are not authority. The validated explicit `conversation/init` body ID updates the sole `CEConversationContext`; top-right current-chat menu freezes that exact ID for Pull/Reload/Export.
+- **Reload completion rule**: observing a same-ID official request proves delivery, not completion. A Reload success message now also requires current conversation UI rebuild/refresh evidence.
+- **Presentation-title rule**: the exact current-chat official menu/catalog title may be used to present the real conversation title in a project header for an already-proven ID. The plugin-generated label is marked synthetic and never participates in identity evidence.
+- **Diagnostic persistence exception scope**: user-started sanitized identity correlation data may persist conversation IDs/titles plus structural menu/request metadata. Authorization, cookies, account IDs, raw request templates, full headers, raw bodies and message contents remain prohibited.
 
 ## Documentation evidence
 
-- Base branch remains `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8` as rechecked 2026-08-26.
-- Alpha45 runtime evidence: user screenshot/recording 2026-08-26 shows Reload false-negative while menu-scoped enhancer Rename resolves the correct title.
-- Share evidence: user screenshot 2026-08-26 shows official `共享指向聊天的链接` UI tied to current chat title; exact ID source remains under investigation.
-- Alpha46 source/build: Draft PR #2; build/test source `fc78d7d525969699fbd15a3f180e563e93e6d424`; Actions `32950198256`; package digest `sha256:0e8a35affb33f7f1b359dfb9e62c5ddaf95e5f72e3c3b198dedf496050ba32b9`; dylib digest `sha256:61de097c001094c512d651825df2d904369911443a032787e349192c3c4e9e95`; post-CI cleanup head `96d845e7d750ea178ff73c12faed115dff33d14c` differs only by run-id bookkeeping/workflow trigger cleanup.
+- Base branch remains `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8` as rechecked before alpha48 CI on 2026-08-26.
+- Alpha46 runtime trace established exact semantic identity evidence and invalidated arbitrary menu UUID identity.
+- Alpha47 build/test source `d297f65971fb6239cad2be7eb7fa9f8f8aab9f6d`; Actions `32969623709`; package id `9607073111`; dylib id `9607074065`. Real-device Reload feedback showed request observation was insufficient as a completion criterion.
+- Alpha48 build/test source `e2b133f0ba050b485e89129e4fe0ecb9bbee2343`; Actions `32973529739`; CI bookkeeping `7b2d9d9e709e431ec414b269bd72b4b33a092001`; post-CI cleanup/current head `17f76c8428dad41484641b9dcf23a78935dbc32f` differs from tested source only by run-id bookkeeping and removal of the temporary branch trigger.
+- Alpha48 package digest `sha256:256746f6fe6f7ea01e5a3e6d90f3a8bd47fa9f606366565fab8687ef18baf6a2`; dylib artifact digest `sha256:a14dd7ae64931d45076459290fdd0674b3c9582c1b966e7fcb2d4b06814da840`.
 - Legacy tracks remain separate and are not current enhancer baseline evidence.
 
 ## Auto-refresh rule
