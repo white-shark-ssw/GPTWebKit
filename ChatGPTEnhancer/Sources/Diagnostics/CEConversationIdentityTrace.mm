@@ -54,7 +54,7 @@ static void CETraceAppend(NSString *category, NSString *message) {
         NSString *line = [NSString stringWithFormat:@"%06lu %lld launch=%@ %@ | %@\n", (unsigned long)sequence, timestamp, CETraceLaunchID ?: @"<none>", category.length ? category : @"TRACE", flat];
         NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
         NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:url.path];
-        if (!handle) { [data writeToURL:url atomically:NO]; return; }
+        if (!handle) return;
         @try { [handle seekToEndOfFile]; [handle writeData:data]; } @catch (__unused NSException *exception) {} [handle closeFile];
     }
 }
