@@ -426,8 +426,6 @@ static void CEResolveConversationFromView(UIView *view) {
 }
 - (void)contextChanged:(NSNotification *)note {
     dispatch_async(dispatch_get_main_queue(), ^{
-        BOOL shouldShow = [CEConversationContext shared].conversationID.length > 0;
-        if (!shouldShow) { [self.button removeFromSuperview]; self.window = nil; return; }
         UIWindow *window = CEKeyWindow(); if (!window) return; self.window = window;
         if (self.button.superview != window) { [self.button removeFromSuperview]; [window addSubview:self.button]; }
         CGFloat savedY = [[NSUserDefaults standardUserDefaults] doubleForKey:@"ChatGPTEnhancer.FloatingY"];
