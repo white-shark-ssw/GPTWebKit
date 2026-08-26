@@ -28,6 +28,7 @@ void CEShowAlert(NSString *title, NSString *message);
 NSString *CESanitizeFilename(NSString *name);
 NSString * _Nullable CEExtractConversationIDFromString(NSString *value);
 NSArray<NSString *> *CECollectVisibleStrings(UIView *view, NSUInteger maxDepth);
+NSString * _Nullable CERefreshVisibleConversationContext(void);
 BOOL CESwizzleInstanceMethod(Class cls, SEL originalSelector, SEL swizzledSelector);
 BOOL CESwizzleClassMethod(Class cls, SEL originalSelector, SEL swizzledSelector);
 
