@@ -2,7 +2,7 @@
 #import <objc/runtime.h>
 
 NSString * const CEBundleIdentifier = @"com.openai.chat";
-NSString * const CEVersion = @"0.1.0-alpha48-reload-ui-title";
+NSString * const CEVersion = @"0.1.0-alpha49-exact-rename-ui-target";
 NSString * const CEConversationContextDidChangeNotification = @"ChatGPTEnhancer.ConversationContextDidChange";
 NSString * const CENetworkTemplateDidChangeNotification = @"ChatGPTEnhancer.NetworkTemplateDidChange";
 NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidChange";
@@ -46,14 +46,19 @@ NSInteger const CESyntheticConversationTitleMarkerTag = 0x43454844;
 
 BOOL CETargetApp(void) { return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CEBundleIdentifier]; }
 
-UIWindow *CEKeyWindow(void) {
+NSArray<UIWindow *> *CEForegroundWindows(void) {
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
-        UIWindowScene *windowScene = (UIWindowScene *)scene;
-        for (UIWindow *window in windowScene.windows) if (window.isKeyWindow) return window;
-        for (UIWindow *window in windowScene.windows) if (!window.hidden && window.alpha > 0.01) return window;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) if (!window.hidden && window.alpha > 0.01) [windows addObject:window];
     }
-    return UIApplication.sharedApplication.windows.firstObject;
+    if (!windows.count) for (UIWindow *window in UIApplication.sharedApplication.windows) if (!window.hidden && window.alpha > 0.01) [windows addObject:window];
+    return windows;
+}
+
+UIWindow *CEKeyWindow(void) {
+    for (UIWindow *window in CEForegroundWindows()) if (window.isKeyWindow) return window;
+    return CEForegroundWindows().firstObject ?: UIApplication.sharedApplication.windows.firstObject;
 }
 
 static UIViewController *CETopFrom(UIViewController *vc) {
