@@ -1,6 +1,6 @@
 # Project State
 
-_Last updated: 2026-08-26._
+_Last updated: 2026-08-27._
 
 ## Current accepted baseline
 
@@ -16,18 +16,20 @@ _Last updated: 2026-08-26._
 - Build/test source `44b7baf84458c19c963ce0a7ee0d869da28dfe08`; Actions bookkeeping `7988e2c06c38c419885f815e4960a892c08fe28f`; current branch head `a52f4d0bd5406a61fc7c43e9cbae788f8dae43ac` after workflow-trigger cleanup only.
 - CI passed: Actions `32984372907`, job `98228416235`.
 - Artifacts: package id `9612825155`, dylib id `9612825334`.
-- User runtime on alpha49 confirmed the current conversation top-right custom menu works, but conversation-list long-press lost enhancer actions because non-header menus were intentionally skipped.
 - Alpha50 preserves the alpha49 top-right exact-current action path and restores **only** sidebar/non-current `重命名会话` + `导出 Markdown`.
 - Sidebar target resolution is row-scoped: it derives a known `CECatalog` candidate set from the touched row/menu presentation title, never borrows or mutates `CEConversationContext`, never treats menu/config UUID syntax as identity, and requires explicit selection when titles are duplicated.
-- Pull / Reload remain absent from sidebar menus. Existing project-header, Reload UI-proof and interrupted-generation behavior are otherwise unchanged.
-- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
+- **Alpha50 runtime trace A3EA89F2-CE1A-48B9-A0FB-06C7E8A9FAE9 rejects the current project-header UILabel replacement strategy.** The final chat is exactly identified as `6a8d9489-31e8-83ec-ad29-343a6b883e6d / 会话百分比v1`; menu/title acquisition is correct, but the real project-chat screen repeatedly exposes zero top-area UIKit `UILabel`s and the trace contains zero `HEADER-TARGET` events. The visible header is therefore not reachable as the `聊天` + nearby title `UILabel` pair assumed by alpha49/50. The top-right source is SwiftUI-hosted; do not hard-code its private class name.
+- When a menu/share presentation is visible, UIKit labels such as `分享` and `会话百分比v1` appear, but no `聊天` UILabel pair exists, so they are not the host project-header target.
+- Project-header title/gear is **not accepted**. Before another implementation, capture public accessibility element frames for the real top header and prefer an evidence-backed non-interactive UIKit overlay if a stable frame exists. Do not guess coordinates or add a polling timer.
+- Pull / Reload remain absent from sidebar menus. Reload UI-proof and interrupted-generation behavior are otherwise unchanged.
+- Status: **Code written → CI passed → Artifact produced → Runtime/manual partially tested.** Header presentation failed; sidebar Rename/Export and Reload UI-proof acceptance remain pending.
 
 ### Alpha49 — partial runtime / superseded for sidebar coverage
 
 - Alpha49 Actions `32980682467`, artifacts produced.
 - User confirms current conversation top-right `...` custom options are correct.
 - Conversation-list long-press did not include enhancer options. Source confirmed `CEAugmentedChildrenForSource(...)` returned early for every non-header menu. Alpha50 restores only safe row-scoped Rename/Export there.
-- Alpha49 project-header title/gear and Reload UI-proof changes are not accepted from this runtime result and remain pending in the alpha50 lineage.
+- Alpha49 project-header title/gear and Reload UI-proof changes were not accepted; alpha50 trace now identifies why the UILabel-based header strategy still fails.
 
 ### Alpha48 — runtime investigation / not accepted
 
@@ -55,7 +57,7 @@ _Last updated: 2026-08-26._
 4. `CENetworkObserver` — generic official-network observation/template/catalog input; only validated explicit `conversation/init` body ID may promote foreground identity.
 5. `CEAPIClient` — sole enhancer-originated request owner.
 6. `CECatalog` — conversation ID/title/project catalog and presentation title owner.
-7. `CEEnhancerUI` — host UIKit/menu integration; exact current-header actions plus row-scoped sidebar Rename/Export.
+7. `CEEnhancerUI` — host UIKit/menu integration; exact current-header actions plus row-scoped sidebar Rename/Export. Its current project-header mutation implementation assumes a UIKit UILabel pair and is runtime-rejected on app `1.2026.202`.
 8. `CEConversationUIReloadEvidence` — ephemeral public-UIKit Reload completion evidence.
 9. `CEConversationIdentityTrace` — optional sanitized runtime evidence recorder; not identity authority.
 
@@ -68,7 +70,7 @@ _Last updated: 2026-08-26._
 - Official Share remains validation-only and is never silently invoked for discovery.
 - **Reload request delivery is not Reload completion.** Same-ID request proof plus real UI rebuild/refresh proof are required before success.
 - **Page/UI rebuild is not interrupted-generation recovery.** A reloaded page stuck at `正在思考` is not considered recovered without separate stream/status evidence.
-- Project-header rewritten title is presentation-only and cannot feed identity logic.
+- Project-header rewritten title is presentation-only and cannot feed identity logic. Current UILabel replacement path is not a valid presentation target on the traced host build.
 - Retired conversation-tool floating UI stays removed; percentage UI belongs to the parallel task and is untouched.
 
 ## Known issues / constraints
@@ -76,7 +78,8 @@ _Last updated: 2026-08-26._
 - ChatGPT private backend/runtime/UI surfaces can change; current evidence is tied to the tested app/runtime environment.
 - No automated unit/UI suite is verified; CI success is not runtime proof.
 - Alpha50 sidebar menu targeting is Code/CI/Artifact evidence only until device-tested, especially non-current rows and duplicate titles.
-- Project-header title/gear and Reload UI-proof behavior remain runtime pending in the alpha50 lineage.
+- Project-header title/gear is confirmed failed on alpha50 because the visible host header is not exposed as the mutable UIKit UILabel pair the implementation searches for. Next evidence should capture public accessibility frames before choosing an overlay/presentation route.
+- Reload UI-proof behavior remains runtime pending in the alpha50 lineage.
 - Interrupted-generation recovery still requires a trace started before prompt send/disconnect.
 
 ## Evidence rule
