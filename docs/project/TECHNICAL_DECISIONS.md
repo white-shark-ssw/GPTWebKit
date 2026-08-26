@@ -52,7 +52,7 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Alternatives considered**: History-row/sidebar automation, UIKit pop/push navigation, using another conversation ID, orphaned-conversation fallback.
 - **Rejected / do-not-repeat**: Do not use History rows, sidebar automation, UIKit pop/push, or another conversation ID as reload fallback unless a future explicit decision with new runtime evidence supersedes this rule.
 - **Affected modules**: `Features/CEManualConversationReload.mm`, Network observer, current conversation context.
-- **Validation level**: Code written + CI passed + artifact produced for alpha39; alpha39 runtime/manual result remains Unknown / Unverified in repository evidence.
+- **Validation level**: Code written + CI passed + artifact produced for alpha39; candidate-specific current-identity correctness is tracked separately.
 - **Supersedes**: Older manual reload fallback route.
 
 ## TD-005 — Enhancer-generated conversation titles are presentation, never identity evidence
@@ -60,12 +60,12 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Status**: Confirmed
 - **Date**: 2026-08-25
 - **Scope**: Enhancer current-conversation UI / identity resolution
-- **Decision**: When `CEEnhancerUI` rewrites host-app presentation with a conversation title, mark that label as enhancer-synthetic and exclude its own text/accessibility values from all generic current-conversation evidence paths. Only independent host/network/catalog evidence may change `CEConversationContext`.
-- **Evidence**: alpha41 post-build review found a self-feedback cycle was possible: stale context A could write A's title into project chat B, after which visible-title resolution could read the plugin-generated A title and reinforce A. Alpha42 commits isolate the marked label in `CECore`, `CEContextResolver`, accessibility/touch resolution, and floating visible-title resolution; Actions `32855687010` passed.
+- **Decision**: When `CEEnhancerUI` rewrites host-app presentation with a conversation title, mark that label as enhancer-synthetic and exclude its own text/accessibility values from all generic current-conversation evidence paths. Only independent host/catalog evidence may change `CEConversationContext`.
+- **Evidence**: alpha41 post-build review found a self-feedback cycle was possible: stale context A could write A's title into project chat B, after which visible-title resolution could read the plugin-generated A title and reinforce A. Alpha42 commits isolate the marked label in `CECore`, `CEContextResolver`, accessibility/touch resolution, and floating visible-title resolution.
 - **Alternatives considered**: Let the rewritten header participate in normal visible-title matching; create another header-local current-conversation state owner.
 - **Rejected / do-not-repeat**: Do not treat plugin-generated UI text as proof of active conversation identity and do not create a second conversation authority to compensate.
 - **Affected modules**: `Core/CECore.*`, `Core/CEContextResolver.mm`, `UI/CEEnhancerUI.mm`.
-- **Validation level**: Code written + CI passed + artifact produced for alpha42; runtime/manual/real-device validation pending.
+- **Validation level**: Code written + CI passed + artifact produced. Alpha42 later failed the broader current-identity invariant for a separate network-driven reason; this decision is not itself runtime-proven.
 - **Supersedes**: The incomplete alpha41 project-header evidence handling.
 
 ## TD-006 — Standalone ChatGPT client uses native iOS presentation, not WebView chat rendering
@@ -81,6 +81,19 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Validation level**: User requirement + architecture planning only; no product code, CI, artifact or runtime validation.
 - **Supersedes**: WebView-first rendering direction for the new client only. It does not alter the current `ChatGPTEnhancer` architecture.
 - **Notes**: Whether a browser surface is allowed solely as an authentication bootstrap remains an open design question; this decision only prohibits WebView as the normal chat presentation/runtime.
+
+## TD-007 — Observed conversation network requests are not foreground identity authority
+
+- **Status**: Confirmed
+- **Date**: 2026-08-26
+- **Scope**: ChatGPTEnhancer current-conversation identity and current-conversation actions
+- **Decision**: `CENetworkObserver` remains passive and must not set `CEConversationContext.conversationID` merely because an official request URL contains a conversation ID. Generic `NSURLSessionTask.resume` observation must not set foreground identity either. Pull, reload and current-conversation export must require fresh, unique currently-visible conversation proof at action time; if proof is ambiguous or unavailable, fail closed rather than use an older context ID.
+- **Evidence**: Alpha42 real-device testing after extended use showed Pull Latest and Reload crossing conversations. Source inspection found two independent unconditional network writers: `CENetworkObserver.observeRequest:` and `CEContextResolver`'s `NSURLSessionTask.resume` probe. Both could process official background/detail traffic for a non-visible conversation, while Pull and manual Reload consumed the resulting `CEConversationContext` ID. Alpha44 removes both network identity writers and adds visible-proof guards at UI and feature consumer boundaries.
+- **Alternatives considered**: Continue treating the most recent observed conversation request as active; retain network writes but add timing/debounce heuristics; add a second “visible ID” cache; allow stale-ID fallback when UI proof fails.
+- **Rejected / do-not-repeat**: Do not infer foreground identity from request recency alone. Do not add retry/debounce/watchdog heuristics to mask the ownership error. Do not create a second active-conversation authority. Do not execute a current-conversation action when exact visible identity is unproven.
+- **Affected modules**: `Core/CEContextResolver.mm`, `Network/CENetworkObserver.mm`, `UI/CEEnhancerUI.mm`, `Features/CEFeatures.mm`, `Features/CEManualConversationReload.mm`.
+- **Validation level**: Root cause supported by source + authoritative alpha42 runtime failure; alpha44 code written + CI passed + artifact produced. Alpha44 runtime/manual validation pending.
+- **Supersedes**: The alpha42 behavior where observed conversation requests could directly mutate `CEConversationContext`.
 
 ## Rule
 
