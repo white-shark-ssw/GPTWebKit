@@ -6,76 +6,72 @@ _Last updated: 2026-08-26._
 
 - **Stable/Frozen runtime baseline**: `Unknown / Unverified`.
 - `feat/chatgpt-enhancer-v0.1` remains the product base at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
-- `feat/conversation-recognition` is the newest recognition test branch, but no recognition candidate is accepted until real-device stress testing passes.
+- `feat/conversation-recognition` is the newest recognition test branch, but no recognition candidate is accepted until real-device evidence proves both no cross-targeting and reliable exact-current identification.
 
 ## Current development candidates
 
 ### ChatGPTEnhancer `0.1.0-alpha45-visible-button-guard`
 
 - Work ID `DEV-conversation-recognition`; branch `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- Build/test source `037b4aba99b45f30e04a8f9714231a545a0137c2`; Actions bookkeeping `f28c7f56cfaea48f35cb98ecb20490686f36b54f`; current branch head `c902d0f1a76d65dd3ba2232dd88eae2b1ac269d8` (post-CI trigger cleanup only). Compare from tested source to current head changes only `.github/latest-enhancer-run-id` and workflow trigger cleanup.
-- Alpha45 retains alpha44's identity safety: generic official/background conversation requests do not mutate foreground `CEConversationContext`; Pull/Reload/floating Export require fresh visible proof and fail closed when proof is unavailable.
-- Alpha45 fixes the alpha44 UI lifecycle regression by decoupling floating-button visibility from `CEConversationContext.conversationID`. The button attaches whenever the app has a key window; button visibility is UI state only and is not conversation-identity evidence.
-- CI passed: run `32939338703`, job `98086902604`.
-- Artifacts: package id `9595962373`, digest `sha256:04e46a8f48643fee95968161798b74a8cb7b963beeadc0e2fab14a339fbeb839`; dylib id `9595962949`, digest `sha256:7868dbe9a0ba84ae0985bb8cea2c136640a5b6c13e7b1b5596a11982e2e97c59`.
-- Runtime/manual/real-device: **Pending**. First verify the button is visible, then stress-test repeated A↔B switching plus idle/background activity. Pull/Reload/Export must target the visibly open conversation or explicitly refuse, never another conversation.
-- Status: Candidate; not Stable/Frozen.
+- Build/test source `037b4aba99b45f30e04a8f9714231a545a0137c2`; Actions bookkeeping `f28c7f56cfaea48f35cb98ecb20490686f36b54f`; current branch head `c902d0f1a76d65dd3ba2232dd88eae2b1ac269d8` (post-CI trigger cleanup only). Product source is unchanged from the tested head.
+- Alpha45 retains alpha44's safety: generic official/background conversation requests do not mutate foreground `CEConversationContext`; stale global ID fallback remains prohibited.
+- CI passed: run `32939338703`, job `98086902604`. Artifacts: package id `9595962373`, dylib id `9595962949`.
+- New real-device evidence on 2026-08-26: in the current project chat, Reload can still refuse with `无法确认当前可见会话，已取消重载。`, so alpha45 remains **not accepted** due false-negative current recognition.
+- In the same supplied 7.2s recording, opening the top-right conversation menu and choosing `重命名会话` prefills the correct current title `优化会话识别`. Current source proves this visible Rename is enhancer-injected together with `导出 Markdown`, and both use the same menu-scoped `CECandidatesForSourceView(...)` candidate resolver. Therefore the recording proves menu-scoped candidate resolution can succeed where global current-visible proof fails, but it does **not** yet prove a native exact conversation ID is exposed.
+- Status: **Runtime/manual partially tested; not accepted.** No successor candidate has been allocated because the user explicitly requested analysis/instrumentation design before more product code.
 
 ### Rejected `0.1.0-alpha44-current-conversation-guard`
 
 - Alpha44 addressed the proven network-driven identity contamination and passed Actions `32937976994` with artifacts.
-- Real-device result on 2026-08-26: **floating button not visible**. Source confirms `CEFloatingButtonController.contextChanged:` hid the button whenever `CEConversationContext.conversationID` was empty. Removing generic network identity writes made that empty state legitimate, so the entry point could disappear.
-- Alpha44 is rejected as a usable candidate; its cross-conversation stress acceptance was not completed before this blocker.
+- Real-device result: floating action button was not visible because its lifecycle was coupled to `CEConversationContext.conversationID`.
+- Alpha44 is rejected as a usable candidate; its cross-conversation stress acceptance was not completed.
 
 ### Rejected `0.1.0-alpha42-project-conversation-title`
 
-- Actions `32855687010` passed and artifacts were produced, but real-device testing on 2026-08-26 **failed**.
-- User reports that after extended use both Pull Latest and Reload still cross/wrong conversations. Source later proved generic network request IDs could overwrite foreground identity.
-- The project-header conversation-title replacement also had no visible effect. That cosmetic issue remains deferred until recognition is safe.
+- Actions `32855687010` passed and artifacts were produced, but extended real-device use proved Pull Latest and Reload could cross/wrong conversations.
+- Source later proved generic network request IDs could overwrite foreground identity.
+- Project-header conversation-title replacement also had no visible effect. Cosmetic header work remains deferred.
 
 ### Parallel `0.1.0-alpha43-conversation-usage`
 
-- Work ID `DEV-conversation-usage`; branch `feat/conversation-usage`; Draft PR #3 is stacked on the earlier alpha42 recognition branch.
-- Its percentage-specific CI/artifacts remain separate evidence, but the embedded alpha42 recognition dependency is rejected. The percentage task must re-stack/revalidate after a recognition candidate is accepted.
+- Work ID `DEV-conversation-usage`; branch `feat/conversation-usage`; Draft PR #3 is stacked on the rejected alpha42 recognition state.
+- Its percentage-specific work remains a separate Active task. The current screenshot's percentage bubble is therefore a parallel floating surface; if the user ultimately wants **all** floating UI hidden, that change must be coordinated rather than silently made in recognition work.
 
 ### Earlier alpha41 / alpha40 / alpha39
 
-- Alpha41 was superseded pre-runtime after synthetic project-header text was found capable of feeding identity paths.
-- Alpha40 compiled/produced artifacts but was not separately accepted on device before the later alpha42 lineage failed.
+- Alpha41 was superseded pre-runtime after synthetic header text was found capable of feeding identity paths.
+- Alpha40 produced artifacts but was not separately accepted before the alpha42 lineage failed.
 - Alpha39 exact-current reload contract remains architectural history, but the base lineage has known stale/current-conversation problems.
 
-### Legacy/native tracks
-
-- `feat/initial-ios-shell` / Draft PR #1 and `feat/0.2-native-recovery-exporter` remain legacy, not the current enhancer baseline.
-
-## Current architecture
+## Current architecture / evidence
 
 1. `CEBootstrap` — startup owner.
-2. `CECore` / `CEConversationContext` — authoritative active conversation state and shared UI helpers.
-3. `CEContextResolver` — visible UIKit/catalog-backed current-conversation proof; no generic network-task identity writer.
-4. `CENetworkObserver` — passive official-network observation/template/event/catalog input; observed requests do not determine foreground conversation identity.
+2. `CECore` / `CEConversationContext` — sole long-lived active-conversation state owner.
+3. `CEContextResolver` — current visible UIKit/catalog-backed proof; generic network task resume is no longer foreground authority.
+4. `CENetworkObserver` — passive official-network observation/template/event/catalog input; observed requests do not determine foreground identity.
 5. `CEAPIClient` — sole enhancer-originated request owner.
 6. `CECatalog` — conversation ID/title/project catalog.
-7. `CEEnhancerUI` — host UIKit integration, floating tool lifecycle and action-time visible-conversation verification. Floating-button visibility is not identity evidence.
+7. `CEEnhancerUI` — host UIKit integration and menu augmentation. Current code wraps `UIContextMenuConfiguration` and adds enhancer `重命名会话` + `导出 Markdown`; those actions use menu-scoped `CECandidatesForSourceView(...)`.
 8. Features/Export/Diagnostics consume those owners.
 
 ## Current development direction
 
-- Eliminating cross-conversation execution is the highest priority. False-negative refusal is acceptable while wrong-conversation execution is not.
-- Foreground identity must be independently supported by currently visible evidence; generic official background/request traffic is not foreground authority.
-- Pull/reload/export must fail closed at the consumer/action boundary when exact visible identity cannot be proven.
-- The floating tool entry must remain reachable independently of identity proof so failed recognition can be surfaced/tested without restoring stale-ID behavior.
-- Project-header title replacement is deferred until the identity invariant passes repeated real-device testing.
-- `DEV-conversation-usage` remains isolated; do not silently merge its alpha43 state into alpha45.
+- The priority remains exact conversation targeting, but the design question has shifted: **stop trying to make a continuously guessed global “current conversation” do all work if the host's conversation menu can provide stronger action-time evidence.**
+- Investigate a menu-scoped model where Pull Latest / Reload / Export Markdown operate from an immutable target captured when the current-chat menu is built. This target is ephemeral evidence, not a second long-lived authority; exact proven IDs may update `CEConversationContext`.
+- Do not execute from title alone. Duplicate-title conversations must be part of acceptance.
+- Before moving actions or removing floating UI, build a sanitized persistent diagnostic trace that can survive app relaunch and capture menu configuration/source identifiers, original menu action identifiers, explicit IDs/candidates, lifecycle, relevant sanitized conversation endpoint paths/statuses, and exact target chosen by enhancer actions.
+- Diagnostic persistence must never include Authorization, Cookie, account IDs, raw request templates/bodies, response bodies or message contents.
+- Required capture should include normal chats, project chat, repeated A↔B, duplicate titles, and force-close/relaunch directly into the last conversation.
+- Project-header title replacement remains deferred.
 
 ## Known issues / constraints
 
 - ChatGPT private backend/runtime/UI surfaces can change.
 - No verified automated unit/UI test suite exists; CI build success is not runtime proof.
-- Brand-new uncatalogued conversations or duplicate titles can intentionally produce “无法确认当前可见会话”.
-- Project chats may expose less direct visible identity than ordinary chats; guarded actions intentionally refuse rather than fall back to a stale ID.
-- Alpha45's always-available floating button may also appear when no conversation is currently proven; that is intentional UI behavior and must not be interpreted as identity success.
-- GitHub Actions writes run IDs back to branches; current head can differ from tested source by bookkeeping/workflow-only commits.
+- Current `CELastTouchedView` / title hints and title matching are heuristic; they are useful diagnostic evidence but cannot be final execution authority.
+- Top-right current-chat menu and sidebar/long-press menu may look similar while exposing different configuration/source evidence; diagnostics must distinguish them before assuming equivalence.
+- Correct prefilled title does not prove exact ID, especially with duplicate titles.
+- Generic/background network traffic remains correlation evidence only, not foreground authority.
 
 ## Evidence rule
 
