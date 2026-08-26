@@ -12,7 +12,7 @@
 ## Resume identity / conflict guard — 2026-08-26
 
 - **Baseline**: `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`, rechecked immediately before alpha48 CI and unchanged.
-- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`; PR remains open/draft/mergeable.
+- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`; current branch head rechecked after alpha48 runtime report: `17f76c8428dad41484641b9dcf23a78935dbc32f`.
 - **Parallel task**: `DEV-conversation-usage` remains Active on `feat/conversation-usage` at rechecked head `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43. User explicitly said “百分比不用管他了”; alpha48 did not modify percentage-owned files/checkpoint.
 - **Alpha47 tested source**: `d297f65971fb6239cad2be7eb7fa9f8f8aab9f6d`; Actions `32969623709`, job `98180033708`; CI passed and artifacts produced. Bot bookkeeping `8c6e43bb4c4fde576152a7906075354d8817e5a0`; trigger cleanup `52ea5d9024054c72503af23d87249e8acda7b95c`.
 - **Alpha47 runtime result**: current-chat menu UX is present, but user observed at least one Reload that reported success without an apparent page unload/reload. Source confirmed alpha47 returned success immediately when the same-ID official detail/resume request was observed. Therefore alpha47 proves request delivery, not complete Reload behavior, and is not accepted as complete Reload semantics.
@@ -27,7 +27,29 @@
 - **Artifacts**:
   - package `ChatGPTEnhancer-0.1.0-alpha48-reload-ui-title`, id `9608529953`, digest `sha256:256746f6fe6f7ea01e5a3e6d90f3a8bd47fa9f606366565fab8687ef18baf6a2`;
   - dylib `ChatGPTEnhancer-0.1.0-alpha48-reload-ui-title-dylib`, id `9608530563`, digest `sha256:a14dd7ae64931d45076459290fdd0674b3c9582c1b966e7fcb2d4b06814da840`.
-- **Validation state**: **Code written → CI passed → Artifact produced. Runtime/manual/real-device: Pending.** Nothing is Stable/Frozen.
+- **Validation state**: **Code written → CI passed → Artifact produced → Runtime/manual partially tested and NOT accepted.** Nothing is Stable/Frozen.
+
+## Authoritative alpha48 runtime evidence — 2026-08-26
+
+User supplied a real-device screenshot from project chat `OnePlayer 播放器` and described the exact sequence:
+
+1. A response had already emitted substantial visible reasoning/content, then the client disconnected/timed out.
+2. User invoked plugin `重载当前会话`.
+3. The conversation page visibly refreshed/reloaded, so alpha48's new UI-rebuild detector is plausibly observing a real page refresh in this case rather than request-only delivery.
+4. After the refresh, the last turn remained indefinitely at `正在思考`; user judges that this turn is very likely never to produce an answer and appears stuck.
+5. The project header still shows project name `OnePlayer 播放器`; requested conversation-title replacement + gear marker has **no visible effect**.
+
+### Interpretation
+
+- **Reload completion and generation recovery are separate states.** Alpha48 can now distinguish request delivery from page/UI rebuild, but a successful UI rebuild does not prove that an interrupted in-flight generation/stream has been resumed, reconciled, failed, or reached a terminal state. The screenshot exposes a new state gap: `page reloaded` while the host still renders a non-terminal `正在思考` placeholder that may have no live generation stream behind it.
+- Do **not** add a speculative `/resume` call, retry loop, timer/watchdog, or status override yet. Current source only observes `/backend-api/f/conversation/resume`; it does not prove when/why the official client legitimately invokes it after a timeout, nor whether the stuck state is server-side `in_progress`, a missing stream reattachment, or stale client presentation.
+- Existing alpha48 identity trace already records sanitized request paths, status/error, lifecycle, exact Reload action target, route-delivery, and UI-rebuild verification. The next evidence should first reproduce this interrupted-generation case with identity trace enabled before modifying recovery behavior.
+
+### Header source finding
+
+- `CEProjectConversationHeaderController.refresh:` currently calls `CEKeyWindow()` and searches only that one window for the exact `聊天` subtitle/title pair.
+- The exact conversation title is updated during current-header context-menu construction. At that moment iOS may make the context-menu/presentation window the key window; that overlay window does not contain the underlying project header. `refresh:` then sees no target and there is no later retry when the menu closes.
+- This is a source-supported explanation for “菜单里已经有正确会话标题，但项目顶部仍保持项目名”. A future minimal header fix should search foreground scene windows for the real project-header label instead of assuming the current key window is the host content window. It must not add a periodic title timer and must preserve synthetic-title exclusion.
 
 ## Identity architecture retained from alpha46/alpha47
 
@@ -45,34 +67,21 @@
 3. **Reload success now requires both proofs**: (a) same exact conversation official reload/detail request observed after route delivery; and (b) current conversation UI shows a rebuild/refresh signal — conversation scroll object replacement, substantial visible anchor identity turnover, or visible conversation content disappearing and then returning.
 4. No independent timer/watchdog/retry family was added. Evidence sampling reuses the existing reload poll lifecycle and existing same-ID route attempts only.
 5. If request delivery is proven but UI rebuild is not, final message is `已触发当前会话请求，但未确认页面完成刷新。`; it must not claim success.
-6. `CEEnhancerUI` now treats the already-visible official current-chat menu title as **presentation metadata for the already-proven exact target ID only**. It may update that exact record's title, but it never chooses or changes identity.
-7. Updating the exact record title posts the existing catalog notification while the project header is present. The existing `CEProjectConversationHeaderController` then replaces the project-name header with that conversation title.
-8. The rewritten title retains the synthetic marker exclusion contract and gets a small `gearshape.fill` `UIImageView` on its left. Even when host text already equals the conversation title, the marker is installed.
+6. `CEEnhancerUI` treats the already-visible official current-chat menu title as **presentation metadata for the already-proven exact target ID only**. It may update that exact record's title, but it never chooses or changes identity.
+7. Updating the exact record title posts the existing catalog notification while the project header is present. The existing `CEProjectConversationHeaderController` then attempts to replace the project-name header with that conversation title.
+8. The rewritten title retains the synthetic marker exclusion contract and gets a small `gearshape.fill` `UIImageView` on its left when successfully applied.
 9. The plugin-rewritten header is never consumed by current-conversation identity paths, preserving TD-005.
 10. Version/bootstrap/package/workflow artifact identity is synchronized to alpha48.
 
-## Required alpha48 real-device acceptance
-
-1. Normal/project/same-title chats retain alpha47 exact menu targeting; no Pull/Reload/Export may operate on another conversation.
-2. Reload success message appears only when exact same-ID request **and** current message UI refresh/rebuild are both observed.
-3. If request occurs without provable UI refresh, it must say `已触发当前会话请求，但未确认页面完成刷新。`, not success.
-4. A visible blank/empty phase is not mandatory if ChatGPT keeps old UI for continuity; a real view-tree/message-view rebuild is sufficient.
-5. Project chat: open the current top-right menu and confirm the centered project name is replaced by the exact current conversation title, with a small gear marker immediately left of it.
-6. Switch between project conversations and verify the rewritten title follows the exact conversation ID. Duplicate titles remain harmless because title is presentation only.
-7. Force-close/relaunch into the last chat and repeat exact menu targeting + header/reload checks.
-8. Percentage feature remains untouched.
-
-## Known risk / fail-closed behavior
-
-- The public-UIKit reload proof intentionally prefers false-negative over false success. If ChatGPT refreshes its model/data while reusing the same scroll view and nearly all visible text view objects, alpha48 may report “请求已触发但未确认页面刷新” even though the host refreshed internally. That result should be treated as runtime evidence to refine the proof source, not as justification for restoring request-only success.
-
 ## Next exact action
 
-Hand the exact alpha48 dylib artifact to the user and run the alpha48 real-device acceptance above. Record exact runtime results for (a) exact targeting, (b) Reload request-only vs request+UI rebuild classification, and (c) project title + gear presentation. Do not mark Stable/Frozen from CI/artifact alone.
+**Do not change generation recovery code yet.** Ask the user to use alpha48's existing `开始会话识别记录`, then reproduce one interrupted/timeout generation followed by `重载当前会话`, wait long enough to establish whether `正在思考` remains stuck, and export the trace. Inspect the exact request/response/error sequence around Reload, especially conversation detail, prepare/resume and any stream/network completion errors. From that evidence decide whether the true owner is server message status, stream reattachment, or stale client UI. In parallel, the project-header key-window limitation is already source-supported and can be fixed minimally in the next candidate without changing identity authority.
 
 ## Rejected / do-not-repeat
 
 - request observed == reload completed;
+- page/UI rebuilt == interrupted generation recovered;
+- speculative resume/retry/watchdog without runtime evidence;
 - generic latest-request foreground authority;
 - arbitrary UUID-shaped UI/configuration identifiers as conversation IDs;
 - title-only execution target;
@@ -80,7 +89,6 @@ Hand the exact alpha48 dylib artifact to the user and run the alpha48 real-devic
 - silently invoking Share/create to discover ID;
 - second long-lived conversation authority;
 - periodic UI-title identity timer;
-- speculative extra reload retry/watchdog/debounce;
 - private Swift class hard-coding;
 - History/sidebar/UIKit navigation fallback or alternate conversation ID;
 - enhancer-generated title as identity evidence;
