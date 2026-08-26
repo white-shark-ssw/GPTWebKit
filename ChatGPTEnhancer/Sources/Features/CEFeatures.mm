@@ -220,8 +220,8 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 }
 
 + (void)pullLatestCurrentConversation {
-    NSString *conversationID = [CEConversationContext shared].conversationID;
-    if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
+    NSString *conversationID = CERefreshVisibleConversationContext();
+    if (!conversationID.length) { CEShowMessage(@"无法确认当前可见会话，已取消拉取。"); return; }
     CEPullLatestConversationResult(conversationID);
 }
 
