@@ -80,8 +80,8 @@ static void CEManualReloadOpenAttempt(NSUInteger generation, NSString *conversat
 }
 
 static void CEManualReloadCurrentConversation(id self, SEL _cmd) {
-    NSString *conversationID = [[CEConversationContext shared].conversationID copy];
-    if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
+    NSString *conversationID = [CERefreshVisibleConversationContext() copy];
+    if (!conversationID.length) { CEShowMessage(@"无法确认当前可见会话，已取消重载。"); return; }
     if (UIApplication.sharedApplication.applicationState != UIApplicationStateActive) { CEShowMessage(@"App 回到前台后再重载。"); return; }
     if (CEManualReloadInFlight) { if ([CEManualReloadConversationID isEqualToString:conversationID]) CEShowMessage(@"当前会话正在重载…"); else CEShowMessage(@"已有重载任务正在进行。"); return; }
 
