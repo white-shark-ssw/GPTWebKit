@@ -17,26 +17,28 @@ _Last updated: 2026-08-27._
 - CI passed: Actions `33007145536`, job `98303728684`.
 - Artifacts: package id `9621009139`, digest `sha256:500a38652acf60b50f15f5ace41ca31e68a198cda3acaf724f1547f88bbeb6b2`; dylib id `9621009533`, Actions archive digest `sha256:5648a23263eb0d7fa535387a5f7fcbe2d8622142f0bdfd862515be32bb7d59a8`.
 - Extracted dylib: arm64 Mach-O, 594000 bytes, sha256 `78a38421fe04adba9774bb8e42947ea48120d2a61698359f04c31bdb6f6f86a2`.
-- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
+- Status: **Code written → CI passed → Artifact produced → Runtime/manual/real-device partially tested.**
 
-## Alpha52 runtime evidence now established
+## Alpha53 runtime evidence — 2026-08-27
 
-Trace `conversation-identity-585B0B11-C85D-4A19-BA16-4F55D56A320A.log`, app `1.2026.202`, captured a normal A → B → A navigation sequence.
+Trace `conversation-identity-E076722C-E0F0-4044-8B99-41F727B1B62B.log`, app `1.2026.202`:
 
-- A → B: exact B `conversation/init` body ID, then within ~125 ms exact B `prepare` + detail GET + second prepare.
-- B → A: an ID-less init/prepare project-loading sequence occurred first, followed by exact A `conversation/init`, then within ~125 ms exact A prepare + detail GET + second prepare.
-- Exact foreground identity followed B then A correctly.
-- This contrasts the alpha51 failed same-current custom-route refresh, which produced only same-ID detail GETs with zero exact `conversation/init`/exact `prepare` and no visible page rebuild.
-- Therefore a detail GET alone is insufficient. Genuine navigation/rebuild correlates with an internal host navigation-state transition that produces `conversation/init → prepare → detail` traffic.
-- The traffic is evidence of the state transition, not proof that enhancer-originated replay of those requests would mutate host UI.
+- Normal A → B exact navigation targeted `6a8daab4-49ac-83ec-9983-f4c96805c6ca`; exact init was followed by exact prepare/detail traffic within ~123 ms. Normal B → A exact navigation targeted `6a8d8d0b-1b2c-83ec-89f4-fa5eb65138d7`; exact prepare/detail followed within ~125 ms.
+- Every exact genuine-navigation `REFRESH-PATH` snapshot reported `SwiftUI.UIKitNavigationController` with `navCount=3`.
+- After returning to A, one `同步最新消息` used the same exact A ID. The handoff entered Reload about 9.25 s later; route attempt 0 opened once and produced one same-ID detail GET about 1.73 s later, with no exact init/prepare and no UI rebuild.
+- Alpha52 delivery-aware suppression worked: no second/third custom route was sent after same-ID request delivery was proven. Final status was `已请求客户端刷新，但页面未发生刷新。`.
+- The failed same-current detail GET reported the same top-controller class as genuine detail/prepare but `navCount=1`, not 3. This is a structural difference between genuine navigation and the custom URL route, but it does not establish a safe production navigation mutation.
+- All 11 captured `REFRESH-PATH` call-stack signatures were identical across genuine init/prepare/detail and failed same-current detail. The current call-stack capture point is therefore too downstream/common to identify the upstream host navigation owner.
+- UI baseline remained `unproven`; verifier samples remained `uiRebuildObserved=NO` / `uiSawDisappear=NO`, consistent with the failed visible refresh.
+- No HTTP 429 occurred; terminal 429 behavior remains runtime-unexercised in trace evidence.
 
-## Alpha53 behavior
+## Current conclusions
 
-- Production Sync/Reload behavior remains alpha52: truthful refresh-request wording, exact-ID guards, request+UI completion proof, no repeated same-route delivery once same-ID request delivery is already proven, and terminal HTTP 429 behavior.
-- Alpha53 only extends the existing user-started sanitized trace with `REFRESH-PATH` structural records for exact init/prepare/detail host requests.
-- `REFRESH-PATH` records bounded public structural data: key/root/top/presented view-controller class names, navigation-controller stack count/visible controller class, and a sanitized bounded call-stack signature with raw addresses redacted.
-- No auth/cookie/account/raw body/message content is persisted.
-- No `/resume`, manual init/prepare replay, watchdog, alternate ID, History/sidebar/UIKit pop-push fallback, private-class hard-coding, Catalog throttling, project-header change or percentage change was added.
+- Exact-current identity remains correct in the alpha53 capture.
+- Genuine navigation continues to show init → prepare → detail traffic and a navigation-stack count of 3; same-current custom-route refresh remains detail-only and showed a stack count of 1.
+- Network traffic remains evidence of host navigation state, not a replay recipe.
+- Do not manually replay init/prepare, force navigation-stack restoration, add UIKit pop/push, alternate IDs, `/resume`, watchdogs or extra route variants from this evidence.
+- Alpha53 diagnostic call-stack sampling did **not** reveal a production refresh entry point. A narrower diagnostic must capture closer to actual task creation and include bounded navigation-stack composition / ID-less init/prepare staging before a production refresh change is justified.
 
 ## Existing architecture / contracts
 
@@ -54,7 +56,6 @@ Trace `conversation-identity-585B0B11-C85D-4A19-BA16-4F55D56A320A.log`, app `1.2
 - Alpha50 project-header trace proved exact identity/title acquisition but rejected the current UIKit `聊天 UILabel + nearby title UILabel` target on app `1.2026.202`; user has paused this feature.
 - Reload request delivery is not Reload completion, and UI rebuild is not proof that an interrupted generation stream recovered.
 - Sidebar Rename/Export selected-row acceptance and duplicate-title behavior remain pending real-device verification.
-- Alpha51/52 terminal HTTP 429 behavior still has not been exercised by a trace containing 429.
 
 ## Parallel task
 
@@ -63,9 +64,9 @@ Trace `conversation-identity-585B0B11-C85D-4A19-BA16-4F55D56A320A.log`, app `1.2
 
 ## Next evidence
 
-- Install alpha53 and record one combined trace: normal A → B → A, then one `同步最新消息` attempt on A, then export.
-- Compare `REFRESH-PATH` caller/navigation signatures between genuine navigation and failed same-current refresh before implementing any production host refresh mechanism.
-- This diagnostic sequence does not authorize History/sidebar navigation as production Reload behavior.
+- Before implementing a new host refresh mechanism, refine diagnostics only: capture first observation source at NSURLSession task creation, bounded public navigation-controller stack class composition, and ID-less init/prepare structural staging.
+- Then run one A → B → A → `同步最新消息` trace and compare the genuine navigation path with the same-current route.
+- This diagnostic work does not authorize History/sidebar navigation, UIKit stack restoration or manual init/prepare replay as production behavior.
 
 ## Evidence rule
 
