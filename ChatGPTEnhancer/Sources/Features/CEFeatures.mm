@@ -4,6 +4,7 @@
 #import "../Export/CEMarkdownExporter.h"
 #import "../Diagnostics/CEDiagnostics.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
+#import "../Diagnostics/CEConversationIdentityTrace.h"
 #import "CEForegroundStreamRecovery.h"
 #import "CEOrphanedConversationRecovery.h"
 
@@ -124,6 +125,7 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 
 + (void)exportRecord:(CEConversationRecord *)record requireConfirmation:(BOOL)requireConfirmation {
     record = [self resolvedRecord:record];
+    CEConversationIdentityTraceLog(@"ACTION-EXPORT-RECORD", @"id=%@ title=%@ requireConfirmation=%@", record.conversationID ?: @"<none>", record.title ?: @"<none>", requireConfirmation ? @"YES" : @"NO");
     if (!record.conversationID.length) { CEShowMessage(@"无法识别会话 ID。"); return; }
     if (!requireConfirmation) { [self beginExportRecord:record]; return; }
     UIViewController *vc = CETopViewController(); if (!vc) return;
@@ -220,13 +222,14 @@ static void CEFeatureCollectAccessibility(UIView *view, NSUInteger depth, NSMuta
 }
 
 + (void)pullLatestCurrentConversation {
-    NSString *conversationID = CERefreshVisibleConversationContext();
+    CEConversationContext *context = [CEConversationContext shared]; CEConversationIdentityTraceLog(@"ACTION-PULL", @"proof-begin contextID=%@ contextTitle=%@", context.conversationID ?: @"<none>", context.title ?: @"<none>");
+    NSString *conversationID = CERefreshVisibleConversationContext(); CEConversationIdentityTraceLog(@"ACTION-PULL", @"proof-result id=%@", conversationID ?: @"<none>");
     if (!conversationID.length) { CEShowMessage(@"无法确认当前可见会话，已取消拉取。"); return; }
     CEPullLatestConversationResult(conversationID);
 }
 
 + (void)reloadCurrentConversation {
-    NSString *conversationID = [CEConversationContext shared].conversationID;
+    NSString *conversationID = [CEConversationContext shared].conversationID; CEConversationIdentityTraceLog(@"ACTION-RELOAD-FALLBACK", @"contextID=%@", conversationID ?: @"<none>");
     if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
     CECaptureFocusedActiveConversationDiagnostics(@"reload button before any navigation");
     CERecoveryDiagnosticMark(@"MANUAL RELOAD DIAGNOSTIC ONLY");
