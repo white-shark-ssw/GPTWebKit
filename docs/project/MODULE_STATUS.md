@@ -8,8 +8,8 @@
 | `ChatGPTEnhancer/Sources/Storage` | Active | `CECatalog` | Conversation ID/title/update-time catalog and title resolution. |
 | `ChatGPTEnhancer/Sources/UI` | Active / Shared surface | `CEEnhancerUI` | Owns host-app UI integration. Feature modules should not create independent UIKit hook ownership. |
 | `ChatGPTEnhancer/Sources/Export` | Active | `CEMarkdownExporter` | Complete-conversation Markdown export path. |
-| `ChatGPTEnhancer/Sources/Features` | Active | Feature-specific modules | Exact-ID Sync/Reload/Rename behavior; alpha52 retains request+UI completion semantics and delivery-aware route suppression. |
-| `ChatGPTEnhancer/Sources/Diagnostics` | Active / Experimental | diagnostics/probe modules | Alpha53 extends the existing user-started sanitized identity trace with bounded structural `REFRESH-PATH` call-site/navigation evidence. Diagnostic presence is not proof of a production refresh mechanism. |
+| `ChatGPTEnhancer/Sources/Features` | Active | Feature-specific modules | Exact-ID Sync/Reload/Rename behavior; alpha52+ retains request+UI completion semantics and delivery-aware route suppression. |
+| `ChatGPTEnhancer/Sources/Diagnostics` | Active / Experimental | diagnostics/probe modules | Alpha53 `REFRESH-PATH` was real-device tested. It exposed genuine-navigation `navCount=3` versus failed same-current route `navCount=1`, but the downstream call-stack signature was identical across both paths and did not identify a production refresh owner. |
 | `.github/workflows/build-enhancer.yml` | Active | Enhancer CI | Current enhancer CI/artifact path on `feat/chatgpt-enhancer-v0.1`. |
 | `GPTWebKit/` native app source | Legacy candidate | legacy branches | Native/utility line retained in repository; not current enhancer baseline. |
 | `.github/workflows/build-ipa.yml` | Legacy active-on-branches | legacy IPA CI | Builds older native/WebView app artifacts. |
