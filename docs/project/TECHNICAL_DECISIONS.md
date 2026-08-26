@@ -88,12 +88,25 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Date**: 2026-08-26
 - **Scope**: ChatGPTEnhancer current-conversation identity and current-conversation actions
 - **Decision**: `CENetworkObserver` remains passive and must not set `CEConversationContext.conversationID` merely because an official request URL contains a conversation ID. Generic `NSURLSessionTask.resume` observation must not set foreground identity either. Pull, reload and current-conversation export must require fresh, unique currently-visible conversation proof at action time; if proof is ambiguous or unavailable, fail closed rather than use an older context ID.
-- **Evidence**: Alpha42 real-device testing after extended use showed Pull Latest and Reload crossing conversations. Source inspection found two independent unconditional network writers: `CENetworkObserver.observeRequest:` and `CEContextResolver`'s `NSURLSessionTask.resume` probe. Both could process official background/detail traffic for a non-visible conversation, while Pull and manual Reload consumed the resulting `CEConversationContext` ID. Alpha44 removes both network identity writers and adds visible-proof guards at UI and feature consumer boundaries.
+- **Evidence**: Alpha42 real-device testing after extended use showed Pull Latest and Reload crossing conversations. Source inspection found two independent unconditional network writers: `CENetworkObserver.observeRequest:` and `CEContextResolver`'s `NSURLSessionTask.resume` probe. Both could process official background/detail traffic for a non-visible conversation, while Pull and manual Reload consumed the resulting `CEConversationContext` ID. Alpha44 removed both network identity writers and added visible-proof guards at UI and feature consumer boundaries.
 - **Alternatives considered**: Continue treating the most recent observed conversation request as active; retain network writes but add timing/debounce heuristics; add a second “visible ID” cache; allow stale-ID fallback when UI proof fails.
 - **Rejected / do-not-repeat**: Do not infer foreground identity from request recency alone. Do not add retry/debounce/watchdog heuristics to mask the ownership error. Do not create a second active-conversation authority. Do not execute a current-conversation action when exact visible identity is unproven.
 - **Affected modules**: `Core/CEContextResolver.mm`, `Network/CENetworkObserver.mm`, `UI/CEEnhancerUI.mm`, `Features/CEFeatures.mm`, `Features/CEManualConversationReload.mm`.
-- **Validation level**: Root cause supported by source + authoritative alpha42 runtime failure; alpha44 code written + CI passed + artifact produced. Alpha44 runtime/manual validation pending.
+- **Validation level**: Root cause supported by source + authoritative alpha42 runtime failure. Alpha44 code written + CI/artifact succeeded but alpha44 was rejected for a separate floating-button lifecycle regression before cross-conversation stress acceptance. Alpha45 retains this decision and awaits device validation.
 - **Supersedes**: The alpha42 behavior where observed conversation requests could directly mutate `CEConversationContext`.
+
+## TD-008 — Floating tool availability is separate from conversation identity
+
+- **Status**: Confirmed
+- **Date**: 2026-08-26
+- **Scope**: ChatGPTEnhancer floating tools / current-conversation UX
+- **Decision**: The floating tool button is an application UI entry point, not proof that a conversation ID is known. Its visibility/lifecycle must not depend on `CEConversationContext.conversationID`. When identity is unknown or ambiguous, keep the entry available but let current-conversation actions fail closed at their existing proof boundary.
+- **Evidence**: Alpha44 correctly removed unsafe network-driven identity writes, after which the user reported the floating button was not visible. Source inspection showed `CEFloatingButtonController.contextChanged:` removed the button solely when `CEConversationContext.conversationID` was empty. Alpha45 commit `462503501ec1680c3a458ea4e8899298ad7e6666` removes only that visibility gate while leaving action-time verification unchanged; Actions `32939338703` passed.
+- **Alternatives considered**: Restore a network-derived ID just to make the button appear; infer identity from button lifetime; add a timer/retry to force identity; hide tools until identity is proven.
+- **Rejected / do-not-repeat**: Do not couple UI entry visibility to identity authority. Do not restore stale/network identity behavior for presentation convenience. Do not treat the visible button as evidence that Pull/Reload/Export are safe to execute.
+- **Affected modules**: `UI/CEEnhancerUI.mm`, conversation-recognition contract.
+- **Validation level**: Source/runtime failure evidence + alpha45 code written + CI passed + artifact produced. Alpha45 runtime/manual validation pending.
+- **Supersedes**: Alpha44 floating-button lifecycle behavior that required a non-empty active conversation ID.
 
 ## Rule
 
