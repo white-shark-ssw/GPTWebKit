@@ -19,8 +19,9 @@ _Last updated: 2026-08-26._
 - Alpha48 retains alpha47 exact identity/menu targeting and changes two behaviors:
   1. Reload success requires exact same-ID official request delivery plus public-UIKit evidence that the current message/conversation view rebuilt/refreshed.
   2. For the already-proven exact current conversation ID, the official current-chat menu title may refresh presentation metadata; project-chat top header is intended to replace the project name with that title and add a small gear marker.
-- **Real-device result 2026-08-26 — not accepted**: user reports a timeout/disconnect occurred while a response had already emitted substantial reasoning/content. Plugin Reload then visibly refreshed the conversation page, but the bottom turn remained indefinitely at `正在思考` and appeared unlikely to ever answer. This means a verified page/UI rebuild is still not proof that an interrupted generation/stream has recovered or reached a terminal state.
-- **Header result 2026-08-26 — failed**: project chat still shows project name (`OnePlayer 播放器`) instead of current conversation title; gear marker is absent. Source inspection shows the header refresh searches only `CEKeyWindow()`, while its title update is triggered during context-menu construction. A context-menu/presentation overlay may be the key window then, so the real underlying project-header window is missed and no later refresh occurs.
+- **Real-device exported trace 2026-08-26 — not accepted**: session `6CC3B3D6-2F4F-40A1-9D84-CABB7D0C7F3B` stayed on exact target `6a8cbe3d-eaf8-83ec-92eb-68694f8baa0e`. Reload route attempt 0 produced same-ID `conversation/init → f/conversation/prepare → conversation detail`; request proof became true. However alpha48 logged `baselineUI=unproven` and never set `uiRebuildObserved`, while the user independently saw the page visibly refresh. Therefore the current public-UIKit reload snapshot is a proven false-negative on this host view.
+- **Interrupted-generation result**: the original response had already progressed before client disconnect/timeout; after page reload the bottom remained stuck at `正在思考`. The exported trace started after the original failure, and during Reload shows no recorded `/f/conversation/resume` or other explicit streaming-recovery request. This proves page reload/re-entry is not generation recovery, but does not yet prove which official recovery action is required.
+- **Header result — failed**: the trace repeatedly has the correct exact-ID presentation title `轮播图优化v1`, but the visible project header remains the project name and gear marker is absent. The unresolved fault is host header target discovery/application. Current `CEKeyWindow()` + UIKit `UILabel` assumptions are under question; runtime evidence does not yet distinguish transient menu-window selection from SwiftUI/non-UILabel rendering.
 - Status: **Code written → CI passed → Artifact produced → Runtime/manual partially tested; not accepted.**
 
 ### Alpha47 exact-menu-target — partially tested, superseded for reload semantics
@@ -56,7 +57,7 @@ _Last updated: 2026-08-26._
 5. `CEAPIClient` — sole enhancer-originated request owner.
 6. `CECatalog` — conversation ID/title/project catalog and presentation title owner.
 7. `CEEnhancerUI` — host UIKit/menu integration, exact current-menu action capture, project-header presentation.
-8. `CEConversationUIReloadEvidence` — public-UIKit ephemeral snapshot helper for Reload completion evidence; not an identity or persistent state owner.
+8. `CEConversationUIReloadEvidence` — public-UIKit ephemeral snapshot helper for Reload completion evidence; current alpha48 implementation is runtime-proven to miss at least one real visible refresh.
 9. `CEConversationIdentityTrace` — optional sanitized runtime evidence recorder; not an identity authority.
 
 ## Current behavior contracts
@@ -64,22 +65,22 @@ _Last updated: 2026-08-26._
 - Current-conversation Pull/Reload/Export use immutable exact ID captured by the top-right current-chat menu. If exact current context changes before tap, action cancels.
 - Generic/background request recency, title-only matching and arbitrary UI UUIDs cannot decide the target.
 - Official Share remains validation-only and is never silently invoked for discovery.
-- **Reload request delivery is not Reload completion.** A success message requires exact same-ID request proof plus current message-view rebuild/refresh proof.
-- **Reload UI rebuild is also not interrupted-generation recovery.** When the host previously lost/timeout a live response, a page that reloads but remains stuck at `正在思考` must not be treated as evidence that the turn resumed or completed. Recovery semantics require separate runtime evidence of the host's real stream/status behavior.
+- **Reload request delivery is not Reload completion.** A success message still requires exact same-ID request proof plus real current-message presentation refresh proof; alpha48's current detector is not yet adequate evidence because it false-negatived on a visually refreshed page.
+- **Reload UI/page rebuild is also not interrupted-generation recovery.** A reloaded page that remains at `正在思考` must not be called recovered until the official generation/stream state is independently proven.
 - Project-header rewritten title is presentation-only and cannot feed identity logic.
 - The retired conversation-tool floating button stays removed; percentage UI belongs to the parallel task and is untouched.
 
 ## Next investigation
 
-- Use alpha48's existing persistent identity trace to reproduce one timeout/disconnect during generation, then invoke Reload and wait until the `正在思考` state is clearly stuck or recovers. Export the trace.
-- Inspect exact request/response/error sequence around Reload, especially detail, prepare/resume and stream-related completion errors. Do not invent a resume call/retry/watchdog before this evidence.
-- Header presentation can be fixed separately with a minimal source-supported change: search foreground scene windows for the actual `聊天` project-header pair rather than assuming the current key window is the host content window; no periodic title timer.
+- Reproduce an interrupted generation with identity trace started **before sending the prompt**, so the trace includes initial send/stream setup, disconnect/timeout error, Reload, and any official recovery/reconnect behavior. Do not invent `/resume`, retry or watchdog behavior from the current post-failure-only trace.
+- Capture the actual project-header host view/window structure. Correct only the proven title target-discovery issue; the exact conversation title itself is already available.
+- Capture the actual message presentation tree used during Reload because alpha48 started with `baselineUI=unproven`; replace the wrong UIKit evidence target rather than reverting to request-only success.
 
 ## Known issues / constraints
 
 - ChatGPT private backend/runtime/UI surfaces can change; current evidence is tied to the tested app/runtime environment.
 - No automated unit/UI suite is verified; CI success is not runtime proof.
-- Alpha48's public-UIKit UI-rebuild proof deliberately fails closed. A real UI rebuild can still leave a logically interrupted generation unresolved.
+- Alpha48's public-UIKit reload proof is now runtime-proven to false-negative at least one actual page refresh.
 - Absolute “100% forever” cannot be inferred from one host version. Unsupported states must fail closed instead of guessing another conversation.
 
 ## Evidence rule
