@@ -34,7 +34,7 @@
   - `UI/CEConversationUIReloadEvidence` — ephemeral public-UIKit UI refresh/rebuild proof; not identity authority.
   - `Export/CEMarkdownExporter` — Markdown generation from complete conversation data.
   - `Features/*` — exact-ID Sync/Rename/Reload/recovery behavior.
-  - `Diagnostics/CEConversationIdentityTrace` — optional sanitized runtime correlation trace; not identity authority.
+  - `Diagnostics/CEConversationIdentityTrace` — optional sanitized runtime correlation trace; alpha53 also records bounded structural `REFRESH-PATH` call-site/navigation evidence for exact init/prepare/detail host requests. It is not identity authority.
 
 ## Build and validation
 
@@ -42,15 +42,15 @@
 - **Test command**: no automated test command verified.
 - **Lint/static checks**: no dedicated suite verified.
 - **Enhancer CI**: `.github/workflows/build-enhancer.yml`, macOS 15. Normal push trigger is `feat/chatgpt-enhancer-v0.1`; isolated candidate branches temporarily add their own trigger and remove it after the candidate build.
-- **Newest enhancer artifact**: `0.1.0-alpha52-sync-refresh-handoff`; Actions `33004675627`, job `98295074960`; package id `9620028731`, dylib id `9620029383`.
-- **Current validation**: alpha52 = **Code written → CI passed → Artifact produced; Runtime/manual pending**. It corrects Sync/Reload refresh-request wording and stops repeated exact-route delivery after same-ID request delivery is already proven without a UI rebuild. It does not claim to have found a genuine host-side refresh mechanism.
+- **Newest enhancer artifact**: `0.1.0-alpha53-refresh-path-trace`; Actions `33007145536`, job `98303728684`; package id `9621009139`, dylib id `9621009533`.
+- **Current validation**: alpha53 = **Code written → CI passed → Artifact produced; Runtime/manual pending**. It is diagnostic-only and keeps alpha52 production Sync/Reload semantics unchanged.
 - **Parallel artifact**: alpha43 belongs to `DEV-conversation-usage` and remains separate; recognition work does not modify percentage-owned source.
 
 ## Versioning and candidate identity
 
 - **Enhancer version source**: `CEVersion` in `ChatGPTEnhancer/Sources/Core/CECore.mm`.
 - **Duplicated identity locations**: `CECore.mm`, `ChatGPTEnhancer/build.sh`, `.github/workflows/build-enhancer.yml` names must match.
-- **Current recognition candidate**: `0.1.0-alpha52-sync-refresh-handoff`.
+- **Current recognition candidate**: `0.1.0-alpha53-refresh-path-trace`.
 - **Build number**: no separate product build number verified; Actions run ID is build evidence only.
 - **Release/tag scheme**: no formal release/tag process verified.
 - **Parallel rule**: each Active dev task owns a unique candidate/artifact identity.
@@ -62,21 +62,23 @@
 - **Identity**: exact foreground identity is semantic/source-aware. Generic/background request recency, arbitrary UIKit/menu UUIDs and title-only matching are not authority. The validated explicit `conversation/init` body ID updates the sole `CEConversationContext`; current-chat menu actions freeze that ID.
 - **Sync**: `同步最新消息` makes one guarded enhancer GET for the exact target. HTTP 429 is not automatically retried. GET success is server-state evidence only, not visible synchronization.
 - **Refresh handoff**: same-ID host request delivery is not Reload completion. Alpha52 reports it as a refresh request and does not repeat route delivery after request delivery is proven solely because the UI did not rebuild. UI success still requires actual refresh/rebuild evidence.
+- **Genuine navigation evidence**: alpha52 A→B→A runtime trace shows exact host navigation emits exact `conversation/init`, then within about 125 ms exact `prepare` + conversation detail GET (+ another prepare). This traffic is evidence of a host navigation-state transition; it is not authorization/proof that replaying the same network requests would refresh UI.
 - **Sidebar management**: non-current Rename/Export resolve the selected row independently from current context; duplicate titles require explicit selection.
 - **Rename**: current-menu Rename uses the frozen exact ID and rechecks it immediately before PATCH.
 - **Rate limiting**: HTTP 429 is server-side throttling; short-window bursts are a plausible trigger but exact account/IP/endpoint thresholds are undocumented. Enhancer code must not amplify 429 with burst retries.
 - **Project-title presentation**: exact current title may be used only after identity is proven. The existing UIKit label-pair strategy is runtime-rejected on app `1.2026.202`; user has paused this work.
 - **Generation recovery**: a page refresh/rebuild does not prove an interrupted response stream recovered. No speculative `/resume`, generation retry or watchdog is authorized without runtime evidence.
-- **Diagnostic persistence**: sanitized user-started identity traces may include conversation IDs/titles and structural request/menu/UI metadata; Authorization, cookies, account IDs, raw request templates, full headers/bodies and message contents remain prohibited.
+- **Diagnostic persistence**: sanitized user-started identity traces may include conversation IDs/titles and structural request/menu/UI metadata. Alpha53 additionally permits bounded structural view-controller/navigation class data and sanitized call-stack symbols for exact init/prepare/detail requests. Authorization, cookies, account IDs, raw request templates, full headers/bodies and message contents remain prohibited.
 
 ## Current evidence
 
-- Base branch `feat/chatgpt-enhancer-v0.1` remained `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8` at alpha52 preflight.
+- Base branch `feat/chatgpt-enhancer-v0.1` remains `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
 - Alpha46 established explicit `conversation/init` semantic identity and rejected arbitrary menu UUIDs.
-- Alpha50 trace established exact identity/title acquisition while rejecting the project-header UILabel target.
-- Alpha51 trace `60CF506D-C2A9-4E8A-8A96-B01E1FD8FD70` proved three same-ID custom-route deliveries could produce detail GETs with no visible page rebuild; this is the runtime basis for alpha52.
-- Alpha52 build/test source `9c06219cdee1ac00b75372f1480278169b3f6e59`; Actions `33004675627`; CI bookkeeping `087d03884b6a4c565d126e8c90849bafa0bf28e9`; cleanup head `90c5bb97f332b2c0c4935ad3eaea9432df3e156e` differs from tested source only by run-id bookkeeping and trigger cleanup.
-- Alpha52 package digest `sha256:7fa4de42d8276e66934b4d4b2551ddf0f0916a069446388a6af4ae657140c075`; dylib Actions archive digest `sha256:dc87efcc450d5b26a9588606999cea1c481ff7ac33da51d57a88da47eea198ae`; extracted dylib sha256 `0b19bb2ec6d2b9a5ff26210bbd8d8945cffa77bb280b38e28ef1e0f9dc7f62d5`.
+- Alpha50 established exact identity/title acquisition while rejecting the project-header UILabel target.
+- Alpha51 trace `60CF506D-C2A9-4E8A-8A96-B01E1FD8FD70` proved three same-ID custom-route deliveries could produce detail GETs with no visible page rebuild.
+- Alpha52 trace `585B0B11-C85D-4A19-BA16-4F55D56A320A` captured genuine A→B→A and proves exact navigation includes init→prepare→detail traffic absent from the failed same-current route path.
+- Alpha53 build/test source `b62878928816c40cbed8c11847a3ed7ae494adde`; Actions `33007145536`; CI bookkeeping `fa926ca61013292056e647f78d1d1677b608a72b`; cleanup head `f2478c58fcaaf621ccfdffb5cb0a08b89be8dc53` differs from tested source only by run-id bookkeeping and trigger cleanup.
+- Alpha53 package digest `sha256:500a38652acf60b50f15f5ace41ca31e68a198cda3acaf724f1547f88bbeb6b2`; dylib Actions archive digest `sha256:5648a23263eb0d7fa535387a5f7fcbe2d8622142f0bdfd862515be32bb7d59a8`; extracted dylib sha256 `78a38421fe04adba9774bb8e42947ea48120d2a61698359f04c31bdb6f6f86a2`.
 
 ## Auto-refresh rule
 
