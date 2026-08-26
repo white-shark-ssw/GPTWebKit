@@ -48,7 +48,7 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Date**: 2026-08-25
 - **Scope**: Enhancer manual conversation reload
 - **Decision**: Reload only the exact active conversation ID. Retry delivery through the official app's own custom route for the same conversation. Stop if app state/context changes. A request for that exact ID proves route/request delivery only; completion semantics are further constrained by TD-010.
-- **Evidence**: Commit `8e520cba370870173a5ef08392636e1ca8036308`; alpha39 route behavior; alpha47–49 continuation.
+- **Evidence**: Commit `8e520cba370870173a5ef08392636e1ca8036308`; alpha39 route behavior; alpha47–50 continuation.
 - **Alternatives considered**: History-row/sidebar automation, UIKit pop/push navigation, using another conversation ID, orphaned-conversation fallback.
 - **Rejected / do-not-repeat**: Do not use History rows, sidebar automation, UIKit pop/push, or another conversation ID as reload fallback unless a future explicit decision with new runtime evidence supersedes this rule.
 - **Affected modules**: `Features/CEManualConversationReload.mm`, Network observer, current conversation context.
@@ -61,11 +61,11 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Date**: 2026-08-25
 - **Scope**: Enhancer current-conversation UI / identity resolution
 - **Decision**: When `CEEnhancerUI` rewrites host-app presentation with a conversation title, mark that label as enhancer-synthetic and exclude its own text/accessibility values from all generic current-conversation evidence paths. Only independent semantic host/network evidence may change `CEConversationContext`. For an already-proven exact conversation ID, an official current-chat menu/catalog title may update presentation metadata and the project header, but it still cannot select, change or reinforce identity.
-- **Evidence**: Alpha41 post-build review found a self-feedback cycle was possible: stale context A could write A's title into project chat B, after which visible-title resolution could read the plugin-generated A title and reinforce A. Alpha42 isolated marked synthetic presentation. Alpha46/47 later established exact ID independently of title; alpha48/49 use exact current menu title only after the target ID is already proven.
+- **Evidence**: Alpha41 post-build review found a self-feedback cycle was possible: stale context A could write A's title into project chat B, after which visible-title resolution could read the plugin-generated A title and reinforce A. Alpha42 isolated marked synthetic presentation. Alpha46/47 later established exact ID independently of title; alpha48–50 use exact current menu title only after the target ID is already proven.
 - **Alternatives considered**: Let the rewritten header participate in visible-title matching; create another header-local current-conversation state owner; use title to choose target ID.
 - **Rejected / do-not-repeat**: Do not treat plugin-generated UI text, official visible title, Rename prefill or project header text as proof of active conversation identity and do not create a second conversation authority to compensate.
 - **Affected modules**: `Core/CECore.*`, `UI/CEEnhancerUI.mm`, Storage presentation metadata.
-- **Validation level**: Synthetic-title exclusion has code/CI lineage; alpha49 project-header presentation runtime acceptance is pending.
+- **Validation level**: Synthetic-title exclusion has code/CI lineage; project-header presentation runtime acceptance remains pending.
 - **Supersedes**: The incomplete alpha41 project-header evidence handling.
 
 ## TD-006 — Standalone ChatGPT client uses native iOS presentation, not WebView chat rendering
@@ -92,7 +92,7 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Alternatives considered**: Treat most recent arbitrary request as current; debounce/timing heuristics; second visible-ID cache; title/source candidate targeting.
 - **Rejected / do-not-repeat**: Do not infer foreground identity from generic request recency. Do not add retry/debounce/watchdog to mask the ownership error. Do not create a second active-conversation authority.
 - **Affected modules**: Core, Network, UI, Features.
-- **Validation level**: Runtime failure + source evidence; alpha49 exact Rename is Code written → CI passed → Artifact produced, runtime pending.
+- **Validation level**: Runtime failure + source evidence; exact-current lineage has CI/artifact evidence and partial runtime evidence.
 - **Supersedes**: Alpha42 generic observed-request authority.
 - **Notes**: TD-009 narrows this rule with alpha46 evidence for one specific semantic endpoint/field; it does not restore generic network authority.
 
@@ -115,11 +115,11 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Date**: 2026-08-26
 - **Scope**: ChatGPTEnhancer current-conversation identity parsing and action targeting
 - **Decision**: A UUID-looking string is not a conversation ID merely because it matches UUID syntax. Identity evidence must come from a semantically proven conversation location/field. Alpha46 proves `POST /backend-api/share/create` request-body `conversation_id` is an exact action-scoped ground-truth oracle, and provides strong evidence that `POST /backend-api/conversation/init` with an explicit body `conversation_id` is a foreground existing-conversation navigation signal. Alpha47 promotes only that explicit init field into the sole context owner and freezes it into current-menu actions. Alpha49 restores Rename using that same immutable exact menu ID and rechecks it again immediately before PATCH. Arbitrary menu/configuration UUIDs must never be promoted to conversation identity.
-- **Evidence**: Alpha46 real-device trace contained 13 unique UUID-looking menu/configuration identifiers with zero intersection with the 7 real conversation IDs observed in network traffic. The same trace captured 8 Share-create requests across 6 unique chats; each carried explicit body `conversation_id`, including two same-title `测试会话` chats with different IDs. For 7/7 Share events with a preceding explicit `conversation/init` body ID, the latest explicit init ID matched Share exactly. Cold relaunch emitted init + matching home/prepare/detail evidence before user interaction. Alpha49 exact Rename code/CI/artifact preserves this identity chain; runtime Rename acceptance remains pending.
-- **Alternatives considered**: Continue extracting any UUID from `UIContextMenuConfiguration.identifier`; use visible title as primary target; restore “latest conversation request wins”; restore title/source-view candidate Rename; silently create Share links to discover current ID.
-- **Rejected / do-not-repeat**: Do not treat arbitrary structural UUIDs as conversation IDs. Do not use title-only or source-view candidate targeting for current-chat actions. Do not silently call `/share/create` for identity discovery because it has a user-visible/privacy-relevant side effect. Do not generalize the proven `conversation/init` field back into generic network recency authority.
+- **Evidence**: Alpha46 real-device trace contained 13 unique UUID-looking menu/configuration identifiers with zero intersection with the 7 real conversation IDs observed in network traffic. The same trace captured 8 Share-create requests across 6 unique chats; each carried explicit body `conversation_id`, including two same-title `测试会话` chats with different IDs. For 7/7 Share events with a preceding explicit `conversation/init` body ID, the latest explicit init ID matched Share exactly. Cold relaunch emitted init + matching home/prepare/detail evidence before user interaction.
+- **Alternatives considered**: Continue extracting any UUID from `UIContextMenuConfiguration.identifier`; use visible title as primary current target; restore “latest conversation request wins”; silently create Share links to discover current ID.
+- **Rejected / do-not-repeat**: Do not treat arbitrary structural UUIDs as conversation IDs. Do not use title-only/source-view candidate targeting for current-chat actions. Do not silently call `/share/create` for identity discovery because it has a user-visible/privacy-relevant side effect. Do not generalize the proven `conversation/init` field back into generic network recency authority.
 - **Affected modules**: Core, Network, UI, conversation-recognition feature consumers.
-- **Validation level**: Real-device alpha46 trace + alpha47/48 partial runtime exact-menu evidence + alpha49 CI/artifact exact Rename; broader runtime acceptance remains pending.
+- **Validation level**: Real-device alpha46 trace + alpha47–49 partial runtime exact-menu evidence + alpha50 CI/artifact lineage; broader runtime acceptance remains pending.
 - **Supersedes**: Any implicit assumption that UUID syntax alone is sufficient conversation identity evidence.
 
 ## TD-010 — Reload request delivery is not Reload completion
@@ -128,13 +128,26 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Date**: 2026-08-26
 - **Scope**: ChatGPTEnhancer exact-current manual Reload completion semantics
 - **Decision**: Observing the official request for the exact current conversation proves that the custom-route/reload request was delivered, but it does **not** prove that the current conversation page completed a reload. `✓ 当前会话已重载` may only be shown when both (1) exact same-ID official reload/detail request evidence and (2) current conversation UI/message-view refresh or rebuild evidence are present. If only request evidence is present, report the refresh as unconfirmed rather than success. Reuse the established same-ID reload attempt/poll lifecycle; do not introduce another timer/retry family/state authority.
-- **Evidence**: Alpha47 real-device feedback showed request-only could report success without apparent page reload. Alpha48 added public-UIKit snapshots, but the subsequent real-device trace started `baselineUI=unproven` and never observed rebuild while the user visibly saw the page refresh, proving that alpha48's evidence target could false-negative. Alpha49 therefore changes only the public-UIKit surface selection to search visible foreground-scene windows; the request+UI completion rule itself is unchanged.
-- **Completion evidence**: conversation scroll view identity replacement, substantial visible message/text/accessibility anchor object turnover, or visible conversation content disappearing and then returning. A visible blank screen itself is not required. Alpha49 runtime acceptance of the corrected surface discovery is pending.
+- **Evidence**: Alpha47 real-device feedback showed request-only could report success without apparent page reload. Alpha48 added public-UIKit snapshots, but the subsequent real-device trace started `baselineUI=unproven` and never observed rebuild while the user visibly saw the page refresh, proving that alpha48's evidence target could false-negative. Alpha49 changed only public-UIKit surface selection to search visible foreground-scene windows; alpha50 preserves it.
+- **Completion evidence**: conversation scroll view identity replacement, substantial visible message/text/accessibility anchor object turnover, or visible conversation content disappearing and then returning. A visible blank screen itself is not required. Runtime acceptance of the corrected surface discovery is pending.
 - **Alternatives considered**: Keep request-only success; force an artificial blank screen; add a new watchdog/timer; use History/sidebar navigation; use another conversation ID.
 - **Rejected / do-not-repeat**: Do not equate request observation with completed Reload. Do not manufacture a visual blank merely to satisfy the proof. Do not add unrelated retry/watchdog paths or alternate-ID/navigation fallbacks.
 - **Affected modules**: `Features/CEManualConversationReload.mm`, `UI/CEConversationUIReloadEvidence.mm`, `UI/CEEnhancerUI.h`, `Core/CECore.*` public window helper.
-- **Validation level**: Runtime evidence for alpha47/48 failure modes + alpha49 Code written → CI passed → Artifact produced; alpha49 real-device completion classification pending.
+- **Validation level**: Runtime evidence for alpha47/48 failure modes + later CI/artifact lineage; real-device completion classification pending.
 - **Supersedes**: The request-only success condition used through alpha47 while preserving TD-004 exact-ID route constraints.
+
+## TD-011 — Sidebar conversation management is row-scoped, not active-context-scoped
+
+- **Status**: Confirmed design contract / runtime acceptance pending
+- **Date**: 2026-08-26
+- **Scope**: ChatGPTEnhancer conversation-list long-press Rename / Markdown Export
+- **Decision**: The conversation-list/sidebar context menu is a management surface for the **selected row**, not a current-conversation surface. Sidebar `重命名会话` and `导出 Markdown` must never borrow or mutate `CEConversationContext` to decide their target. Public row/menu presentation/accessibility title may be used only to enumerate exact `CECatalog` records. One candidate may execute on that record ID; multiple same-title candidates require explicit user selection; zero candidates fail closed. Pull / Reload stay absent from sidebar menus. Arbitrary menu/configuration UUIDs are not valid row identity evidence.
+- **Evidence**: Alpha49 real-device testing confirmed the top-right exact-current menu works but the conversation-list long-press had lost enhancer actions. Current alpha49 source showed every non-header conversation menu returned early. Alpha46's older sidebar-capable code demonstrated that row presentation evidence can expose a catalog title, but it also mixed in arbitrary UUID extraction and current-context mutation that are now prohibited. Alpha50 restores only title→catalog-candidate enumeration and existing explicit candidate chooser; it does not restore those unsafe identity writers.
+- **Alternatives considered**: Use current `CEConversationContext` for the long-pressed row; add Pull/Reload to the sidebar; silently choose newest among duplicate titles; restore arbitrary UUID extraction; set active context from the long-press before acting.
+- **Rejected / do-not-repeat**: Never use the active current conversation as a substitute for selected-row identity. Never mutate active context from sidebar touch/title evidence. Never silently choose one duplicate-title record. Never add current-only Pull/Reload to sidebar row menus without a separate evidence-backed design.
+- **Affected modules**: `UI/CEEnhancerUI.mm`, existing `CEFeatures` candidate-based Rename/Export business paths, `CECatalog` as catalog owner.
+- **Validation level**: User alpha49 runtime coverage failure + alpha50 Code written → CI passed → Artifact produced. Alpha50 real-device selected-row/duplicate-title acceptance pending.
+- **Supersedes**: Alpha49's blanket non-header-menu skip while preserving the alpha47–49 exact-current header action contract.
 
 ## Rule
 
