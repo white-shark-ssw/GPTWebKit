@@ -9,18 +9,18 @@
 #import "../Diagnostics/CEConversationIdentityTrace.h"
 
 static void CEShowLoadedToastWhenReady(NSUInteger attempt) {
-    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha50-sidebar-menu-actions 已加载"); return; }
+    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha51-sync-latest-rate-limit 已加载"); return; }
     if (attempt >= 12) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(attempt + 1); });
 }
 
 static void CEStartEnhancer(void) {
     if (!CETargetApp()) return;
-    CERecoveryDiagnosticMark(@"PLUGIN START alpha50-sidebar-menu-actions");
+    CERecoveryDiagnosticMark(@"PLUGIN START alpha51-sync-latest-rate-limit");
     @try {
         CEConversationIdentityTraceStart(); [[CENetworkObserver shared] start]; CEInstallActiveConversationDiagnostics(); [[CECatalog shared] start]; [[CEEnhancerUI shared] start];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(0); });
-        NSLog(@"[ChatGPTEnhancer] alpha50-sidebar-menu-actions started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
+        NSLog(@"[ChatGPTEnhancer] alpha51-sync-latest-rate-limit started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
     } @catch (NSException *exception) { NSLog(@"[ChatGPTEnhancer] startup exception: %@", exception); }
 }
 
