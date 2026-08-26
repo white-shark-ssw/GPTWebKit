@@ -20,13 +20,15 @@ This file contains rules specific to this repository/product. These rules are ev
 ## Critical invariants
 
 - `CEConversationContext` is the sole long-lived authority for active conversation identity.
-- `CENetworkObserver` owns passive official-network observation and request-template/event capture. **Generic observed request URLs/conversation IDs are not foreground conversation authority and must not directly mutate `CEConversationContext`.** A future narrowly scoped semantic signal may update the same owner only when its exact endpoint/field has direct runtime evidence.
+- `CENetworkObserver` owns passive official-network observation and request-template/event capture. **Generic observed request URLs/conversation IDs are not foreground conversation authority and must not directly mutate `CEConversationContext`.** A narrowly scoped semantic signal may update the same owner only when its exact endpoint/field has direct runtime evidence.
 - Conversation identity parsing is **source/field-aware, not UUID-shape-aware**. A UUID found in an arbitrary UIKit/menu/configuration string is not a conversation ID. Accept exact IDs only from semantically proven conversation fields/paths such as explicit JSON `conversation_id` or backend conversation routes whose identity semantics are verified.
-- Pull Latest, manual Reload, and current-conversation Export must never execute on a stale/guessed conversation ID. Existing candidates may fail closed while exact identification is under investigation; the final design must also eliminate routine false-negative refusal rather than masking it with stale fallback.
-- Any future menu-scoped exact action target must be ephemeral evidence captured for that action, not a second long-lived current-conversation state owner.
+- Pull Latest, manual Reload, and current-conversation Export must never execute on a stale/guessed conversation ID.
+- Menu-scoped exact action target is ephemeral evidence captured for that action, not a second long-lived current-conversation state owner.
 - Title-only matching is not sufficient authority for destructive/current-conversation actions; duplicate-title cases must be supported without guessing.
 - Official Share-create body `conversation_id` is proven ground-truth identity evidence for the Share action, but `/share/create` is side-effectful and must not be invoked silently just to discover identity.
-- **Floating-button visibility is UI availability only, never conversation-identity evidence.** Until the menu-based design is proven and deliberately replaces it, the floating entry point must not disappear merely because current identity is unknown.
+- **Reload request delivery is not Reload completion.** Do not report success from request observation alone; current conversation UI refresh/rebuild must also be proven.
+- **Reload UI refresh/rebuild is not interrupted-generation recovery.** If a prior live response timed out/disconnected, a page that rebuilt but remains stuck at `正在思考` is not proof that the generation stream resumed or reached a terminal state. Recovery behavior must be based on observed official stream/status semantics, not guessed resume calls or timers.
+- Enhancer-generated project conversation titles are presentation only and must never become identity evidence.
 - `CEAPIClient` is the only component allowed to originate enhancer ChatGPT requests.
 - `CECatalog` owns conversation ID/title/update-time catalog state.
 - `CEEnhancerUI` owns host-app UI integration; feature modules should not establish competing UIKit hook ownership.
@@ -41,7 +43,8 @@ No module is marked Frozen by initialization. The following confirmed contracts 
 - Manual reload is exact-current-conversation only.
 - Generic/background official network traffic does not determine foreground conversation identity.
 - Arbitrary UUID syntax is not conversation identity evidence.
-- Floating-button visibility does not prove or require a current conversation identity while that UI remains part of the product.
+- Reload success cannot be inferred from request delivery alone.
+- A page rebuild cannot be equated with recovery of an interrupted generation stream.
 
 ## Code style / naming constraints
 
@@ -50,14 +53,14 @@ No module is marked Frozen by initialization. The following confirmed contracts 
 
 ## Prohibited routes / known dangerous regressions
 
-- For manual conversation reload, do **not** fall back to History-row automation, Sidebar automation, UIKit pop/push, or another conversation ID. Alpha39 explicitly removed that route and verifies the official request for the same conversation.
+- For manual conversation reload, do **not** fall back to History-row automation, Sidebar automation, UIKit pop/push, or another conversation ID.
 - Do not restore the alpha42 behavior where arbitrary observed conversation traffic or a generic `NSURLSessionTask.resume` probe writes an observed conversation ID into `CEConversationContext`.
 - Do not execute Pull/Reload/current Export merely because `CEConversationContext` still contains an old ID when current exact proof failed.
-- Do not hide/remove the floating-tool entry merely because `CEConversationContext.conversationID` is empty while that entry remains the active UX; alpha44 real-device testing proved this makes guarded functionality inaccessible.
 - Do not persist Authorization, cookies, account IDs, raw host request templates, full headers, raw request/response bodies or message contents, including in diagnostic logging.
 - Do not introduce a second active-conversation authority, second enhancer request client, second catalog authority or feature-local UI hook framework without an explicit architectural decision.
 - Do not treat a correct visible title, Rename prefill, Share title, or arbitrary UUID-looking menu/configuration identifier as proof of exact conversation ID.
-- Do not silently invoke `/backend-api/share/create` to identify the current conversation; the user-visible Share operation is a side effect.
+- Do not silently invoke `/backend-api/share/create` to identify the current conversation.
+- Do not add a speculative `/resume` call, generation retry loop, watchdog, or forced terminal-status override merely because Reload left `正在思考`; first capture the host's real request/error/status sequence.
 - Do not treat legacy `GPTWebKit` WebView/native app behavior as the enhancer architecture by default. A task must explicitly identify the product track it is changing.
 
 ## Rule maintenance
