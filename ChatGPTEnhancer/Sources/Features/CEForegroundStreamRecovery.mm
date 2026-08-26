@@ -6,6 +6,7 @@
 #import "../Network/CENetworkObserver.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
 #import "CEForegroundStreamRecovery.h"
+#import "CEManualConversationReload.h"
 
 static const void *CERecoveryTaskFirstResumeDateKey = &CERecoveryTaskFirstResumeDateKey;
 static NSDate *CERecoveryBackgroundDate = nil;
@@ -17,6 +18,8 @@ static NSString *CERecoveryLastServerSummary = nil;
 static NSString *CERecoveryLastManualPullSummary = nil;
 static NSDate *CERecoveryLastForegroundDate = nil;
 static NSString *CERecoveryLastSafetyState = @"foreground checks require a tracked conversation stream";
+static BOOL CERecoveryManualSyncInFlight = NO;
+static NSString *CERecoveryManualSyncConversationID = nil;
 
 static NSString *CERecoveryTaskStateName(NSURLSessionTaskState state) {
     switch (state) {
@@ -174,25 +177,33 @@ static void CERecoveryCheckServer(NSString *conversationID, NSDate *cutoff, NSUI
 @end
 
 void CEPullLatestConversationResult(NSString *conversationID) {
-    CERecoveryDiagnosticMark(@"MANUAL PULL LATEST SAFE");
-    CERecoveryDiagnosticLog(@"PULL", @"safe fetch start conversation=%@ appState=%ld apiReady=%@", conversationID ?: @"<nil>", (long)UIApplication.sharedApplication.applicationState, [[CEAPIClient shared] isReady] ? @"YES" : @"NO");
+    CERecoveryDiagnosticMark(@"MANUAL SYNC LATEST SAFE");
+    CERecoveryDiagnosticLog(@"SYNC", @"safe fetch start conversation=%@ appState=%ld apiReady=%@", conversationID ?: @"<nil>", (long)UIApplication.sharedApplication.applicationState, [[CEAPIClient shared] isReady] ? @"YES" : @"NO");
     if (!conversationID.length) { CEShowMessage(@"无法识别当前会话。"); return; }
     if (![[CEAPIClient shared] isReady]) { CEShowMessage(@"官方网络会话尚未就绪。"); return; }
-    CEShowMessage(@"正在拉取最新消息…");
+    if (CERecoveryManualSyncInFlight) { CEShowMessage([CERecoveryManualSyncConversationID isEqualToString:conversationID] ? @"当前会话正在同步…" : @"已有同步任务正在进行。"); return; }
+
+    CERecoveryManualSyncInFlight = YES; CERecoveryManualSyncConversationID = [conversationID copy]; CEShowMessage(@"正在同步最新消息…");
     NSString *path = [NSString stringWithFormat:@"/backend-api/conversation/%@", [conversationID stringByAddingPercentEncodingWithAllowedCharacters:NSCharacterSet.URLPathAllowedCharacterSet]];
     [[CEAPIClient shared] getPath:path progress:^(NSString *message) { if (message.length) CEShowMessage(message); } completion:^(NSData *data, NSHTTPURLResponse *response, NSError *error) {
         NSInteger statusCode = response.statusCode; NSData *payload = [data copy]; NSString *errorText = [error.localizedDescription copy];
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSDictionary *analysis = (!error && statusCode >= 200 && statusCode < 300) ? CERecoveryAnalyzeConversation(payload, nil) : @{ @"summary": [NSString stringWithFormat:@"bytes=%lu", (unsigned long)payload.length], @"finished": @NO, @"serverAdvanced": @NO };
             dispatch_async(dispatch_get_main_queue(), ^{
+                if (![CERecoveryManualSyncConversationID isEqualToString:conversationID]) return;
+                CERecoveryManualSyncInFlight = NO; CERecoveryManualSyncConversationID = nil;
                 CERecoveryLastManualPullSummary = analysis[@"summary"];
-                CERecoveryDiagnosticLog(@"PULL", @"GET complete status=%ld error=%@ %@", (long)statusCode, errorText ?: @"<nil>", CERecoveryLastManualPullSummary ?: @"<nil>");
-                if (error || statusCode < 200 || statusCode >= 300 || !payload.length) { CEShowMessage(errorText.length ? errorText : @"拉取最新消息失败。"); return; }
-                if (![analysis[@"finished"] boolValue]) { CEShowMessage(@"服务端仍在生成中。"); return; }
-                CERecoveryCancelStreams(nil, NO, @"manual-pull-latest", ^(NSUInteger cancelled) {
-                    CERecoveryLastSafetyState = cancelled ? [NSString stringWithFormat:@"manual pull cancelled %lu active stream task(s); no navigation", (unsigned long)cancelled] : @"manual pull fetched latest server result; no active stream; no navigation";
-                    CERecoveryDiagnosticLog(@"NAV-GUARD", @"manual pull conversation=%@ cancelled=%lu; route/history replay suppressed", conversationID, (unsigned long)cancelled);
-                    CEShowMessage(cancelled ? @"已拉取最新结果，已触发官方流恢复。" : @"已拉取服务端最新结果。");
+                CERecoveryDiagnosticLog(@"SYNC", @"GET complete status=%ld error=%@ %@", (long)statusCode, errorText ?: @"<nil>", CERecoveryLastManualPullSummary ?: @"<nil>");
+                if (error || statusCode < 200 || statusCode >= 300 || !payload.length) { CEShowMessage(errorText.length ? errorText : @"同步最新消息失败。"); return; }
+                NSString *currentID = [CEConversationContext shared].conversationID;
+                if (!currentID.length || ![currentID isEqualToString:conversationID]) { CERecoveryDiagnosticLog(@"SYNC", @"cancel context changed expected=%@ actual=%@", conversationID, currentID ?: @"<nil>"); CEShowMessage(@"当前会话已变化，已取消同步。"); return; }
+                if (![analysis[@"finished"] boolValue]) { CEShowMessage(@"服务端仍在生成中，暂未刷新页面。"); return; }
+                CERecoveryCancelStreams(nil, NO, @"manual-sync-latest", ^(NSUInteger cancelled) {
+                    NSString *nowID = [CEConversationContext shared].conversationID;
+                    if (!nowID.length || ![nowID isEqualToString:conversationID]) { CERecoveryDiagnosticLog(@"SYNC", @"cancel before reload context changed expected=%@ actual=%@", conversationID, nowID ?: @"<nil>"); CEShowMessage(@"当前会话已变化，已取消同步。"); return; }
+                    CERecoveryLastSafetyState = cancelled ? [NSString stringWithFormat:@"manual sync cancelled %lu active stream task(s); exact-current reload next", (unsigned long)cancelled] : @"manual sync fetched finished server result; exact-current reload next";
+                    CERecoveryDiagnosticLog(@"NAV-GUARD", @"manual sync conversation=%@ cancelled=%lu; exact-current reload requested", conversationID, (unsigned long)cancelled);
+                    CEManualReloadConversationID(conversationID);
                 });
             });
         });
