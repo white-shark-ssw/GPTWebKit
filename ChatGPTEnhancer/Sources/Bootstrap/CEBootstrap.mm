@@ -8,18 +8,18 @@
 #import "../Diagnostics/CEDiagnostics.h"
 
 static void CEShowLoadedToastWhenReady(NSUInteger attempt) {
-    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha44-current-conversation-guard 已加载"); return; }
+    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha45-visible-button-guard 已加载"); return; }
     if (attempt >= 12) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(attempt + 1); });
 }
 
 static void CEStartEnhancer(void) {
     if (!CETargetApp()) return;
-    CERecoveryDiagnosticMark(@"PLUGIN START alpha44-current-conversation-guard");
+    CERecoveryDiagnosticMark(@"PLUGIN START alpha45-visible-button-guard");
     @try {
         [[CENetworkObserver shared] start]; CEInstallActiveConversationDiagnostics(); [[CECatalog shared] start]; [[CEEnhancerUI shared] start];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(0); });
-        NSLog(@"[ChatGPTEnhancer] alpha44-current-conversation-guard started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
+        NSLog(@"[ChatGPTEnhancer] alpha45-visible-button-guard started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
     } @catch (NSException *exception) { NSLog(@"[ChatGPTEnhancer] startup exception: %@", exception); }
 }
 
