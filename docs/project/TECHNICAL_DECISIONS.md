@@ -91,10 +91,18 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Scope**: exact-current Sync → host refresh / manual Reload delivery
 - **Decision**: `openURL(...)=YES` alone is not enough, but once an exact same-ID conversation request is actually observed after a refresh route, route delivery is proven. If the visible UI does not rebuild, continue the existing UI-proof observation window and report failure truthfully; **do not automatically send additional exact-route variants solely because UI did not change**. Alternate exact-current route delivery is allowed only when the previous route produced no same-ID request evidence at all. Operation wording must say `正在请求客户端刷新当前会话…`, not imply that a visible reload has begun.
 - **Evidence**: Alpha51 trace `60CF506D-C2A9-4E8A-8A96-B01E1FD8FD70` showed route attempts 0/1/2 all `opened=YES` and each produced only another same-ID detail GET, with zero init/prepare/resume, 20 UI verifier samples all negative, and no visible user-observed refresh. Repeating the route added request volume without demonstrated UI benefit. Alpha52 implements delivery-aware suppression and truthful status text; Actions `33004675627` passed and artifacts were produced.
-- **Alternatives considered**: continue three route attempts after request delivery; add more route variants/timers/watchdogs; guess `/resume`; use History/sidebar/UIKit navigation; alternate IDs.
-- **Rejected / do-not-repeat**: Do not use repeated same-ID route requests as a substitute for discovering a genuine host refresh mechanism. Do not claim request/route acceptance as UI reload. Do not infer a new refresh mechanism until runtime evidence from a known genuine host rebuild/navigation sequence is available.
-- **Affected modules**: `Features/CEManualConversationReload.*`; Sync handoff consumes this existing exact-current path.
-- **Validation level**: alpha51 real-device failure evidence + alpha52 Code written → CI passed → Artifact produced; alpha52 runtime pending.
+- **Rejected / do-not-repeat**: Do not use repeated same-ID route requests as a substitute for discovering a genuine host refresh mechanism. Do not claim request/route acceptance as UI reload.
+
+## TD-014 — Genuine host conversation navigation emits init → prepare → detail; this traffic is evidence, not a replay recipe
+
+- **Status**: Confirmed runtime correlation; production refresh entry point still unverified
+- **Date**: 2026-08-27
+- **Scope**: ChatGPT iOS visible conversation navigation/rebuild versus same-current custom-route refresh
+- **Decision**: Treat exact `conversation/init → conversation/prepare → conversation detail` traffic as evidence that the official client has already entered a genuine conversation-navigation state. Do **not** infer that manually originating those same network requests from the enhancer would cause the host SwiftUI/UI state to transition or rebuild. A production refresh mechanism must target an evidenced host-side navigation/refresh owner, not replay network consequences.
+- **Evidence**: Alpha52 trace `585B0B11-C85D-4A19-BA16-4F55D56A320A` captured normal A→B→A. For exact B and then exact A, host `POST /backend-api/conversation/init` with the target body ID was followed within about 120–125 ms by exact `/backend-api/f/conversation/prepare` and `GET /backend-api/conversation/<target>` (plus a second prepare). Alpha51 failed same-current custom-route refresh emitted only same-ID detail GETs with zero exact init/prepare and no visible page rebuild.
+- **Implication**: detail GET delivery is insufficient. The missing difference is an internal host navigation-state transition that precedes/owns the init/prepare/detail sequence. Alpha53 therefore adds diagnostic-only `REFRESH-PATH` structural tracing to identify a stable host caller/navigation signature before any production refresh change.
+- **Rejected / do-not-repeat**: Do not replay init/prepare requests merely because genuine navigation emits them. Do not treat network sequence correlation as proof of the UI state owner. Do not reintroduce History/sidebar navigation, alternate IDs, UIKit pop/push, guessed `/resume`, timers or watchdogs as substitutes for identifying the real host entry path.
+- **Validation level**: alpha52 real-device A→B→A trace + alpha53 Code written → CI passed → Artifact produced; alpha53 runtime trace pending.
 
 ## Rule
 
