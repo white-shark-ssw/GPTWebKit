@@ -1,14 +1,15 @@
 name: Build ChatGPTEnhancer
+# alpha45 keeps the floating tool entry visible independently of conversation identity while preserving alpha44 fail-closed action-time verification
 # alpha44 prevents observed background conversation requests from owning foreground identity and requires unique visible proof before pull/reload/export actions
-# alpha42 project-header presentation remains present but is not part of alpha44 runtime acceptance until conversation identity is safe
+# alpha42 project-header presentation remains present but is not part of runtime acceptance until conversation identity is safe
 # alpha39 exact-current reload behavior remains unchanged: no History/sidebar/UIKit fallback and no alternate conversation id
-# alpha38 floating-button/context-percentage stability and alpha33 lifecycle stability protections remain enabled
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +39,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha44-current-conversation-guard
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha44-current-conversation-guard.zip
+          name: ChatGPTEnhancer-0.1.0-alpha45-visible-button-guard
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha45-visible-button-guard.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha44-current-conversation-guard-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha45-visible-button-guard-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
