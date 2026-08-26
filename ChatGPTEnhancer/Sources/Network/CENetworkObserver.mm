@@ -169,11 +169,6 @@ static void CEInstallSessionDelegateCapture(id delegate) {
         [[NSNotificationCenter defaultCenter] postNotificationName:CENetworkTemplateDidChangeNotification object:self];
     }
 
-    if ([path.lowercaseString containsString:@"conversation"] && [path rangeOfString:@"gen_title" options:NSCaseInsensitiveSearch].location == NSNotFound) {
-        NSString *cid = CEExtractConversationIDFromString(url.absoluteString);
-        if (cid.length) [[CEConversationContext shared] setConversationID:cid title:nil];
-    }
-
     static NSRegularExpression *projectRE; static dispatch_once_t once;
     dispatch_once(&once, ^{ projectRE = [NSRegularExpression regularExpressionWithPattern:@"/gizmos/(g-p-[^/]+)/conversations" options:NSRegularExpressionCaseInsensitive error:nil]; });
     NSTextCheckingResult *m = [projectRE firstMatchInString:path options:0 range:NSMakeRange(0, path.length)];
