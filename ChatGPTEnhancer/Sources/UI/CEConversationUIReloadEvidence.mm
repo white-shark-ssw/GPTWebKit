@@ -8,7 +8,7 @@
 @end
 @implementation CEConversationUIReloadSnapshot @end
 
-static void CEFindConversationScrollView(UIView *view, UIWindow *window, NSUInteger depth, UIScrollView **best, CGFloat *bestScore) {
+static void CEFindConversationScrollView(UIView *view, UIWindow *window, NSUInteger depth, UIScrollView **best, UIWindow **bestWindow, CGFloat *bestScore) {
     if (!view || depth > 18 || view.hidden || view.alpha < 0.02 || !view.window) return;
     if ([view isKindOfClass:UIScrollView.class] && ![view isKindOfClass:UITextView.class]) {
         CGRect frame = [view convertRect:view.bounds toView:window];
@@ -17,10 +17,10 @@ static void CEFindConversationScrollView(UIView *view, UIWindow *window, NSUInte
         CGRect contentBand = CGRectMake(0, contentTop, CGRectGetWidth(window.bounds), MAX(1.0, contentBottom - contentTop));
         if (widthRatio >= 0.55 && heightRatio >= 0.28 && CGRectIntersectsRect(frame, contentBand)) {
             UIScrollView *scroll = (UIScrollView *)view; CGFloat score = CGRectGetWidth(frame) * CGRectGetHeight(frame) + MIN(MAX(scroll.contentSize.height, 0.0), CGRectGetHeight(window.bounds) * 6.0) * 20.0;
-            if (score > *bestScore) { *best = scroll; *bestScore = score; }
+            if (score > *bestScore) { *best = scroll; *bestWindow = window; *bestScore = score; }
         }
     }
-    for (UIView *child in view.subviews) CEFindConversationScrollView(child, window, depth + 1, best, bestScore);
+    for (UIView *child in view.subviews) CEFindConversationScrollView(child, window, depth + 1, best, bestWindow, bestScore);
 }
 
 static BOOL CEViewIsReloadAnchor(UIView *view) {
@@ -41,9 +41,10 @@ static void CECollectReloadAnchors(UIView *view, UIScrollView *scroll, UIWindow 
 
 NSObject *CECaptureCurrentConversationUIReloadSnapshot(void) {
     if (!NSThread.isMainThread) return nil;
-    UIWindow *window = CEKeyWindow(); if (!window) return nil;
-    UIScrollView *scroll = nil; CGFloat bestScore = -CGFLOAT_MAX; CEFindConversationScrollView(window, window, 0, &scroll, &bestScore); if (!scroll) return nil;
-    NSMutableSet<NSNumber *> *anchors = [NSMutableSet set]; CECollectReloadAnchors(scroll, scroll, window, 0, anchors);
+    UIScrollView *scroll = nil; UIWindow *surfaceWindow = nil; CGFloat bestScore = -CGFLOAT_MAX;
+    for (UIWindow *window in CEForegroundWindows()) CEFindConversationScrollView(window, window, 0, &scroll, &surfaceWindow, &bestScore);
+    if (!scroll || !surfaceWindow) return nil;
+    NSMutableSet<NSNumber *> *anchors = [NSMutableSet set]; CECollectReloadAnchors(scroll, scroll, surfaceWindow, 0, anchors);
     CEConversationUIReloadSnapshot *snapshot = [CEConversationUIReloadSnapshot new]; snapshot.scrollIdentity = (uintptr_t)(__bridge void *)scroll; snapshot.anchorIdentities = [anchors copy]; return snapshot;
 }
 
