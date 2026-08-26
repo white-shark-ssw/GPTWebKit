@@ -1,14 +1,15 @@
 name: Build ChatGPTEnhancer
-# alpha51 renames current Pull Latest to Sync Latest and hands a finished server result into exact-current Reload for visible page refresh
-# HTTP 429 is surfaced directly instead of short automatic rate-limit retries; concurrent manual Sync taps are guarded
-# current exact conversation identity and alpha50 sidebar Rename/Markdown behavior remain unchanged
-# project-header presentation is paused and not modified by this candidate
+# alpha52 makes Sync/Reload handoff wording truthful and stops repeated exact-route delivery once same-ID request delivery is proven without UI rebuild
+# alternate exact-current route delivery remains only for cases where no same-ID request was observed; no new refresh mechanism is guessed
+# alpha51 HTTP 429 terminal handling, exact conversation identity, and alpha50 sidebar Rename/Markdown behavior remain unchanged
+# project-header presentation and percentage work are out of scope
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +39,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha51-sync-latest-rate-limit
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha51-sync-latest-rate-limit.zip
+          name: ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha51-sync-latest-rate-limit-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha52-sync-refresh-handoff-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
