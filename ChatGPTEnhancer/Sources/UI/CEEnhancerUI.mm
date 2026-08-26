@@ -210,7 +210,7 @@ static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElem
     NSMutableArray<UIMenuElement *> *enhancerActions = [NSMutableArray array];
     if (targetID.length) {
         NSString *capturedID = [targetID copy]; NSString *capturedTitle = [targetTitle copy];
-        [enhancerActions addObject:[UIAction actionWithTitle:@"拉取最新消息" image:[UIImage systemImageNamed:@"arrow.down.circle"] identifier:@"com.whiteshark.chatgptenhancer.pull" handler:^(__unused UIAction *action) { [CEFeatures pullLatestConversationID:capturedID]; }]];
+        [enhancerActions addObject:[UIAction actionWithTitle:@"同步最新消息" image:[UIImage systemImageNamed:@"arrow.down.circle"] identifier:@"com.whiteshark.chatgptenhancer.pull" handler:^(__unused UIAction *action) { [CEFeatures pullLatestConversationID:capturedID]; }]];
         [enhancerActions addObject:[UIAction actionWithTitle:@"重载当前会话" image:[UIImage systemImageNamed:@"arrow.clockwise"] identifier:@"com.whiteshark.chatgptenhancer.reload" handler:^(__unused UIAction *action) { [CEFeatures reloadConversationID:capturedID]; }]];
         [enhancerActions addObject:[UIAction actionWithTitle:@"重命名会话" image:[UIImage systemImageNamed:@"square.and.pencil"] identifier:@"com.whiteshark.chatgptenhancer.rename" handler:^(__unused UIAction *action) { [CEFeatures renameConversationID:capturedID title:capturedTitle]; }]];
         [enhancerActions addObject:[UIAction actionWithTitle:@"导出 Markdown" image:[UIImage systemImageNamed:@"doc.text"] identifier:@"com.whiteshark.chatgptenhancer.export" handler:^(__unused UIAction *action) { [CEFeatures exportConversationID:capturedID title:capturedTitle]; }]];
