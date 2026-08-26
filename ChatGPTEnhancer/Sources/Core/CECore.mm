@@ -2,7 +2,7 @@
 #import <objc/runtime.h>
 
 NSString * const CEBundleIdentifier = @"com.openai.chat";
-NSString * const CEVersion = @"0.1.0-alpha46-conversation-identity-trace";
+NSString * const CEVersion = @"0.1.0-alpha47-exact-menu-target";
 NSString * const CEConversationContextDidChangeNotification = @"ChatGPTEnhancer.ConversationContextDidChange";
 NSString * const CENetworkTemplateDidChangeNotification = @"ChatGPTEnhancer.NetworkTemplateDidChange";
 NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidChange";
@@ -21,9 +21,12 @@ NSInteger const CESyntheticConversationTitleMarkerTag = 0x43454844;
 
 - (void)setConversationID:(NSString *)conversationID title:(NSString *)title {
     if (!conversationID.length) return;
-    BOOL changed = ![_conversationID isEqualToString:conversationID] || (title.length && ![_title isEqualToString:title]);
+    BOOL idChanged = ![_conversationID isEqualToString:conversationID];
+    BOOL titleChanged = title.length && ![_title isEqualToString:title];
+    BOOL changed = idChanged || titleChanged;
     _conversationID = [conversationID copy];
-    if (title.length) _title = [title copy];
+    if (idChanged) _title = title.length ? [title copy] : nil;
+    else if (title.length) _title = [title copy];
     _updatedAt = [NSDate date];
     if (changed) [[NSNotificationCenter defaultCenter] postNotificationName:CEConversationContextDidChangeNotification object:self];
 }
