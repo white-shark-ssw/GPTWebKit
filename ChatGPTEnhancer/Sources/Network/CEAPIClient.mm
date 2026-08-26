@@ -62,14 +62,9 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
         BOOL transportRetry = error && attempt < 3;
         BOOL serverRetry = [@[@500,@502,@503,@504] containsObject:@(status)] && attempt < 3;
         BOOL authRetry = [@[@401,@403] containsObject:@(status)] && attempt < 1;
-        BOOL rateRetry = status == 429 && attempt < 3;
-        if (transportRetry || serverRetry || authRetry || rateRetry) {
+        if (transportRetry || serverRetry || authRetry) {
             NSArray *delays = @[@0.7,@1.5,@3.0]; NSTimeInterval delay = [delays[MIN(attempt, delays.count - 1)] doubleValue];
-            if (rateRetry) {
-                NSString *retryAfter = http.allHeaderFields[@"Retry-After"] ?: http.allHeaderFields[@"retry-after"];
-                if (retryAfter.doubleValue > 0) delay = MIN(MAX(retryAfter.doubleValue, 0.7), 10.0);
-            }
-            NSString *reason = serverRetry ? @"服务器读取超时" : authRetry ? @"认证/路由环境需要刷新" : rateRetry ? @"请求频率受限" : @"网络请求失败";
+            NSString *reason = serverRetry ? @"服务器读取超时" : authRetry ? @"认证/路由环境需要刷新" : @"网络请求失败";
             if (progress) dispatch_async(dispatch_get_main_queue(), ^{ progress([NSString stringWithFormat:@"%@，正在重试 %lu/3…", reason, (unsigned long)(attempt + 1)]); });
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay * NSEC_PER_SEC)), dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{ [self performMethod:method path:path body:body attempt:attempt + 1 progress:progress completion:completion]; });
             return;
@@ -78,6 +73,10 @@ static NSString * const CEInternalHeader = @"X-ChatGPTEnhancer-Internal";
         if (status < 200 || status >= 300) {
             NSString *detail = data.length ? [[NSString alloc] initWithData:[data subdataWithRange:NSMakeRange(0, MIN((NSUInteger)800, data.length))] encoding:NSUTF8StringEncoding] : @"";
             NSString *message = [NSString stringWithFormat:@"ChatGPT 请求失败（HTTP %ld）%@", (long)status, detail.length ? [NSString stringWithFormat:@"：%@", detail] : @""];
+            if (status == 429) {
+                NSString *retryAfter = [http.allHeaderFields[@"Retry-After"] description] ?: [http.allHeaderFields[@"retry-after"] description];
+                message = retryAfter.doubleValue > 0 ? [NSString stringWithFormat:@"请求频率受限，请 %@ 秒后再试。", retryAfter] : @"请求频率受限，请稍后再试。";
+            }
             if (status == 403 && [detail containsString:@"Request is not allowed"]) message = @"官方 ChatGPT 的网络防护仍拒绝插件副本请求。alpha6 已停止复用 heartbeat/prepare 的 Target-Route；请复制 alpha6 诊断，我会优先改为截获官方 OAIAPI 响应。";
             NSError *e = [NSError errorWithDomain:@"ChatGPTEnhancer" code:status userInfo:@{NSLocalizedDescriptionKey:message}];
             dispatch_async(dispatch_get_main_queue(), ^{ completion(data, http, e); }); return;
