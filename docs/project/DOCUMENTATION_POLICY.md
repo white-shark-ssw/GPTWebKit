@@ -21,7 +21,7 @@ When facts conflict:
 1. latest explicit user runtime/test result or requirement;
 2. current real source on the relevant branch/commit;
 3. current CI/artifact/test evidence;
-4. current `docs/project/`;
+4. current `docs/project/` state;
 5. old history/plans.
 
 ## Proactive maintenance
