@@ -7,6 +7,7 @@
 
 static __weak UIView *CELastTouchedView = nil;
 static NSDate *CELastTouchDate = nil;
+static NSString *CELastTouchedConversationTitle = nil;
 static CGPoint CELastTouchPoint = {0, 0};
 static BOOL CEMenuBuildGuard = NO;
 static NSString * const CEExtensionMenuIdentifier = @"com.whiteshark.chatgptenhancer.section";
@@ -60,6 +61,67 @@ static BOOL CEIsCurrentConversationHeaderSource(UIView *sourceView) {
     if (!CGRectIsEmpty(frame) && CGRectGetMidY(frame) >= headerTop && CGRectGetMidY(frame) <= headerBottom) return YES;
     if (!CELastTouchDate || [[NSDate date] timeIntervalSinceDate:CELastTouchDate] > 2.0) return NO;
     return CELastTouchPoint.y >= headerTop && CELastTouchPoint.y <= headerBottom;
+}
+
+static NSString *CESidebarCatalogTitleFromText(NSString *text) {
+    NSString *trim = [text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (trim.length < 1 || trim.length > 240) return nil;
+    if ([[CECatalog shared] recordsMatchingTitle:trim].count) return trim;
+    for (NSString *suffix in @[@"，按钮", @", button", @" 按钮"]) {
+        if (![trim.lowercaseString hasSuffix:suffix.lowercaseString] || trim.length <= suffix.length) continue;
+        NSString *candidate = [[trim substringToIndex:trim.length - suffix.length] stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (candidate.length && [[CECatalog shared] recordsMatchingTitle:candidate].count) return candidate;
+    }
+    return nil;
+}
+
+static void CEConsiderSidebarAccessibilityObject(id object, CGPoint screenPoint, NSString **bestTitle, CGFloat *bestScore) {
+    if (!object) return;
+    CGRect frame = CGRectNull;
+    @try { if ([object respondsToSelector:@selector(accessibilityFrame)]) frame = [object accessibilityFrame]; } @catch (__unused NSException *exception) {}
+    if (CGRectIsNull(frame) || CGRectIsInfinite(frame) || CGRectIsEmpty(frame)) return;
+    CGFloat distanceY = 0;
+    if (screenPoint.y < CGRectGetMinY(frame)) distanceY = CGRectGetMinY(frame) - screenPoint.y; else if (screenPoint.y > CGRectGetMaxY(frame)) distanceY = screenPoint.y - CGRectGetMaxY(frame);
+    if (!CGRectContainsPoint(CGRectInset(frame, -12, -8), screenPoint) && distanceY > 12) return;
+    NSArray<NSString *> *texts = @[
+        [object respondsToSelector:@selector(accessibilityLabel)] ? ([object accessibilityLabel] ?: @"") : @"",
+        [object respondsToSelector:@selector(accessibilityValue)] ? ([object accessibilityValue] ?: @"") : @""
+    ];
+    for (NSString *text in texts) {
+        NSString *title = CESidebarCatalogTitleFromText(text); if (!title.length) continue;
+        CGFloat area = MAX(frame.size.width * frame.size.height, 1); CGFloat score = CGRectContainsPoint(frame, screenPoint) ? (1000000.0 - MIN(area, 900000.0)) : (1000.0 - distanceY * 20.0);
+        if (!*bestTitle || score > *bestScore) { *bestTitle = title; *bestScore = score; }
+    }
+}
+
+static void CEFindSidebarAccessibilityTitle(UIView *view, CGPoint screenPoint, NSUInteger depth, NSString **bestTitle, CGFloat *bestScore) {
+    if (!view || depth > 14 || view.hidden || view.alpha < 0.01) return;
+    CEConsiderSidebarAccessibilityObject(view, screenPoint, bestTitle, bestScore);
+    NSArray *elements = nil; @try { elements = view.accessibilityElements; } @catch (__unused NSException *exception) {}
+    for (id element in elements ?: @[]) CEConsiderSidebarAccessibilityObject(element, screenPoint, bestTitle, bestScore);
+    for (UIView *child in view.subviews) CEFindSidebarAccessibilityTitle(child, screenPoint, depth + 1, bestTitle, bestScore);
+}
+
+static NSString *CESidebarConversationTitleAtPoint(UIWindow *window, CGPoint point) {
+    if (!window) return nil;
+    CGPoint screenPoint = [window convertPoint:point toWindow:nil]; NSString *bestTitle = nil; CGFloat bestScore = -CGFLOAT_MAX;
+    CEFindSidebarAccessibilityTitle(window, screenPoint, 0, &bestTitle, &bestScore); return bestTitle;
+}
+
+static NSArray<CEConversationRecord *> *CESidebarMenuCandidates(UIView *sourceView, NSString *menuTitle) {
+    NSString *title = CESidebarCatalogTitleFromText(menuTitle);
+    if (!title.length && CELastTouchDate && [[NSDate date] timeIntervalSinceDate:CELastTouchDate] <= 2.0) title = CELastTouchedConversationTitle;
+    if (!title.length && sourceView) {
+        UIView *cursor = sourceView;
+        for (NSUInteger depth = 0; cursor && depth < 6 && !title.length; depth++, cursor = cursor.superview) {
+            NSArray<NSString *> *texts = @[
+                cursor.accessibilityLabel ?: @"", cursor.accessibilityValue ?: @"",
+                [cursor isKindOfClass:UILabel.class] ? (((UILabel *)cursor).text ?: @"") : @"",
+                [cursor isKindOfClass:UIButton.class] ? ([((UIButton *)cursor) titleForState:UIControlStateNormal] ?: @"") : @""
+            ];
+            for (NSString *text in texts) { title = CESidebarCatalogTitleFromText(text); if (title.length) break; }
+        }
+    }
+    return title.length ? [[CECatalog shared] recordsMatchingTitle:title] : @[];
 }
 
 static NSString *CETraceSafeStructuralText(NSString *value) {
@@ -123,10 +185,17 @@ static void CEPresentIdentityTraceFile(NSURL *url) {
 
 static NSArray<UIMenuElement *> *CEAugmentedChildrenForSource(NSArray<UIMenuElement *> *children, UIView *sourceView, NSString *origin, NSString *identifierText, NSString *identifierClass, NSString *menuTitle) {
     if (CEMenuBuildGuard || CEHasExtensionSection(children) || !CELooksLikeConversationMenu(children)) return children;
-    UIView *resolvedSource = CERecentMenuSource(sourceView);
+    UIView *resolvedSource = CERecentMenuSource(sourceView); if (!resolvedSource) return children;
     if (!CEIsCurrentConversationHeaderSource(resolvedSource)) {
-        if (CEConversationIdentityTraceIsRecording()) { CEConversationIdentityTraceLog(@"MENU-SKIP", @"origin=%@ reason=not-current-header", origin ?: @"unknown"); CETraceMenuSource(resolvedSource); }
-        return children;
+        NSArray<CEConversationRecord *> *candidates = CESidebarMenuCandidates(resolvedSource, menuTitle); NSArray<CEConversationRecord *> *capturedCandidates = [candidates copy]; __weak UIView *weakSource = resolvedSource;
+        if (CEConversationIdentityTraceIsRecording()) {
+            CEConversationIdentityTraceLog(@"MENU-SIDEBAR", @"origin=%@ title=%@ candidateCount=%lu", origin ?: @"unknown", CELastTouchedConversationTitle ?: menuTitle ?: @"<none>", (unsigned long)candidates.count); CETraceMenuSource(resolvedSource);
+            NSUInteger index = 0; for (CEConversationRecord *record in candidates) CEConversationIdentityTraceLog(@"MENU-SIDEBAR", @"candidate[%lu] id=%@ title=%@", (unsigned long)index++, record.conversationID ?: @"<none>", record.title ?: @"<none>");
+        }
+        UIAction *rename = [UIAction actionWithTitle:@"重命名会话" image:[UIImage systemImageNamed:@"square.and.pencil"] identifier:@"com.whiteshark.chatgptenhancer.sidebar.rename" handler:^(__unused UIAction *action) { [CEFeatures renameCandidates:capturedCandidates sourceView:weakSource]; }];
+        UIAction *exportMD = [UIAction actionWithTitle:@"导出 Markdown" image:[UIImage systemImageNamed:@"doc.text"] identifier:@"com.whiteshark.chatgptenhancer.sidebar.export" handler:^(__unused UIAction *action) { [CEFeatures exportCandidates:capturedCandidates fromContextMenu:YES]; }];
+        CEMenuBuildGuard = YES; UIMenu *section = [UIMenu menuWithTitle:@"" image:nil identifier:CEExtensionMenuIdentifier options:UIMenuOptionsDisplayInline children:@[rename, exportMD]]; CEMenuBuildGuard = NO;
+        return [children arrayByAddingObject:section];
     }
 
     CEConversationContext *context = [CEConversationContext shared]; NSString *targetID = [context.conversationID copy]; CEConversationRecord *catalog = targetID.length ? [[CECatalog shared] recordForID:targetID] : nil;
@@ -166,7 +235,7 @@ static NSArray<UIMenuElement *> *CEAugmentedChildren(NSString *title, NSArray<UI
 - (void)ce_sendEvent:(UIEvent *)event {
     for (UITouch *touch in event.allTouches) {
         if (touch.phase != UITouchPhaseBegan) continue;
-        CELastTouchPoint = [touch locationInView:self]; CELastTouchedView = [self hitTest:CELastTouchPoint withEvent:event]; CELastTouchDate = [NSDate date];
+        CELastTouchPoint = [touch locationInView:self]; CELastTouchedView = [self hitTest:CELastTouchPoint withEvent:event]; CELastTouchDate = [NSDate date]; CELastTouchedConversationTitle = CESidebarConversationTitleAtPoint(self, CELastTouchPoint);
     }
     [self ce_sendEvent:event];
 }
