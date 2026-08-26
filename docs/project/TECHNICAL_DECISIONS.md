@@ -87,26 +87,40 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Status**: Confirmed
 - **Date**: 2026-08-26
 - **Scope**: ChatGPTEnhancer current-conversation identity and current-conversation actions
-- **Decision**: `CENetworkObserver` remains passive and must not set `CEConversationContext.conversationID` merely because an official request URL contains a conversation ID. Generic `NSURLSessionTask.resume` observation must not set foreground identity either. Pull, reload and current-conversation export must require fresh, unique currently-visible conversation proof at action time; if proof is ambiguous or unavailable, fail closed rather than use an older context ID.
-- **Evidence**: Alpha42 real-device testing after extended use showed Pull Latest and Reload crossing conversations. Source inspection found two independent unconditional network writers: `CENetworkObserver.observeRequest:` and `CEContextResolver`'s `NSURLSessionTask.resume` probe. Both could process official background/detail traffic for a non-visible conversation, while Pull and manual Reload consumed the resulting `CEConversationContext` ID. Alpha44 removed both network identity writers and added visible-proof guards at UI and feature consumer boundaries.
-- **Alternatives considered**: Continue treating the most recent observed conversation request as active; retain network writes but add timing/debounce heuristics; add a second “visible ID” cache; allow stale-ID fallback when UI proof fails.
-- **Rejected / do-not-repeat**: Do not infer foreground identity from request recency alone. Do not add retry/debounce/watchdog heuristics to mask the ownership error. Do not create a second active-conversation authority. Do not execute a current-conversation action when exact visible identity is unproven.
-- **Affected modules**: `Core/CEContextResolver.mm`, `Network/CENetworkObserver.mm`, `UI/CEEnhancerUI.mm`, `Features/CEFeatures.mm`, `Features/CEManualConversationReload.mm`.
-- **Validation level**: Root cause supported by source + authoritative alpha42 runtime failure. Alpha44 code written + CI/artifact succeeded but alpha44 was rejected for a separate floating-button lifecycle regression before cross-conversation stress acceptance. Alpha45 retains this decision and awaits device validation.
-- **Supersedes**: The alpha42 behavior where observed conversation requests could directly mutate `CEConversationContext`.
+- **Decision**: `CENetworkObserver` remains passive and must not set `CEConversationContext.conversationID` merely because an official request URL contains a conversation ID. Generic `NSURLSessionTask.resume` observation must not set foreground identity either. Pull, reload and current-conversation export must require exact current-conversation proof; stale context fallback is prohibited.
+- **Evidence**: Alpha42 real-device testing showed Pull Latest and Reload crossing conversations. Source inspection found two independent unconditional network writers consuming arbitrary official/background conversation traffic.
+- **Alternatives considered**: Treat most recent arbitrary request as current; debounce/timing heuristics; second visible-ID cache.
+- **Rejected / do-not-repeat**: Do not infer foreground identity from generic request recency. Do not add retry/debounce/watchdog to mask the ownership error. Do not create a second active-conversation authority.
+- **Affected modules**: Core, Network, UI, Features.
+- **Validation level**: Runtime failure + source evidence.
+- **Supersedes**: Alpha42 generic observed-request authority.
+- **Notes**: TD-009 narrows this rule with new alpha46 evidence for one specific semantic endpoint/field; it does not restore generic network authority.
 
 ## TD-008 — Floating tool availability is separate from conversation identity
 
 - **Status**: Confirmed
 - **Date**: 2026-08-26
 - **Scope**: ChatGPTEnhancer floating tools / current-conversation UX
-- **Decision**: The floating tool button is an application UI entry point, not proof that a conversation ID is known. Its visibility/lifecycle must not depend on `CEConversationContext.conversationID`. When identity is unknown or ambiguous, keep the entry available but let current-conversation actions fail closed at their existing proof boundary.
-- **Evidence**: Alpha44 correctly removed unsafe network-driven identity writes, after which the user reported the floating button was not visible. Source inspection showed `CEFloatingButtonController.contextChanged:` removed the button solely when `CEConversationContext.conversationID` was empty. Alpha45 commit `462503501ec1680c3a458ea4e8899298ad7e6666` removes only that visibility gate while leaving action-time verification unchanged; Actions `32939338703` passed.
-- **Alternatives considered**: Restore a network-derived ID just to make the button appear; infer identity from button lifetime; add a timer/retry to force identity; hide tools until identity is proven.
-- **Rejected / do-not-repeat**: Do not couple UI entry visibility to identity authority. Do not restore stale/network identity behavior for presentation convenience. Do not treat the visible button as evidence that Pull/Reload/Export are safe to execute.
-- **Affected modules**: `UI/CEEnhancerUI.mm`, conversation-recognition contract.
-- **Validation level**: Source/runtime failure evidence + alpha45 code written + CI passed + artifact produced. Alpha45 runtime/manual validation pending.
-- **Supersedes**: Alpha44 floating-button lifecycle behavior that required a non-empty active conversation ID.
+- **Decision**: The floating tool button is an application UI entry point, not proof that a conversation ID is known. Its visibility/lifecycle must not depend on `CEConversationContext.conversationID` while that UX exists.
+- **Evidence**: Alpha44 removed unsafe network identity writes, after which the button disappeared because visibility was gated by non-empty context. Alpha45 removed only that visibility gate.
+- **Alternatives considered**: Restore network-derived identity for presentation; hide tools until identity is known.
+- **Rejected / do-not-repeat**: Do not couple UI entry visibility to identity authority.
+- **Affected modules**: `UI/CEEnhancerUI.mm`.
+- **Validation level**: Runtime failure + source evidence + alpha45 CI/artifact.
+- **Supersedes**: Alpha44 ID-gated button lifecycle.
+
+## TD-009 — Conversation identity evidence is semantic/source-aware, not UUID-shape-aware
+
+- **Status**: Confirmed
+- **Date**: 2026-08-26
+- **Scope**: ChatGPTEnhancer current-conversation identity parsing and action targeting
+- **Decision**: A UUID-looking string is not a conversation ID merely because it matches UUID syntax. Identity evidence must come from a semantically proven conversation location/field. Alpha46 proves `POST /backend-api/share/create` request-body `conversation_id` is an exact action-scoped ground-truth oracle, and provides strong evidence that `POST /backend-api/conversation/init` with an explicit body `conversation_id` is a foreground existing-conversation navigation signal. Arbitrary menu/configuration UUIDs must never be promoted to conversation identity.
+- **Evidence**: Alpha46 real-device trace contained 13 unique UUID-looking menu/configuration identifiers with **zero intersection** with the 7 real conversation IDs observed in network traffic. Current `CEExtractConversationIDFromString(...)` uses a generic UUID regex, so the diagnostic logger mislabeled those structural UUIDs as `conversationID=...`, demonstrating the parser's context-free weakness. The same trace captured 8 Share-create requests across 6 unique chats; each carried explicit body `conversation_id`, including two same-title `测试会话` chats with different IDs. For 7/7 Share events with a preceding explicit `conversation/init` body ID, the latest explicit init ID matched Share exactly. Cold relaunch emitted init + `beacons/home?conversation_id` + matching detail before user interaction.
+- **Alternatives considered**: Continue extracting any UUID from `UIContextMenuConfiguration.identifier`; use visible title as primary target; restore “latest conversation request wins”; silently create Share links to discover current ID.
+- **Rejected / do-not-repeat**: Do not treat arbitrary structural UUIDs as conversation IDs. Do not use title-only targeting. Do not silently call `/share/create` for identity discovery because it has a user-visible/privacy-relevant side effect. Do not generalize the proven `conversation/init` field back into generic network recency authority.
+- **Affected modules**: `Core/CECore.*`, `Network/CENetworkObserver.*`, `UI/CEEnhancerUI.mm`, conversation-recognition feature consumers.
+- **Validation level**: Real-device alpha46 trace + current source inspection. Share exactness is runtime-proven for tested flows; `conversation/init` is strongly validated in this trace but still requires successor-candidate action-target acceptance testing.
+- **Supersedes**: Any implicit assumption that UUID syntax alone is sufficient conversation identity evidence.
 
 ## Rule
 
