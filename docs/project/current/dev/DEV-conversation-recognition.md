@@ -11,95 +11,55 @@
 
 ## Resume identity / conflict guard — 2026-08-26
 
-- **Baseline**: `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
-- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- **Current product head**: `17f76c8428dad41484641b9dcf23a78935dbc32f`; alpha48 tested product source is `e2b133f0ba050b485e89129e4fe0ecb9bbee2343`; commits after tested source are CI run-id / temporary trigger cleanup only.
-- **Parallel task**: `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43. User explicitly said percentage work is out of scope here; do not modify that task.
-- **Base branch** remains unchanged from the verified baseline above.
+- **Baseline**: `feat/chatgpt-enhancer-v0.1` at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`, rechecked unchanged before alpha49 work.
+- **Working branch / PR**: `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`; branch/PR head rechecked at `17f76c8428dad41484641b9dcf23a78935dbc32f`, PR open/draft/mergeable, base SHA unchanged.
+- **Parallel task**: `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43, Draft PR #3 stacked on this recognition branch. User explicitly said percentage work is out of scope here; alpha49 must not modify percentage-owned source/checkpoint.
+- **Candidate uniqueness check**: alpha43 is reserved by the parallel task; recognition lineage has alpha46/47/48 already allocated. `ENH-0.1.0-alpha49-exact-rename-ui-target` is newly allocated and unique.
 
-## Current candidate — alpha48
+## Current candidate — alpha49
 
-- **Candidate**: `ENH-0.1.0-alpha48-reload-ui-title` / `0.1.0-alpha48-reload-ui-title`.
-- **Actions**: run `32973529739`, job `98192604072` — success.
-- **Artifacts**: package id `9608529953`, digest `sha256:256746f6fe6f7ea01e5a3e6d90f3a8bd47fa9f606366565fab8687ef18baf6a2`; dylib id `9608530563`, digest `sha256:a14dd7ae64931d45076459290fdd0674b3c9582c1b966e7fcb2d4b06814da840`.
-- **Validation state**: **Code written → CI passed → Artifact produced → Runtime/manual partially tested and NOT accepted.** Nothing is Stable/Frozen.
-
-## Identity architecture retained from alpha46/alpha47
-
-- Alpha46 real-device trace proved explicit `POST /backend-api/conversation/init` request-body `conversation_id` tracks the foreground existing-chat target across normal/project chats, A↔B, duplicate titles and cold relaunch. Share-create body IDs independently matched 7/7 observed init targets.
-- Arbitrary UUID-looking UIKit/menu/config identifiers are not conversation IDs.
-- Only the validated explicit `conversation/init` body ID updates the sole long-lived `CEConversationContext`; generic/background traffic remains passive.
-- Current top-right chat menu captures an immutable exact ID for current-conversation actions; action must cancel if exact context changes before tap.
-- Old conversation-tool floating UI stays retired. Percentage UI is a separate task and untouched.
-- Share remains validation-only and must never be silently invoked for identity discovery.
+- **Candidate**: `ENH-0.1.0-alpha49-exact-rename-ui-target` / product `0.1.0-alpha49-exact-rename-ui-target`.
+- **Source baseline for this candidate**: alpha48 post-CI product head `17f76c8428dad41484641b9dcf23a78935dbc32f`.
+- **Scope approved by user**: begin the next evidence-backed fixes after alpha48 runtime findings.
+- **Planned product changes**:
+  1. restore enhancer `重命名会话` in the proven top-right current-chat menu using the same immutable exact `capturedID` contract as Pull/Reload/Export;
+  2. re-check that exact ID immediately before rename PATCH execution; no title/source-view candidate heuristic may select the target;
+  3. correct the shared UI target-discovery weakness exposed by alpha48: project-header presentation and Reload baseline capture currently start from `CEKeyWindow()` while invoked from a context-menu surface. Search visible windows of the foreground scene for the actual host content surface rather than assuming the transient key window is the conversation window;
+  4. preserve alpha48 request + UI proof semantics; do not revert to request-only success;
+  5. do **not** add generation `/resume`, speculative retry/watchdog/timer/status override. Interrupted-generation recovery still lacks a trace that begins before send/disconnect.
+- **Validation state**: alpha49 **Code not yet written** at allocation time. No CI/artifact/runtime evidence yet.
 
 ## Authoritative alpha48 runtime evidence
 
-### 1. Exact target remained correct
+- User-exported trace `6CC3B3D6-2F4F-40A1-9D84-CABB7D0C7F3B` kept exact Reload target stable and produced same-ID `conversation/init → f/conversation/prepare → conversation detail`; no cross-conversation evidence appeared.
+- User visually observed the page refresh, but alpha48 logged `baselineUI=unproven` and never set `uiRebuildObserved`, proving the current UIKit snapshot can false-negative on the real host surface.
+- The trace repeatedly had the correct exact-ID menu presentation title (`轮播图优化v1`), while the project header still showed the project name/no gear. Title acquisition is correct; presentation-target discovery/application is failing.
+- The interrupted response remained stuck at `正在思考` after the page refresh. The trace began after the original disconnect and shows no recorded generation-resume sequence, so generation recovery remains unproven and out of alpha49 scope.
+- User also confirmed the plugin custom `重命名会话` entry disappeared. Source comparison proves alpha47's exact-menu rewrite dropped the action while the rename business implementation remained present.
 
-User exported trace session `6CC3B3D6-2F4F-40A1-9D84-CABB7D0C7F3B` from alpha48 / ChatGPT app `1.2026.202`.
+## Identity architecture retained from alpha46/alpha47
 
-- Reload target stayed `6a8cbe3d-eaf8-83ec-92eb-68694f8baa0e`; no cross-conversation evidence appears in the trace.
-- Route delivery produced same-ID `POST /backend-api/conversation/init` → `POST /backend-api/f/conversation/prepare` → `GET /backend-api/conversation/<id>`.
+- Explicit `POST /backend-api/conversation/init` request-body `conversation_id` is the validated foreground existing-chat identity signal. Generic/background traffic is passive.
+- `CEConversationContext` remains the sole long-lived active conversation identity owner.
+- Arbitrary UUID-looking UIKit/menu/config identifiers and titles are never execution authority.
+- Current top-right chat menu freezes an immutable exact ID for current-conversation actions; action cancels if exact context changes before execution.
+- Share remains validation-only and must never be silently invoked for identity discovery.
+- Old conversation-tool floating UI stays retired. Percentage UI is separate and untouched.
 
-### 2. Reload UI proof false-negatived
+## Alpha48 status
 
-- Trace starts Reload with `baselineUI=unproven`.
-- All polls remained `uiRebuildObserved=NO` / `uiSawDisappear=NO`.
-- User visually observed the page actually refresh.
-- Therefore alpha48's current public-UIKit snapshot is not attached to the real ChatGPT message presentation tree on this host/runtime. Do not restore request-only success; replace only the incorrect UI evidence source after targeted view-tree evidence.
+- Candidate `0.1.0-alpha48-reload-ui-title`; Actions `32973529739`, job `98192604072`; package id `9608529953`, dylib id `9608530563`.
+- Validation: **Code written → CI passed → Artifact produced → Runtime/manual partially tested and NOT accepted.**
 
-### 3. Page Reload did not prove interrupted generation recovery
+## Required alpha49 real-device acceptance
 
-- Original response had produced substantial reasoning/content, then client disconnected/timed out.
-- After Reload the page visually refreshed, but the last turn remained stuck at `正在思考`.
-- Trace was started after the original disconnect, so it does not contain the failure that killed the generation stream.
-- During Reload the trace shows init/prepare/detail but no recorded `/backend-api/f/conversation/resume` or other explicit stream recovery request.
-- This proves only re-entry/refetch of the conversation. It does **not** prove generation recovery, nor prove `/resume` is the missing correct action.
-- Do not add speculative resume/retry/watchdog/status override until a trace starts before send and includes normal stream setup → disconnect/error → Reload → recovery/no-recovery.
-
-### 4. Project header presentation still failed
-
-- The current exact menu path repeatedly logged the correct title: `HEADER-TITLE ... title=轮播图优化v1`.
-- UI still showed the project name and no gear marker.
-- Therefore title acquisition is already correct; the remaining failure is presentation-target discovery/application.
-- Current implementation scans `UILabel` objects under `CEKeyWindow()`. Runtime evidence does not yet prove whether failure is transient menu key-window selection, SwiftUI/non-UILabel rendering, or both. Capture the actual header view/window structure before changing the target mechanism. Do not add a periodic title timer.
-
-### 5. Custom Rename option regression — confirmed
-
-User reports the plugin's custom `重命名会话` option is missing in alpha48.
-
-Source comparison confirms this is an enhancer regression introduced by the alpha47 exact-menu rewrite:
-
-- alpha46 `CEAugmentedChildrenForSource(...)` explicitly injected `重命名会话` and called `CEFeatures renameCandidates:sourceView:`;
-- alpha47/alpha48 current menu injection contains only `拉取最新消息` / `重载当前会话` / `导出 Markdown` / identity trace.
-
-This is not a host-app menu disappearance.
-
-**Restore rule for next candidate**:
-
-- Restore `重命名会话` only in the proven current-header menu.
-- Use the same immutable exact `capturedID` contract as Pull / Reload / Export.
-- Before execution require `CEConversationContext.conversationID == capturedID`; otherwise cancel.
-- Reuse existing rename UI/business code only after adapting its entry to an exact-ID record.
-- **Do not restore alpha46 `CECandidatesForSourceView(...)` as execution authority**; it relied on source/title/identifier candidate heuristics intentionally removed from current-conversation authority.
-
-## Current source facts relevant to Rename
-
-- `CEFeatures.h` still exposes `renameCandidates:sourceView:`; the rename business path was not deleted from the feature module.
-- The regression is the missing exact-menu action/entry, not evidence that rename backend/UI capability vanished.
-- A future small API such as an exact-ID rename entry may be justified, but use existing naming/business functions and inspect the real rename implementation/call sites before coding; do not invent or rename interfaces for style.
-
-## Next exact action
-
-Do **not** allocate a new candidate solely from the Rename report. The next product candidate should bundle only evidence-backed fixes from this runtime batch:
-
-1. restore exact-ID custom `重命名会话` in the current-header menu;
-2. capture/fix the real project-header presentation target;
-3. capture/fix the real message-view Reload evidence target;
-4. generation recovery only after a trace begins before prompt send and proves the official stream/recovery lifecycle.
-
-Before any product edit, recheck branch / PR / base / head / candidate allocations and the parallel alpha43 checkpoint. Preserve alpha47 exact identity ownership and do not touch percentage-owned code.
+1. Current top-right menu contains enhancer `重命名会话` again.
+2. Rename changes only the immutable exact current conversation; switching context before confirmation must cancel rather than rename another chat.
+3. Pull / Reload / Export exact targeting remains unchanged and no cross-conversation behavior appears.
+4. Project chat title is replaced only if the real host header surface is found; gear marker appears left of the synthetic display title; synthetic title never affects identity.
+5. Reload baseline becomes provable on the actual conversation content window and a visibly refreshed page can satisfy UI rebuild proof. Request-only must still remain unconfirmed.
+6. If the active host still renders header/message content through a surface not reached by public UIKit traversal, record that as runtime evidence; do not add private-class guesses or timers.
+7. Generation stuck/recovery behavior is not an alpha49 acceptance item beyond ensuring no regression.
 
 ## Rejected / do-not-repeat
 
@@ -118,3 +78,7 @@ Before any product edit, recheck branch / PR / base / head / candidate allocatio
 - enhancer-generated title as identity evidence;
 - restoring alpha46 `CECandidatesForSourceView(...)` as current-conversation execution authority;
 - touching percentage-owned files in this work.
+
+## Next exact action
+
+Implement alpha49 minimal source changes on `feat/conversation-recognition`, synchronize version/package/workflow identity, run isolated CI, then update this checkpoint and durable docs with exact commit/run/artifact evidence. Runtime remains pending until the user tests the exact alpha49 artifact.
