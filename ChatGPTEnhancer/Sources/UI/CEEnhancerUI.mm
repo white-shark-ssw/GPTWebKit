@@ -449,22 +449,26 @@ static void CEResolveConversationFromView(UIView *view) {
                 return visibleRecord;
             }
         }
-        if (matches.count > 1) return nil;
     }
-    NSString *cid = [CEConversationContext shared].conversationID; if (!cid.length) return nil;
+    NSString *cid = CERefreshVisibleConversationContext(); if (!cid.length) return nil;
     CEConversationRecord *record = [[CECatalog shared] recordForID:cid] ?: [CEConversationRecord new];
     if (!record.conversationID.length) record.conversationID = cid;
     if (!record.title.length || [record.title isEqualToString:@"当前会话"]) record.title = [CEConversationContext shared].title ?: @"ChatGPT Conversation";
     return record;
 }
+- (BOOL)verifyRecordStillVisible:(CEConversationRecord *)record {
+    NSString *visibleID = CERefreshVisibleConversationContext();
+    if (!visibleID.length || ![visibleID isEqualToString:record.conversationID]) { CEShowMessage(@"无法确认当前可见会话，已取消操作。"); return NO; }
+    return YES;
+}
 - (void)buttonTapped {
     CEConversationRecord *record = [self currentRecord];
-    if (!record.conversationID.length) { CEShowMessage(@"无法确认当前会话。"); return; }
+    if (!record.conversationID.length) { CEShowMessage(@"无法确认当前可见会话，已停止操作。"); return; }
     UIViewController *vc = CETopViewController(); if (!vc) return;
     UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"会话工具" message:nil preferredStyle:UIAlertControllerStyleActionSheet];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"拉取最新消息" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures pullLatestCurrentConversation]; }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"采集重载诊断（不跳页）" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures reloadCurrentConversation]; }]];
-    [sheet addAction:[UIAlertAction actionWithTitle:@"导出 MD 文档" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { [CEFeatures exportRecord:record requireConfirmation:YES]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"拉取最新消息" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { if ([self verifyRecordStillVisible:record]) [CEFeatures pullLatestCurrentConversation]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"采集重载诊断（不跳页）" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { if ([self verifyRecordStillVisible:record]) [CEFeatures reloadCurrentConversation]; }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"导出 MD 文档" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) { if ([self verifyRecordStillVisible:record]) [CEFeatures exportRecord:record requireConfirmation:YES]; }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"复制完整诊断" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
         CERecoveryDiagnosticMark(@"USER COPIED FULL DIAGNOSTICS");
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CECopyDiagnostics(self.button, nil); });
