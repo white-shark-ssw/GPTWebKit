@@ -13,14 +13,14 @@ This file contains evidence-backed rules specific to this repository/product.
 
 - Do not hard-code private ChatGPT Swift class names while a public UIKit/Foundation runtime alternative exists.
 - Sensitive Authorization/cookie/account/request-template material copied from the host app remains memory-only and must not be persisted.
-- User-started diagnostic persistence may store only minimum sanitized identity-correlation evidence: conversation ID/title and structural menu/request/UI metadata are allowed. For refresh-path investigation, bounded view-controller/navigation class names and sanitized call-stack symbols are also allowed. Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents remain prohibited.
+- User-started diagnostic persistence may store only minimum sanitized identity-correlation evidence: conversation ID/title and structural menu/request/UI metadata are allowed. Refresh-path investigation may additionally store bounded view-controller/navigation class names, task-creation hook source, stage labels such as exact/ID-less init/prepare, and sanitized bounded call-stack symbols. Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents remain prohibited.
 - Enhancer compile target is arm64 iOS 17.0 and current build links Foundation, UIKit, QuartzCore and CoreGraphics.
 - Compatibility changes for undocumented ChatGPT runtime/backend behavior require current source/runtime evidence, not guessed API structure.
 
 ## Critical invariants
 
 - `CEConversationContext` is the sole long-lived authority for active conversation identity.
-- `CENetworkObserver` owns passive official-network observation. Generic observed request URLs/conversation IDs are not foreground authority and must not directly mutate `CEConversationContext`. A narrowly scoped semantic signal may update the same owner only when its exact endpoint/field has direct runtime evidence.
+- `CENetworkObserver` owns passive official-network observation and the existing NSURLSession hook surface. Generic observed request URLs/conversation IDs are not foreground authority and must not directly mutate `CEConversationContext`. A narrowly scoped semantic signal may update the same owner only when its exact endpoint/field has direct runtime evidence.
 - Conversation identity is **source/field-aware, not UUID-shape-aware**. UUID syntax alone is never proof of a conversation ID.
 - Current-menu Sync / Reload / Rename / Export must never execute on a stale or guessed current conversation ID.
 - **Current top-right menu actions are active-conversation actions.** They use the exact ID captured by the proven current-chat menu and fail closed if the sole current context no longer matches before execution.
@@ -33,8 +33,8 @@ This file contains evidence-backed rules specific to this repository/product.
 - **Reload/request delivery is not Reload completion.** `openURL(...)=YES` or a same-ID conversation detail request proves delivery only; UI refresh/rebuild must also be proven before success is reported.
 - **Once exact same-ID request delivery is proven, do not automatically repeat the same refresh route merely because the UI did not rebuild.** Continue observing the existing proof window and fail truthfully if the page remains unchanged. Alternate same-ID delivery is permitted only when prior route delivery produced no same-ID request evidence.
 - **Genuine host navigation traffic is evidence of a host state transition, not a replay recipe.** Alpha52/53 runtime evidence shows normal exact navigation emits `conversation/init → prepare → detail` within about 125 ms, while failed same-current custom-route refresh can emit only detail GET. Do not manually replay init/prepare requests and assume the host UI will rebuild; the actual host-side navigation/refresh owner must be evidenced first.
-- **Navigation-stack count is diagnostic evidence only.** Alpha53 observed genuine exact navigation at public navigation `navCount=3` and failed same-current custom-route detail at `navCount=1`; this does not authorize force-restoring a stack, UIKit pop/push, or hard-coding private controller classes.
-- **Downstream call-stack equality is not host-entry evidence.** Alpha53's current call-stack capture point produced an identical signature for genuine init/prepare/detail and failed same-current detail, so that signature must not be used to infer the upstream navigation owner.
+- **Navigation-stack count/composition is diagnostic evidence only.** Alpha53 observed genuine exact navigation at public `navCount=3` and failed same-current custom-route detail at `navCount=1`; alpha54 records bounded controller-stack class composition to refine that evidence. This does not authorize force-restoring a stack, UIKit pop/push, or hard-coding private controller classes.
+- **Downstream call-stack equality is not host-entry evidence.** Alpha53's common observer capture point produced an identical signature for genuine init/prepare/detail and failed same-current detail. Alpha54 task-creation-level caller sampling remains diagnostic until real-device evidence proves a stable host entry path.
 - **Reload UI refresh/rebuild is not interrupted-generation recovery.** A rebuilt page that remains `正在思考` is not proof that the old stream resumed or terminated correctly.
 - HTTP 429 is terminal for the current enhancer request; do not amplify server throttling with short automatic 429 retries. Numeric `Retry-After` may be surfaced when present; do not invent quota thresholds or cooldowns.
 - Enhancer-generated project conversation titles are presentation only and must never become identity evidence.
@@ -58,7 +58,7 @@ No product module is currently marked Frozen, but these confirmed contracts must
 - Request delivery is not page reload completion.
 - Repeated same-route delivery after request delivery is already proven is prohibited without new runtime evidence.
 - Genuine navigation init/prepare/detail traffic must not be treated as authorization to replay those requests from the enhancer.
-- A `navCount` difference alone cannot justify navigation-stack mutation or UIKit pop/push.
+- A `navCount` or navigation-stack composition difference alone cannot justify navigation-stack mutation or UIKit pop/push.
 - Page rebuild is not interrupted-generation recovery.
 
 ## Code style / naming constraints
@@ -82,7 +82,7 @@ No product module is currently marked Frozen, but these confirmed contracts must
 - Do not add speculative `/resume`, generation retry loop, watchdog or forced terminal-status override because a page is stuck at `正在思考`; first capture the host's real request/error/status sequence.
 - Do not treat the diagnostic A→B→A navigation sequence as authorization to implement History/sidebar navigation as production Reload. It is evidence collection only.
 - Do not manually originate/replay `conversation/init` or `conversation/prepare` merely because genuine navigation emits those requests; network consequences are not the host UI state owner.
-- Do not force navigation-stack restoration from `navCount` alone.
+- Do not force navigation-stack restoration from `navCount` or stack composition alone.
 - Do not treat legacy `GPTWebKit` WebView/native behavior as current enhancer architecture by default.
 
 ## Rule maintenance
