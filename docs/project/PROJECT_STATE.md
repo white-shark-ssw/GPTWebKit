@@ -10,36 +10,32 @@ _Last updated: 2026-08-27._
 
 ## Current development candidate
 
-### ChatGPTEnhancer `0.1.0-alpha54-task-creation-trace`
+### ChatGPTEnhancer `0.1.0-alpha55-navigation-mutation-trace`
 
 - Work ID `DEV-conversation-recognition`; branch `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- Build/test source `6d0f8537cde9d1f3029e4b0a5f39c9a0aa041142`; CI bookkeeping `fa5338712eea77194548e041472047e1dfe4b931`; post-CI cleanup head `aa00b1d164fd11e8f743e557b33eecd8dcb1bfd1`.
-- CI passed: Actions `33042244321`, job `98418234062`.
-- Artifacts: package id `9634299997`, digest `sha256:560a89c13222875effba1e15e19d7afada4228ce0b111e2269fc2ecab3957834`; dylib id `9634300301`, Actions archive digest `sha256:506f9db6c6df491a167b51fe0541bf5c7a6bec753efc5b949bdc6e159e494f2e`.
-- Extracted dylib: arm64 Mach-O, 594752 bytes, sha256 `cad6d1e1fdcc74b4c1cc25d2d3abed53f8af79b818d04e619073f01544224237`.
+- Build/test source `64038907a5e4daadf1f7917558ea82c19aa2c5c7`; CI bookkeeping `f1562b55d9848b55e84c902a95b685ce6c0aeb1a`; post-CI cleanup head `4fba1dd7d450666510f83ec0d10e612e6e2a7290`.
+- CI passed: Actions `33046416498`, job `98431347604`.
+- Artifacts: package id `9635814798`, digest `sha256:2edbf8e2a7cc7b9f96ec907fd4fb396f8ef96ba723e987cd8587b264ef78a62e`; dylib id `9635815423`, Actions archive digest `sha256:9f6b3e1bd95465c426efdecbfb14dc748a6bb34eed4817bddeb6c7027e9792b4`.
+- Extracted dylib: arm64 Mach-O, sha256 `616bf42340b9d5934d09fea9a0f8ac04a4174dff3e0fdf92f2f5b7a9bc61560c`.
 - Tested source → cleanup head changes only run-id bookkeeping and temporary recognition-branch CI trigger removal; tested product source is unchanged.
-- Status: **Code written → CI passed → Artifact produced → Runtime/manual/real-device partially tested.**
+- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
 
-## Alpha54 runtime evidence — 2026-08-27
+## Current diagnostic behavior
 
-Trace `conversation-identity-1995A79E-71DF-4EBC-BB1E-A61D48871FD2.log`, app `1.2026.202`:
+- Production Sync/Reload behavior remains alpha52+: exact current ID, truthful refresh-request wording, request+UI completion proof, suppression of additional exact-route delivery after one same-ID request is proven, and terminal HTTP 429 handling.
+- Alpha54 runtime rejected the specific Objective-C NSURLSession task-creation-selector hypothesis: `REFRESH-CREATE=0` while downstream semantic request traces existed.
+- Alpha55 therefore follows the proven state difference instead of expanding network tracing. During the existing user-started identity trace it passively observes public `UINavigationController` stack mutation entry points and emits `NAV-MUTATION` only when stack count/class composition changes.
+- `NAV-MUTATION` records selector source, before/after bounded class composition, visible controller class, main-thread/animated flags, exact current context ID and bounded sanitized caller symbols.
+- Alpha55 does not call navigation APIs to change the host, does not hard-code private Swift classes and originates no new request.
 
-- The trace starts on A exact ID `6a8d8d0b-1b2c-83ec-89f4-fa5eb65138d7`.
-- Before first exact navigation, the host emitted one ID-less `conversation/init` and two ID-less prepares while public `SwiftUI.UIKitNavigationController` had `navCount=2` with two homogeneous `NavigationStackHostingController<AnyView>` entries.
-- Exact navigation to B `6a8da245-c538-83ec-9303-da2952a46a1f` then emitted exact init; exact prepare followed about 118 ms later and exact detail about 123 ms later. Exact B snapshots had `navCount=3` with three homogeneous stack entries.
-- Returning to A emitted an additional ID-less prepare while `navCount=3`, then exact A init followed by exact prepare/detail about 123–126 ms later; exact A snapshots remained `navCount=3`.
-- Same-A `同步最新消息` targeted the correct exact A ID. Its custom route opened once and produced only one same-ID detail GET with `navCount=1`, no exact init/prepare and no UI rebuild. Delivery-aware suppression stopped further route attempts and the operation reported failure truthfully.
-- **Zero `REFRESH-CREATE` records were emitted** despite 14 refresh-relevant `REFRESH-PATH` records. The official semantic init/prepare/detail requests therefore did not traverse the specific swizzled Objective-C NSURLSession task-creation selectors instrumented by alpha54. The exact higher-level Foundation/Swift API is still Unknown / Unverified.
-- All 14 downstream `REFRESH-PATH` call-stack signatures were identical. Alpha54 did not identify a production refresh entry point; its task-creation-selector hypothesis is runtime-rejected.
-- No HTTP 429 occurred in this trace; terminal 429 handling remains runtime-unexercised by trace evidence.
+## Authoritative runtime finding retained
 
-## Current conclusions
+Alpha54 trace `conversation-identity-1995A79E-71DF-4EBC-BB1E-A61D48871FD2.log`, app `1.2026.202`:
 
-- Exact-current identity remains correct and one-delivery suppression remains device-confirmed.
-- Genuine navigation now has stronger structural evidence: ID-less staging can occur at navigation depth 2 before exact target init/prepare/detail at depth 3. The network sequence follows a host navigation-state change and remains evidence, not a replay recipe.
-- The same-current custom URL route reaches/collapses to a one-controller navigation state and emits detail only; it is not equivalent to genuine navigation.
-- Do not keep expanding diagnostics at the same Objective-C NSURLSession task-creation selectors; this runtime produced no `REFRESH-CREATE` there.
-- If continuing, the next diagnostic should observe public `UINavigationController` stack mutation entry points without changing them, recording before/after bounded stack composition and sanitized caller evidence during the user-started trace. This does not authorize stack restoration, push/pop fallback or private-class hard-coding.
+- Genuine navigation showed ID-less init/prepare staging at navigation depth 2, then exact target init/prepare/detail at depth 3.
+- Same-current Sync/custom-route refresh produced detail only, no exact init/prepare, no UI rebuild, and a one-controller navigation stack.
+- Delivery-aware suppression prevented repeat route bursts.
+- The semantic requests did not hit the alpha54 swizzled Objective-C NSURLSession task-creation selectors, so that creation-path diagnostic route is rejected.
 
 ## Existing architecture / contracts
 
@@ -50,18 +46,18 @@ Trace `conversation-identity-1995A79E-71DF-4EBC-BB1E-A61D48871FD2.log`, app `1.2
 5. `CECatalog` — conversation catalog/title state.
 6. `CEEnhancerUI` — current exact-ID menu integration and row-scoped sidebar Rename/Export.
 7. `CEConversationUIReloadEvidence` — ephemeral UI refresh/rebuild proof, never identity authority.
-8. `CEConversationIdentityTrace` — optional sanitized runtime evidence, never identity authority.
+8. `CEConversationIdentityTrace` — optional sanitized runtime evidence, never identity authority; alpha55 adds passive public navigation-mutation observation.
 
 ## Parallel task
 
 - `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43.
-- Alpha54 did not modify percentage-owned source/checkpoint.
+- Alpha55 does not modify percentage-owned source/checkpoint.
 
 ## Next evidence
 
-- If continuing the refresh investigation, instrument only diagnostic observation of public `UINavigationController` stack mutations during the existing user-started trace; keep production Sync/Reload unchanged.
-- Then run one A → B → A → `同步最新消息` trace and compare genuine stack transitions with the custom-route collapse.
-- Do not implement production navigation mutation, request replay, History/sidebar navigation, alternate IDs, `/resume`, retries/watchdogs/timers or additional route variants without new evidence.
+- Install alpha55 and capture one trace: A visible → normal A→B→A → one `同步最新消息` attempt on A → final status → export.
+- Compare `NAV-MUTATION` selector/caller and before/after stack transitions between genuine navigation and same-current custom-route refresh.
+- Do not implement a production navigation mutation merely because a diagnostic selector is observed; production use requires stable host-owned runtime evidence.
 
 ## Evidence rule
 
