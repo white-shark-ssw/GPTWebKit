@@ -4,12 +4,12 @@
 |---|---|---|---|
 | `ChatGPTEnhancer/Sources/Bootstrap` | Active | `CEBootstrap` | Single constructor/startup owner for enhancer. New constructors are prohibited by current architecture. |
 | `ChatGPTEnhancer/Sources/Core` | Active / Shared core | `CECore`, `CEConversationContext` | Generic UIKit helpers and active conversation context. Shared state owner; conflict-check before parallel edits. |
-| `ChatGPTEnhancer/Sources/Network` | Active / Shared core | `CENetworkObserver`, `CEAPIClient` | Observer owns official request template/events; API client is sole enhancer-originated request path. Sensitive headers stay memory-only. |
+| `ChatGPTEnhancer/Sources/Network` | Active / Shared core | `CENetworkObserver`, `CEAPIClient` | Observer owns official request template/events and the existing NSURLSession hook surface; alpha54 only invokes diagnostic trace at those existing task-creation hooks. API client remains sole enhancer-originated request path. Sensitive headers stay memory-only. |
 | `ChatGPTEnhancer/Sources/Storage` | Active | `CECatalog` | Conversation ID/title/update-time catalog and title resolution. |
 | `ChatGPTEnhancer/Sources/UI` | Active / Shared surface | `CEEnhancerUI` | Owns host-app UI integration. Feature modules should not create independent UIKit hook ownership. |
 | `ChatGPTEnhancer/Sources/Export` | Active | `CEMarkdownExporter` | Complete-conversation Markdown export path. |
 | `ChatGPTEnhancer/Sources/Features` | Active | Feature-specific modules | Exact-ID Sync/Reload/Rename behavior; alpha52+ retains request+UI completion semantics and delivery-aware route suppression. |
-| `ChatGPTEnhancer/Sources/Diagnostics` | Active / Experimental | diagnostics/probe modules | Alpha53 `REFRESH-PATH` was real-device tested. It exposed genuine-navigation `navCount=3` versus failed same-current route `navCount=1`, but the downstream call-stack signature was identical across both paths and did not identify a production refresh owner. |
+| `ChatGPTEnhancer/Sources/Diagnostics` | Active / Experimental | diagnostics/probe modules | Alpha54 adds task-creation-level `REFRESH-CREATE`, ID-less init/prepare staging and bounded navigation-stack composition. CI/artifact passed; runtime pending. Diagnostic presence is not proof of a production refresh mechanism. |
 | `.github/workflows/build-enhancer.yml` | Active | Enhancer CI | Current enhancer CI/artifact path on `feat/chatgpt-enhancer-v0.1`. |
 | `GPTWebKit/` native app source | Legacy candidate | legacy branches | Native/utility line retained in repository; not current enhancer baseline. |
 | `.github/workflows/build-ipa.yml` | Legacy active-on-branches | legacy IPA CI | Builds older native/WebView app artifacts. |
