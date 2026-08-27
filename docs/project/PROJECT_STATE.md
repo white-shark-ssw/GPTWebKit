@@ -10,63 +10,56 @@ _Last updated: 2026-08-27._
 
 ## Current development candidate
 
-### ChatGPTEnhancer `0.1.0-alpha53-refresh-path-trace`
+### ChatGPTEnhancer `0.1.0-alpha54-task-creation-trace`
 
 - Work ID `DEV-conversation-recognition`; branch `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- Build/test source `b62878928816c40cbed8c11847a3ed7ae494adde`; CI bookkeeping `fa926ca61013292056e647f78d1d1677b608a72b`; post-CI cleanup head `f2478c58fcaaf621ccfdffb5cb0a08b89be8dc53`.
-- CI passed: Actions `33007145536`, job `98303728684`.
-- Artifacts: package id `9621009139`, digest `sha256:500a38652acf60b50f15f5ace41ca31e68a198cda3acaf724f1547f88bbeb6b2`; dylib id `9621009533`, Actions archive digest `sha256:5648a23263eb0d7fa535387a5f7fcbe2d8622142f0bdfd862515be32bb7d59a8`.
-- Extracted dylib: arm64 Mach-O, 594000 bytes, sha256 `78a38421fe04adba9774bb8e42947ea48120d2a61698359f04c31bdb6f6f86a2`.
-- Status: **Code written → CI passed → Artifact produced → Runtime/manual/real-device partially tested.**
+- Build/test source `6d0f8537cde9d1f3029e4b0a5f39c9a0aa041142`; CI bookkeeping `fa5338712eea77194548e041472047e1dfe4b931`; post-CI cleanup head `aa00b1d164fd11e8f743e557b33eecd8dcb1bfd1`.
+- CI passed: Actions `33042244321`, job `98418234062`.
+- Artifacts: package id `9634299997`, digest `sha256:560a89c13222875effba1e15e19d7afada4228ce0b111e2269fc2ecab3957834`; dylib id `9634300301`, Actions archive digest `sha256:506f9db6c6df491a167b51fe0541bf5c7a6bec753efc5b949bdc6e159e494f2e`.
+- Extracted dylib: arm64 Mach-O, 594752 bytes, sha256 `cad6d1e1fdcc74b4c1cc25d2d3abed53f8af79b818d04e619073f01544224237`.
+- Tested source → cleanup head changes only run-id bookkeeping and temporary recognition-branch CI trigger removal; tested product source is unchanged.
+- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
 
-## Alpha53 runtime evidence — 2026-08-27
+## Current diagnostic behavior
+
+- Production Sync/Reload behavior remains the alpha52+ behavior: exact current ID, truthful refresh-request wording, request+UI completion proof, suppression of additional exact-route delivery once one same-ID request is proven, and terminal HTTP 429 handling.
+- Alpha54 adds diagnostic-only `REFRESH-CREATE` records at the existing NSURLSession task-creation hooks for non-enhancer/internal tasks.
+- Structural stages are limited to exact `conversation/init`, ID-less `conversation/init` staging, exact `conversation/prepare`, ID-less prepare staging, and exact conversation-detail GET.
+- Records include task-creation hook source, target ID if present, key/root/top/presented controller classes, navigation-controller stack count/visible controller, bounded controller-stack class composition and sanitized caller symbols.
+- Existing downstream `REFRESH-PATH` now also carries stage + bounded navigation-stack composition, including ID-less init/prepare staging.
+- No auth/cookie/account/raw body/message content is persisted. No new traffic is originated by the diagnostic.
+- No production refresh mechanism, init/prepare replay, navigation-stack mutation, UIKit pop/push, History/sidebar navigation, alternate ID, `/resume`, timer/watchdog/retry family, Catalog throttling, project-header change or percentage change was added.
+
+## Authoritative alpha53 runtime finding retained
 
 Trace `conversation-identity-E076722C-E0F0-4044-8B99-41F727B1B62B.log`, app `1.2026.202`:
 
-- Normal A → B exact navigation targeted `6a8daab4-49ac-83ec-9983-f4c96805c6ca`; exact init was followed by exact prepare/detail traffic within ~123 ms. Normal B → A exact navigation targeted `6a8d8d0b-1b2c-83ec-89f4-fa5eb65138d7`; exact prepare/detail followed within ~125 ms.
-- Every exact genuine-navigation `REFRESH-PATH` snapshot reported `SwiftUI.UIKitNavigationController` with `navCount=3`.
-- After returning to A, one `同步最新消息` used the same exact A ID. The handoff entered Reload about 9.25 s later; route attempt 0 opened once and produced one same-ID detail GET about 1.73 s later, with no exact init/prepare and no UI rebuild.
-- Alpha52 delivery-aware suppression worked: no second/third custom route was sent after same-ID request delivery was proven. Final status was `已请求客户端刷新，但页面未发生刷新。`.
-- The failed same-current detail GET reported the same top-controller class as genuine detail/prepare but `navCount=1`, not 3. This is a structural difference between genuine navigation and the custom URL route, but it does not establish a safe production navigation mutation.
-- All 11 captured `REFRESH-PATH` call-stack signatures were identical across genuine init/prepare/detail and failed same-current detail. The current call-stack capture point is therefore too downstream/common to identify the upstream host navigation owner.
-- UI baseline remained `unproven`; verifier samples remained `uiRebuildObserved=NO` / `uiSawDisappear=NO`, consistent with the failed visible refresh.
-- No HTTP 429 occurred; terminal 429 behavior remains runtime-unexercised in trace evidence.
-
-## Current conclusions
-
-- Exact-current identity remains correct in the alpha53 capture.
-- Genuine navigation continues to show init → prepare → detail traffic and a navigation-stack count of 3; same-current custom-route refresh remains detail-only and showed a stack count of 1.
-- Network traffic remains evidence of host navigation state, not a replay recipe.
-- Do not manually replay init/prepare, force navigation-stack restoration, add UIKit pop/push, alternate IDs, `/resume`, watchdogs or extra route variants from this evidence.
-- Alpha53 diagnostic call-stack sampling did **not** reveal a production refresh entry point. A narrower diagnostic must capture closer to actual task creation and include bounded navigation-stack composition / ID-less init/prepare staging before a production refresh change is justified.
+- Genuine exact A→B and B→A navigation emitted exact init then exact prepare/detail within ~125 ms and showed public navigation `navCount=3`.
+- Same-A Sync/custom-route handoff produced one detail GET only, no exact init/prepare, no UI rebuild, and `navCount=1`.
+- Delivery-aware suppression prevented second/third route attempts after the first same-ID request was proven.
+- All 11 alpha53 downstream call-stack signatures were identical, so the old capture point is not upstream host-entry evidence.
 
 ## Existing architecture / contracts
 
 1. `CEBootstrap` — sole startup owner.
 2. `CECore` / `CEConversationContext` — sole active-conversation identity authority.
-3. `CENetworkObserver` — passive host-network observation; only validated explicit `POST /backend-api/conversation/init` body ID may promote foreground identity.
-4. `CEAPIClient` — sole enhancer-originated ChatGPT request owner; HTTP 429 is terminal for the current request rather than a burst-retry trigger.
+3. `CENetworkObserver` — passive host-network observation; only validated exact `POST /backend-api/conversation/init` body ID may promote foreground identity.
+4. `CEAPIClient` — sole enhancer-originated ChatGPT request owner; HTTP 429 is terminal for the current enhancer request.
 5. `CECatalog` — conversation catalog/title state.
 6. `CEEnhancerUI` — current exact-ID menu integration and row-scoped sidebar Rename/Export.
 7. `CEConversationUIReloadEvidence` — ephemeral UI refresh/rebuild proof, never identity authority.
 8. `CEConversationIdentityTrace` — optional sanitized runtime evidence, never identity authority.
 
-## Other retained runtime findings
-
-- Alpha50 project-header trace proved exact identity/title acquisition but rejected the current UIKit `聊天 UILabel + nearby title UILabel` target on app `1.2026.202`; user has paused this feature.
-- Reload request delivery is not Reload completion, and UI rebuild is not proof that an interrupted generation stream recovered.
-- Sidebar Rename/Export selected-row acceptance and duplicate-title behavior remain pending real-device verification.
-
 ## Parallel task
 
 - `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43.
-- Alpha53 did not modify percentage-owned source/checkpoint.
+- Alpha54 did not modify percentage-owned source/checkpoint.
 
 ## Next evidence
 
-- Before implementing a new host refresh mechanism, refine diagnostics only: capture first observation source at NSURLSession task creation, bounded public navigation-controller stack class composition, and ID-less init/prepare structural staging.
-- Then run one A → B → A → `同步最新消息` trace and compare the genuine navigation path with the same-current route.
-- This diagnostic work does not authorize History/sidebar navigation, UIKit stack restoration or manual init/prepare replay as production behavior.
+- Install alpha54 and capture one trace: A visible → normal A→B→A → one `同步最新消息` attempt on A → final status → export.
+- Compare `REFRESH-CREATE` hook/caller signatures, navigation-stack composition, and ID-less init/prepare staging between genuine navigation and same-current custom-route refresh.
+- Do not implement a production host refresh mechanism unless the trace identifies an evidence-backed host entry path.
 
 ## Evidence rule
 
