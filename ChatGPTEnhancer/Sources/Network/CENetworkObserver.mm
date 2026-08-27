@@ -258,7 +258,7 @@ static void CEInstallSessionDelegateCapture(id delegate) {
 }
 - (NSURLSessionDataTask *)ce_dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
-    if (!internal) [[CENetworkObserver shared] observeRequest:clean session:self];
+    if (!internal) { CEConversationIdentityTraceLogTaskCreation(clean, @"dataTaskWithRequest:completion"); [[CENetworkObserver shared] observeRequest:clean session:self]; }
     void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
         if (!internal && error) CEConversationIdentityTraceLogResponse(clean, response, error);
         if (!internal && !error) [[CENetworkObserver shared] observeResponseData:data response:response request:clean];
@@ -268,11 +268,11 @@ static void CEInstallSessionDelegateCapture(id delegate) {
 }
 - (NSURLSessionDataTask *)ce_dataTaskWithRequest:(NSURLRequest *)request {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
-    if (!internal) [[CENetworkObserver shared] observeRequest:clean session:self];
+    if (!internal) { CEConversationIdentityTraceLogTaskCreation(clean, @"dataTaskWithRequest"); [[CENetworkObserver shared] observeRequest:clean session:self]; }
     NSURLSessionDataTask *task = [self ce_dataTaskWithRequest:clean]; CEAssociateSession(task, self); if (internal) CEMarkInternalTask(task); return task;
 }
 - (NSURLSessionDataTask *)ce_dataTaskWithURL:(NSURL *)url completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
-    NSURLRequest *request = [NSURLRequest requestWithURL:url]; [[CENetworkObserver shared] observeRequest:request session:self];
+    NSURLRequest *request = [NSURLRequest requestWithURL:url]; CEConversationIdentityTraceLogTaskCreation(request, @"dataTaskWithURL:completion"); [[CENetworkObserver shared] observeRequest:request session:self];
     void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
         if (error) CEConversationIdentityTraceLogResponse(request, response, error);
         if (!error) [[CENetworkObserver shared] observeResponseData:data response:response request:request]; if (completionHandler) completionHandler(data, response, error);
@@ -280,12 +280,12 @@ static void CEInstallSessionDelegateCapture(id delegate) {
     NSURLSessionDataTask *task = [self ce_dataTaskWithURL:url completionHandler:wrapped]; CEAssociateSession(task, self); return task;
 }
 - (NSURLSessionDataTask *)ce_dataTaskWithURL:(NSURL *)url {
-    NSURLRequest *request = [NSURLRequest requestWithURL:url]; [[CENetworkObserver shared] observeRequest:request session:self];
+    NSURLRequest *request = [NSURLRequest requestWithURL:url]; CEConversationIdentityTraceLogTaskCreation(request, @"dataTaskWithURL"); [[CENetworkObserver shared] observeRequest:request session:self];
     NSURLSessionDataTask *task = [self ce_dataTaskWithURL:url]; CEAssociateSession(task, self); return task;
 }
 - (NSURLSessionUploadTask *)ce_uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData completionHandler:(void (^)(NSData *, NSURLResponse *, NSError *))completionHandler {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
-    if (!internal) { NSMutableURLRequest *observed = [clean mutableCopy]; observed.HTTPBody = bodyData; [[CENetworkObserver shared] observeRequest:observed session:self]; }
+    if (!internal) { NSMutableURLRequest *observed = [clean mutableCopy]; observed.HTTPBody = bodyData; CEConversationIdentityTraceLogTaskCreation(observed, @"uploadTaskWithRequest:fromData:completion"); [[CENetworkObserver shared] observeRequest:observed session:self]; }
     void (^wrapped)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
         if (!internal && error) CEConversationIdentityTraceLogResponse(clean, response, error);
         if (!internal && !error) [[CENetworkObserver shared] observeResponseData:data response:response request:clean]; if (completionHandler) completionHandler(data, response, error);
@@ -294,7 +294,7 @@ static void CEInstallSessionDelegateCapture(id delegate) {
 }
 - (NSURLSessionUploadTask *)ce_uploadTaskWithRequest:(NSURLRequest *)request fromData:(NSData *)bodyData {
     BOOL internal = NO; NSURLRequest *clean = [[CENetworkObserver shared] cleanInternalRequestIfNeeded:request internal:&internal];
-    if (!internal) { NSMutableURLRequest *observed = [clean mutableCopy]; observed.HTTPBody = bodyData; [[CENetworkObserver shared] observeRequest:observed session:self]; }
+    if (!internal) { NSMutableURLRequest *observed = [clean mutableCopy]; observed.HTTPBody = bodyData; CEConversationIdentityTraceLogTaskCreation(observed, @"uploadTaskWithRequest:fromData"); [[CENetworkObserver shared] observeRequest:observed session:self]; }
     NSURLSessionUploadTask *task = [self ce_uploadTaskWithRequest:clean fromData:bodyData]; CEAssociateSession(task, self); if (internal) CEMarkInternalTask(task); return task;
 }
 @end
