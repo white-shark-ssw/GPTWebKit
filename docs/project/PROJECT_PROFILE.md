@@ -34,7 +34,8 @@
   - `UI/CEConversationUIReloadEvidence` — ephemeral public-UIKit UI refresh/rebuild proof; not identity authority.
   - `Export/CEMarkdownExporter` — Markdown generation from complete conversation data.
   - `Features/*` — exact-ID Sync/Rename/Reload/recovery behavior.
-  - `Diagnostics/CEConversationIdentityTrace` — optional sanitized runtime correlation trace. Alpha55 passively observes public `UINavigationController` stack mutation entry points during the user-started trace; it is evidence-only and never identity authority.
+  - `Diagnostics/CEConversationIdentityTrace` — optional sanitized runtime correlation trace; alpha55 established passive public navigation-mutation correlation.
+  - `Diagnostics/CENavigationInstanceTrace` — alpha56 evidence-only public navigation-controller instance/attachment snapshotting around same-current refresh handoff; stable per-process diagnostic tokens are not identity authority.
 
 ## Build and validation
 
@@ -42,15 +43,15 @@
 - **Test command**: no automated test command verified.
 - **Lint/static checks**: no dedicated suite verified.
 - **Enhancer CI**: `.github/workflows/build-enhancer.yml`, macOS 15. Normal push trigger is `feat/chatgpt-enhancer-v0.1`; isolated candidate branches temporarily add their own trigger and remove it after the candidate build.
-- **Newest enhancer artifact**: `0.1.0-alpha55-navigation-mutation-trace`; Actions `33046416498`, job `98431347604`; package id `9635814798`, dylib id `9635815423`.
-- **Current validation**: alpha55 = **Code written → CI passed → Artifact produced; Runtime/manual pending**. It is diagnostic-only and keeps production Sync/Reload behavior unchanged.
+- **Newest enhancer artifact**: `0.1.0-alpha56-navigation-instance-trace`; accepted Actions `33052999411`, job `98452810620`; package id `9638389331`, dylib id `9638389813`.
+- **Current validation**: alpha56 = **Code written → CI passed → Artifact produced; Runtime/manual pending**. First alpha56 CI attempt `33052810815` failed compile due a corrected diagnostic-only syntax typo and produced no artifact.
 - **Parallel artifact**: alpha43 belongs to `DEV-conversation-usage` and remains separate; recognition work does not modify percentage-owned source.
 
 ## Versioning and candidate identity
 
 - **Enhancer version source**: `CEVersion` in `ChatGPTEnhancer/Sources/Core/CECore.mm`.
 - **Duplicated identity locations**: `CECore.mm`, `ChatGPTEnhancer/build.sh`, `.github/workflows/build-enhancer.yml` names must match.
-- **Current recognition candidate**: `0.1.0-alpha55-navigation-mutation-trace`.
+- **Current recognition candidate**: `0.1.0-alpha56-navigation-instance-trace`.
 - **Build number**: no separate product build number verified; Actions run ID is build evidence only.
 - **Release/tag scheme**: no formal release/tag process verified.
 - **Parallel rule**: each Active dev task owns a unique candidate/artifact identity.
@@ -62,16 +63,18 @@
 - **Identity**: exact foreground identity is semantic/source-aware. Generic/background request recency, arbitrary UIKit/menu UUIDs and title-only matching are not authority. The validated explicit exact `conversation/init` body ID updates the sole `CEConversationContext`; current-chat menu actions freeze that ID.
 - **Sync**: `同步最新消息` makes one guarded enhancer GET for the exact target. HTTP 429 is not automatically retried. GET success is server-state evidence only, not visible synchronization.
 - **Refresh handoff**: same-ID host request delivery is not Reload completion. Alpha52+ reports it as a refresh request and does not repeat route delivery after request delivery is proven solely because the UI did not rebuild. UI success still requires actual refresh/rebuild evidence.
-- **Genuine navigation evidence**: alpha52/53 showed exact host navigation emits exact `conversation/init`, then within about 125 ms exact `prepare` + conversation detail GET. Alpha54 strengthened the structural sequence: ID-less init/prepare staging was observed at public navigation depth 2 before exact target navigation at depth 3. Same-current custom-route refresh produced only detail at depth 1.
+- **Genuine navigation evidence**: alpha52/53 established exact init→prepare/detail correlation after host navigation. Alpha54 strengthened structural staging at navigation depth 2 before exact target depth 3. Alpha55 then directly observed genuine public navigation mutation as `pop 3→2` followed by `push 2→3`, with stable callers and exact target init ~128–135 ms after the target push.
+- **Same-current custom-route evidence**: alpha55 observed a structurally different `setViewControllers: 0→1` path. In that trace the route subsequently emitted exact init/prepare/detail at depth 1 but still produced no visible page rebuild. Therefore init/prepare/detail remains consequence/evidence and is not sufficient refresh authority.
+- **Navigation-instance uncertainty**: alpha55 did not record navigation-controller object identity/attachment. Whether custom-route `0→1` is a new/off-path instance or an active host instance remains `Unknown / Unverified`; alpha56 exists specifically to resolve that uncertainty.
 - **Rejected network-creation hypothesis**: alpha54 emitted zero `REFRESH-CREATE` records despite semantic request observations, so the relevant official requests bypass the specifically swizzled Objective-C NSURLSession task-creation selectors in that runtime. The exact higher-level Foundation/Swift path remains `Unknown / Unverified`.
-- **Alpha55 navigation diagnostic**: while user trace recording is active, the enhancer observes public `UINavigationController` `setViewControllers` / push / pop family mutations and records only real before→after count/class-composition changes plus sanitized caller evidence. It never invokes these APIs to force host navigation.
-- **Navigation evidence rule**: navigation count/composition and mutation caller traces are diagnostic evidence only. Do not restore a three-controller stack, push/pop controllers, or hard-code observed Swift controller classes without separate production evidence.
+- **Alpha56 navigation diagnostic**: each observed public `UINavigationController` receives a stable per-process diagnostic token without raw pointer persistence. Around same-current route handoff, snapshots record bounded stack composition, visible controller class, foreground-window attachment, key-window status, active-nav relation and bounded parent/presentation class metadata. This is observation only and does not mutate navigation.
+- **Navigation evidence rule**: navigation count/composition, mutation caller traces and instance/attachment snapshots are diagnostic evidence only. Do not restore a three-controller stack, push/pop controllers, set view controllers, or hard-code observed Swift controller classes without separate production evidence.
 - **Sidebar management**: non-current Rename/Export resolve the selected row independently from current context; duplicate titles require explicit selection.
 - **Rename**: current-menu Rename uses the frozen exact ID and rechecks it immediately before PATCH.
 - **Rate limiting**: HTTP 429 is server-side throttling; short-window bursts are a plausible trigger but exact account/IP/endpoint thresholds are undocumented. Enhancer code must not amplify 429 with burst retries.
 - **Project-title presentation**: exact current title may be used only after identity is proven. The existing UIKit label-pair strategy is runtime-rejected on app `1.2026.202`; user has paused this work.
 - **Generation recovery**: a page refresh/rebuild does not prove an interrupted response stream recovered. No speculative `/resume`, generation retry or watchdog is authorized without runtime evidence.
-- **Diagnostic persistence**: sanitized user-started identity traces may include conversation IDs/titles, structural request/menu/UI metadata, bounded controller/navigation class names, public navigation selector names, observation-source labels and sanitized call-stack symbols. Authorization, cookies, account IDs, raw request templates, full headers/bodies and message contents remain prohibited.
+- **Diagnostic persistence**: sanitized user-started identity traces may include conversation IDs/titles, structural request/menu/UI metadata, bounded controller/navigation class names, public navigation selector names, per-process non-pointer nav tokens, attachment/active flags, observation-source labels and sanitized call-stack symbols. Authorization, cookies, account IDs, raw request templates, full headers/bodies, raw pointer addresses and message contents remain prohibited.
 
 ## Current evidence
 
@@ -82,8 +85,9 @@
 - Alpha52 trace captured genuine A→B→A and established init→prepare→detail as host-navigation evidence.
 - Alpha53 confirmed one-delivery suppression, genuine navigation depth 3 versus failed same-current depth 1, and the limitation of downstream call-stack sampling.
 - Alpha54 trace `1995A79E-71DF-4EBC-BB1E-A61D48871FD2` recorded ID-less staging at nav depth 2, exact navigation at depth 3, failed same-current detail at depth 1 and zero `REFRESH-CREATE`; this rejected the selected Objective-C task-creation-selector path.
-- Alpha55 build/test source `64038907a5e4daadf1f7917558ea82c19aa2c5c7`; Actions `33046416498`; CI bookkeeping `f1562b55d9848b55e84c902a95b685ce6c0aeb1a`; cleanup head `4fba1dd7d450666510f83ec0d10e612e6e2a7290` differs from tested source only by run-id bookkeeping and trigger cleanup.
-- Alpha55 package digest `sha256:2edbf8e2a7cc7b9f96ec907fd4fb396f8ef96ba723e987cd8587b264ef78a62e`; dylib Actions archive digest `sha256:9f6b3e1bd95465c426efdecbfb14dc748a6bb34eed4817bddeb6c7027e9792b4`; extracted dylib sha256 `616bf42340b9d5934d09fea9a0f8ac04a4174dff3e0fdf92f2f5b7a9bc61560c`.
+- Alpha55 trace `F042014D-8407-4910-A5DA-2A9399C26425` observed stable genuine `pop 3→2 / push 2→3` mutation versus custom-route `setViewControllers 0→1`; the latter could still emit exact init/prepare/detail but did not visibly rebuild the page.
+- Alpha56 accepted build/test source `f2cee73312da7254d44053ec092f9e7643326d92`; Actions `33052999411`; CI bookkeeping `6b69425e5c2284777b86890d0d967f1d3c45dcf5`; cleanup head `ce9bf42d6c4d3afde125e01c03120adbdf6f718d` differs from tested source only by run-id bookkeeping and trigger cleanup.
+- Alpha56 package digest `sha256:c6eab9030b6b4d9b5957fbb864410d0bf0931785ee95d4d4ca098e8d13dae0fb`; dylib Actions archive digest `sha256:993c966dd8dbdcc7ceb805d8ad647df5b0dff0a06b97e31b61923792a89d9266`; extracted dylib sha256 `3af11e471dd986d7074619be4f0b224f28e90ec3b29c73dd31379f4bb37b3b42`.
 
 ## Auto-refresh rule
 
