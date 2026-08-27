@@ -3,10 +3,16 @@
 #import <UIKit/UIKit.h>
 
 @interface CEConversationUIReloadSnapshot : NSObject
+@property (nonatomic) uintptr_t navigationIdentity;
 @property (nonatomic) uintptr_t scrollIdentity;
 @property (nonatomic, strong) NSSet<NSNumber *> *anchorIdentities;
 @end
 @implementation CEConversationUIReloadSnapshot @end
+
+static UINavigationController *CEActiveAttachedNavigationController(void) {
+    UIViewController *top = CETopViewController(); UINavigationController *nav = [top isKindOfClass:UINavigationController.class] ? (UINavigationController *)top : top.navigationController;
+    UIWindow *window = nav.viewIfLoaded.window; if (!nav || !window || window.hidden || window.alpha < 0.02) return nil; return nav;
+}
 
 static void CEFindConversationScrollView(UIView *view, UIWindow *window, NSUInteger depth, UIScrollView **best, UIWindow **bestWindow, CGFloat *bestScore) {
     if (!view || depth > 18 || view.hidden || view.alpha < 0.02 || !view.window) return;
@@ -41,11 +47,12 @@ static void CECollectReloadAnchors(UIView *view, UIScrollView *scroll, UIWindow 
 
 NSObject *CECaptureCurrentConversationUIReloadSnapshot(void) {
     if (!NSThread.isMainThread) return nil;
+    CEConversationUIReloadSnapshot *snapshot = [CEConversationUIReloadSnapshot new]; UINavigationController *nav = CEActiveAttachedNavigationController(); snapshot.navigationIdentity = (uintptr_t)(__bridge void *)nav;
     UIScrollView *scroll = nil; UIWindow *surfaceWindow = nil; CGFloat bestScore = -CGFLOAT_MAX;
     for (UIWindow *window in CEForegroundWindows()) CEFindConversationScrollView(window, window, 0, &scroll, &surfaceWindow, &bestScore);
-    if (!scroll || !surfaceWindow) return nil;
-    NSMutableSet<NSNumber *> *anchors = [NSMutableSet set]; CECollectReloadAnchors(scroll, scroll, surfaceWindow, 0, anchors);
-    CEConversationUIReloadSnapshot *snapshot = [CEConversationUIReloadSnapshot new]; snapshot.scrollIdentity = (uintptr_t)(__bridge void *)scroll; snapshot.anchorIdentities = [anchors copy]; return snapshot;
+    NSMutableSet<NSNumber *> *anchors = [NSMutableSet set];
+    if (scroll && surfaceWindow) { snapshot.scrollIdentity = (uintptr_t)(__bridge void *)scroll; CECollectReloadAnchors(scroll, scroll, surfaceWindow, 0, anchors); }
+    snapshot.anchorIdentities = [anchors copy]; return snapshot.navigationIdentity || snapshot.scrollIdentity ? snapshot : nil;
 }
 
 BOOL CECurrentConversationUIReloadSnapshotHasContent(NSObject *snapshot) {
@@ -56,6 +63,7 @@ BOOL CECurrentConversationUIReloadSnapshotHasContent(NSObject *snapshot) {
 BOOL CECurrentConversationUIReloadSnapshotShowsRebuild(NSObject *baseline, NSObject *current) {
     if (![baseline isKindOfClass:CEConversationUIReloadSnapshot.class] || ![current isKindOfClass:CEConversationUIReloadSnapshot.class]) return NO;
     CEConversationUIReloadSnapshot *before = (CEConversationUIReloadSnapshot *)baseline; CEConversationUIReloadSnapshot *after = (CEConversationUIReloadSnapshot *)current;
+    if (before.navigationIdentity && after.navigationIdentity && before.navigationIdentity != after.navigationIdentity) return YES;
     if (before.scrollIdentity && after.scrollIdentity && before.scrollIdentity != after.scrollIdentity) return YES;
     NSUInteger beforeCount = before.anchorIdentities.count, afterCount = after.anchorIdentities.count, minimum = MIN(beforeCount, afterCount); if (!minimum) return NO;
     NSMutableSet<NSNumber *> *shared = [before.anchorIdentities mutableCopy]; [shared intersectSet:after.anchorIdentities];
