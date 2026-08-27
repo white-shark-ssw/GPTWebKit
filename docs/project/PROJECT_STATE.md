@@ -10,33 +10,36 @@ _Last updated: 2026-08-27._
 
 ## Current development candidate
 
-### ChatGPTEnhancer `0.1.0-alpha56-navigation-instance-trace`
+### ChatGPTEnhancer `0.1.0-alpha57-navigation-rebuild-proof`
 
 - Work ID `DEV-conversation-recognition`; branch `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- Accepted build/test source `f2cee73312da7254d44053ec092f9e7643326d92`; CI bookkeeping `6b69425e5c2284777b86890d0d967f1d3c45dcf5`; post-CI cleanup head `ce9bf42d6c4d3afde125e01c03120adbdf6f718d`.
-- First alpha56 CI run `33052810815`, job `98452184776`, failed at compile because of a diagnostic-only syntax typo and produced no artifact. The corrected accepted build passed Actions `33052999411`, job `98452810620`.
-- Artifacts: package id `9638389331`, digest `sha256:c6eab9030b6b4d9b5957fbb864410d0bf0931785ee95d4d4ca098e8d13dae0fb`; dylib id `9638389813`, Actions archive digest `sha256:993c966dd8dbdcc7ceb805d8ad647df5b0dff0a06b97e31b61923792a89d9266`.
-- Extracted dylib: arm64 Mach-O, 613776 bytes, sha256 `3af11e471dd986d7074619be4f0b224f28e90ec3b29c73dd31379f4bb37b3b42`.
+- Build/test source `fe48c56350720127786670d9fe37e28280905055`; CI bookkeeping `ef75624e24e60842afabde93f4151a39453f1c9f`; post-CI cleanup head `ad4a4718c498a9926ed553797ac9fb3e45df48c4`.
+- CI passed: Actions `33083945220`, job `98558346397`.
+- Artifacts: package id `9651296956`, digest `sha256:c71bfab996a1f01a0634701b95bafb12111863dcc97e3bb4469728e567630cae`; dylib id `9651298129`, Actions archive digest `sha256:ccf2275eded12bd180741ef82d3685b1be21a8da33c8cf01c8b9cea823755fe3`.
+- Extracted dylib: Mach-O 64-bit arm64, 614096 bytes, sha256 `2d7de7f8b424d62ba970bf8913da5b0f64ed11d60108d06db5a3b2a9b62a8a3d`.
 - Tested source → cleanup head changes only run-id bookkeeping and temporary recognition-branch CI trigger removal; tested product source is unchanged.
 - Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
 
-## Authoritative alpha55 runtime finding
+## Runtime evidence driving alpha57
 
-Trace `conversation-identity-F042014D-8407-4910-A5DA-2A9399C26425.log`, app `1.2026.202`:
+Alpha56 trace `62313B1B-56B2-4F4C-A1B3-A658FDE8067D`, app `1.2026.202`:
 
-- Genuine conversation navigation repeatedly used public `UINavigationController` mutation sequence `pop 3 → 2` followed by `push 2 → 3`; caller signatures were stable across repeated switches.
-- Genuine target push preceded exact target `conversation/init` by about 128–135 ms, then exact prepare/detail followed. This strengthens that network traffic follows host navigation-state mutation rather than owning it.
-- Same-current `同步最新消息` used a different `setViewControllers: 0 → 1` path rather than the genuine pop/push sequence. In this trace the custom route then produced exact init/prepare/detail at navigation depth 1, but the visible conversation still did not rebuild.
-- Therefore exact init/prepare/detail is still insufficient for visible refresh; the one-controller navigation state is structurally different from genuine navigation.
-- Alpha55 did not record navigation-controller instance identity or attachment. Whether custom-route `0 → 1` belongs to a separate/new/off-path navigation instance remains `Unknown / Unverified`.
-- Delivery-aware suppression still prevented repeat route bursts. No HTTP 429 occurred.
+- User visibly observed a page refresh after `同步最新消息`, while alpha56 incorrectly ended with `已请求客户端刷新，但页面未发生刷新。`.
+- Reload began with active attached key-window navigation controller `nav-1`, count 3.
+- The same-current route emitted a distinct `setViewControllers: 0→1`, then exact same-ID init/prepare/detail.
+- Verification resolved a **different** active attached key-window navigation controller `nav-2`, count 1. This proves the host replaced the active navigation-controller surface.
+- Exact same-ID request delivery was present and repeat-route suppression worked.
+- The old scroll/anchor-only UI detector had `baselineUI=unproven`, causing the false negative.
 
-## Alpha56 diagnostic behavior
+## Current Sync/Reload behavior
 
-- Production Sync/Reload behavior remains alpha52+: exact current ID, truthful refresh-request wording, request+UI completion proof, suppression of additional exact-route delivery after one same-ID request is proven, and terminal HTTP 429 handling.
-- Alpha56 adds evidence-only navigation-instance correlation. Each observed public `UINavigationController` gets a stable per-process diagnostic token without persisting a raw pointer/address.
-- Around the existing same-current route handoff, snapshots record stack count/composition, visible controller class, foreground-window attachment, key-window status, whether the instance is the active navigation controller resolved from the top controller, and bounded parent/presentation class metadata.
-- Alpha56 does not call navigation APIs to change the host, does not fabricate stack entries, does not hard-code private Swift classes and originates no additional ChatGPT request.
+- `CEConversationContext` remains the sole active conversation identity authority.
+- `同步最新消息` uses the frozen exact ID and one guarded enhancer GET. HTTP 429 remains terminal for that request; no burst retry.
+- Server GET/init/prepare/detail or custom-route acceptance alone is not visible synchronization.
+- Visible success still requires exact same-ID request evidence plus UI rebuild evidence.
+- Alpha57 adds one evidence-backed UI path: if the currently active attached `UINavigationController` object is replaced between baseline and verification, that replacement counts as an ephemeral UI rebuild signal.
+- Existing scroll-view replacement / anchor-turnover proof remains supported.
+- Navigation object identity is in-memory UI evidence only; it is not persisted, is not conversation identity, and does not authorize enhancer-originated push/pop/setViewControllers.
 
 ## Existing architecture / contracts
 
@@ -46,19 +49,19 @@ Trace `conversation-identity-F042014D-8407-4910-A5DA-2A9399C26425.log`, app `1.2
 4. `CEAPIClient` — sole enhancer-originated ChatGPT request owner; HTTP 429 is terminal for the current enhancer request.
 5. `CECatalog` — conversation catalog/title state.
 6. `CEEnhancerUI` — current exact-ID menu integration and row-scoped sidebar Rename/Export.
-7. `CEConversationUIReloadEvidence` — ephemeral UI refresh/rebuild proof, never identity authority.
-8. `CEConversationIdentityTrace` / `CENavigationInstanceTrace` — optional sanitized runtime evidence only, never identity authority.
+7. `CEConversationUIReloadEvidence` — ephemeral UI refresh/rebuild proof; alpha57 includes active attached navigation-controller replacement in addition to scroll/anchor evidence.
+8. `CEConversationIdentityTrace` / navigation diagnostics — optional sanitized runtime evidence, never identity authority.
 
 ## Parallel task
 
 - `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43.
-- Alpha56 does not modify percentage-owned source/checkpoint.
+- Alpha57 does not modify percentage-owned source/checkpoint.
 
 ## Next evidence
 
-- Install alpha56 and capture one short trace on an already open target conversation: begin `会话识别记录` → press `同步最新消息` once → wait for final status → finish/export.
-- Compare `NAV-INSTANCE` tokens and attachment/active ownership before route open, after route delivery and during verification.
-- Do not implement production navigation mutation from count/caller evidence alone. The next production step depends on whether alpha56 proves the custom-route `0 → 1` belongs to a different/off-path instance or replaces/becomes the active host instance.
+- Install alpha57 and press `同步最新消息` on the same current conversation.
+- If the page visibly refreshes, the final status should now be `✓ 当前会话页面已刷新` rather than the alpha56 false negative.
+- Do not mark Stable/Frozen until this exact artifact is runtime tested.
 
 ## Evidence rule
 
