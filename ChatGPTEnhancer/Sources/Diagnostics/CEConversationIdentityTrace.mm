@@ -6,6 +6,8 @@ static NSString * const CETraceActiveKey = @"ChatGPTEnhancer.IdentityTrace.Activ
 static NSString * const CETraceSessionKey = @"ChatGPTEnhancer.IdentityTrace.SessionID";
 static NSString *CETraceLaunchID = nil;
 static NSUInteger CETraceSequence = 0;
+static __thread BOOL CENavigationTraceReentrant = NO;
+static void CEInstallNavigationTraceHooks(void);
 
 static NSObject *CETraceLock(void) {
     static NSObject *lock; static dispatch_once_t once;
@@ -87,7 +89,7 @@ static void CETraceLifecycle(NSString *name) { CEConversationIdentityTraceLog(@"
 void CEConversationIdentityTraceStart(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
-        CETraceLaunchID = NSUUID.UUID.UUIDString;
+        CETraceLaunchID = NSUUID.UUID.UUIDString; CEInstallNavigationTraceHooks();
         NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
         [center addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CETraceLifecycle(@"didBecomeActive"); }];
         [center addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(__unused NSNotification *note) { CETraceLifecycle(@"willResignActive"); }];
@@ -177,14 +179,76 @@ static UINavigationController *CETraceNavigationController(UIViewController *top
     return top.navigationController;
 }
 
-static NSString *CETraceNavigationStack(UINavigationController *nav) {
-    if (!nav) return @"<none>";
+static NSString *CETraceNavigationStackFromControllers(NSArray<UIViewController *> *controllers) {
     NSMutableArray<NSString *> *classes = [NSMutableArray array];
-    for (UIViewController *controller in nav.viewControllers ?: @[]) {
+    for (UIViewController *controller in controllers ?: @[]) {
         [classes addObject:NSStringFromClass(controller.class) ?: @"<unknown>"];
         if (classes.count >= 8) break;
     }
     return classes.count ? [classes componentsJoinedByString:@">"] : @"<empty>";
+}
+
+static NSString *CETraceNavigationStack(UINavigationController *nav) { return nav ? CETraceNavigationStackFromControllers(nav.viewControllers) : @"<none>"; }
+
+static void CETraceNavigationMutation(UINavigationController *nav, NSString *source, NSArray<UIViewController *> *before, NSString *beforeVisible, BOOL animated, NSString *caller) {
+    if (!CEConversationIdentityTraceIsRecording() || !nav || !source.length) return;
+    NSArray<UIViewController *> *after = [nav.viewControllers copy] ?: @[]; NSString *beforeStack = CETraceNavigationStackFromControllers(before); NSString *afterStack = CETraceNavigationStackFromControllers(after);
+    if (before.count == after.count && [beforeStack isEqualToString:afterStack]) return;
+    CEConversationContext *context = [CEConversationContext shared];
+    CETraceAppend(@"NAV-MUTATION", [NSString stringWithFormat:@"source=%@ animated=%@ main=%@ nav=%@ contextID=%@ beforeCount=%lu beforeStack=%@ beforeVisible=%@ afterCount=%lu afterStack=%@ afterVisible=%@ caller=%@",
+        source, animated ? @"YES" : @"NO", NSThread.isMainThread ? @"YES" : @"NO", NSStringFromClass(nav.class) ?: @"<none>", context.conversationID ?: @"<none>",
+        (unsigned long)before.count, beforeStack, beforeVisible ?: @"<none>", (unsigned long)after.count, afterStack, nav.visibleViewController ? NSStringFromClass(nav.visibleViewController.class) : @"<none>", caller ?: @"<none>"]);
+}
+
+@interface UINavigationController (ChatGPTEnhancerNavigationTrace)
+- (void)ce_trace_setViewControllers:(NSArray<UIViewController *> *)viewControllers;
+- (void)ce_trace_setViewControllers:(NSArray<UIViewController *> *)viewControllers animated:(BOOL)animated;
+- (void)ce_trace_pushViewController:(UIViewController *)viewController animated:(BOOL)animated;
+- (UIViewController *)ce_trace_popViewControllerAnimated:(BOOL)animated;
+- (NSArray<UIViewController *> *)ce_trace_popToViewController:(UIViewController *)viewController animated:(BOOL)animated;
+- (NSArray<UIViewController *> *)ce_trace_popToRootViewControllerAnimated:(BOOL)animated;
+@end
+
+@implementation UINavigationController (ChatGPTEnhancerNavigationTrace)
+- (void)ce_trace_setViewControllers:(NSArray<UIViewController *> *)viewControllers {
+    if (!CEConversationIdentityTraceIsRecording() || CENavigationTraceReentrant) { [self ce_trace_setViewControllers:viewControllers]; return; }
+    CENavigationTraceReentrant = YES; NSArray *before = [self.viewControllers copy] ?: @[]; NSString *beforeVisible = self.visibleViewController ? NSStringFromClass(self.visibleViewController.class) : nil; NSString *caller = CETraceCompactStack(12); [self ce_trace_setViewControllers:viewControllers]; CENavigationTraceReentrant = NO;
+    CETraceNavigationMutation(self, @"setViewControllers:", before, beforeVisible, NO, caller);
+}
+- (void)ce_trace_setViewControllers:(NSArray<UIViewController *> *)viewControllers animated:(BOOL)animated {
+    if (!CEConversationIdentityTraceIsRecording() || CENavigationTraceReentrant) { [self ce_trace_setViewControllers:viewControllers animated:animated]; return; }
+    CENavigationTraceReentrant = YES; NSArray *before = [self.viewControllers copy] ?: @[]; NSString *beforeVisible = self.visibleViewController ? NSStringFromClass(self.visibleViewController.class) : nil; NSString *caller = CETraceCompactStack(12); [self ce_trace_setViewControllers:viewControllers animated:animated]; CENavigationTraceReentrant = NO;
+    CETraceNavigationMutation(self, @"setViewControllers:animated:", before, beforeVisible, animated, caller);
+}
+- (void)ce_trace_pushViewController:(UIViewController *)viewController animated:(BOOL)animated {
+    if (!CEConversationIdentityTraceIsRecording() || CENavigationTraceReentrant) { [self ce_trace_pushViewController:viewController animated:animated]; return; }
+    CENavigationTraceReentrant = YES; NSArray *before = [self.viewControllers copy] ?: @[]; NSString *beforeVisible = self.visibleViewController ? NSStringFromClass(self.visibleViewController.class) : nil; NSString *caller = CETraceCompactStack(12); [self ce_trace_pushViewController:viewController animated:animated]; CENavigationTraceReentrant = NO;
+    CETraceNavigationMutation(self, @"pushViewController:animated:", before, beforeVisible, animated, caller);
+}
+- (UIViewController *)ce_trace_popViewControllerAnimated:(BOOL)animated {
+    if (!CEConversationIdentityTraceIsRecording() || CENavigationTraceReentrant) return [self ce_trace_popViewControllerAnimated:animated];
+    CENavigationTraceReentrant = YES; NSArray *before = [self.viewControllers copy] ?: @[]; NSString *beforeVisible = self.visibleViewController ? NSStringFromClass(self.visibleViewController.class) : nil; NSString *caller = CETraceCompactStack(12); UIViewController *result = [self ce_trace_popViewControllerAnimated:animated]; CENavigationTraceReentrant = NO;
+    CETraceNavigationMutation(self, @"popViewControllerAnimated:", before, beforeVisible, animated, caller); return result;
+}
+- (NSArray<UIViewController *> *)ce_trace_popToViewController:(UIViewController *)viewController animated:(BOOL)animated {
+    if (!CEConversationIdentityTraceIsRecording() || CENavigationTraceReentrant) return [self ce_trace_popToViewController:viewController animated:animated];
+    CENavigationTraceReentrant = YES; NSArray *before = [self.viewControllers copy] ?: @[]; NSString *beforeVisible = self.visibleViewController ? NSStringFromClass(self.visibleViewController.class) : nil; NSString *caller = CETraceCompactStack(12); NSArray<UIViewController *> *result = [self ce_trace_popToViewController:viewController animated:animated]; CENavigationTraceReentrant = NO;
+    CETraceNavigationMutation(self, @"popToViewController:animated:", before, beforeVisible, animated, caller); return result;
+}
+- (NSArray<UIViewController *> *)ce_trace_popToRootViewControllerAnimated:(BOOL)animated {
+    if (!CEConversationIdentityTraceIsRecording() || CENavigationTraceReentrant) return [self ce_trace_popToRootViewControllerAnimated:animated];
+    CENavigationTraceReentrant = YES; NSArray *before = [self.viewControllers copy] ?: @[]; NSString *beforeVisible = self.visibleViewController ? NSStringFromClass(self.visibleViewController.class) : nil; NSString *caller = CETraceCompactStack(12); NSArray<UIViewController *> *result = [self ce_trace_popToRootViewControllerAnimated:animated]; CENavigationTraceReentrant = NO;
+    CETraceNavigationMutation(self, @"popToRootViewControllerAnimated:", before, beforeVisible, animated, caller); return result;
+}
+@end
+
+static void CEInstallNavigationTraceHooks(void) {
+    CESwizzleInstanceMethod(UINavigationController.class, @selector(setViewControllers:), @selector(ce_trace_setViewControllers:));
+    CESwizzleInstanceMethod(UINavigationController.class, @selector(setViewControllers:animated:), @selector(ce_trace_setViewControllers:animated:));
+    CESwizzleInstanceMethod(UINavigationController.class, @selector(pushViewController:animated:), @selector(ce_trace_pushViewController:animated:));
+    CESwizzleInstanceMethod(UINavigationController.class, @selector(popViewControllerAnimated:), @selector(ce_trace_popViewControllerAnimated:));
+    CESwizzleInstanceMethod(UINavigationController.class, @selector(popToViewController:animated:), @selector(ce_trace_popToViewController:animated:));
+    CESwizzleInstanceMethod(UINavigationController.class, @selector(popToRootViewControllerAnimated:), @selector(ce_trace_popToRootViewControllerAnimated:));
 }
 
 static void CETraceRefreshPathContext(NSURLRequest *request, NSArray<NSString *> *urlIDs, NSArray<NSString *> *bodyIDs) {
