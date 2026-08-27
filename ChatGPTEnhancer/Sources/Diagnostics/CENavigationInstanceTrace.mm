@@ -44,6 +44,6 @@ void CENavigationInstanceTraceSnapshot(NSString *reason) {
         CEConversationIdentityTraceLog(@"NAV-INSTANCE", @"reason=%@ index=%lu token=%@ nav=%@ count=%lu stack=%@ visible=%@ attached=%@ window=%@ windowKey=%@ active=%@ parent=%@ presenting=%@ presented=%@",
             reason ?: @"<none>", (unsigned long)index++, CENavigationInstanceToken(nav), NSStringFromClass(nav.class) ?: @"<none>", (unsigned long)nav.viewControllers.count, CENavigationInstanceStack(nav),
             nav.visibleViewController ? NSStringFromClass(nav.visibleViewController.class) : @"<none>", window ? @"YES" : @"NO", window ? NSStringFromClass(window.class) : @"<none>", window.isKeyWindow ? @"YES" : @"NO", nav == activeNav ? @"YES" : @"NO",
-            nav.parentViewController ? NSStringFromClass(nav.parentViewController.class) : @"<none>", nav.presentingViewController ? NSStringFromClass(nav.presentingViewController.class) : @"<none>", nav.presentedViewController ? NSStringFromClass(nav.presentedViewController.class) : @"<none>"]);
+            nav.parentViewController ? NSStringFromClass(nav.parentViewController.class) : @"<none>", nav.presentingViewController ? NSStringFromClass(nav.presentingViewController.class) : @"<none>", nav.presentedViewController ? NSStringFromClass(nav.presentedViewController.class) : @"<none>");
     }
 }
