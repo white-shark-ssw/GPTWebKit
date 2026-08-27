@@ -1,14 +1,14 @@
 name: Build ChatGPTEnhancer
-# alpha53 adds diagnostic-only refresh-path tracing for exact init/prepare/detail host requests
-# call-site/navigation signatures are sanitized structural evidence inside the existing user-started trace
-# alpha52 truthful Sync/Reload messaging, request-burst suppression, alpha51 429 handling, exact identity, and sidebar actions remain unchanged
-# no production refresh mechanism, project-header work, or percentage work is added
+# alpha54 moves refresh-path diagnostics to the existing NSURLSession task-creation hooks and includes ID-less init/prepare staging plus bounded navigation-stack composition
+# production Sync/Reload behavior remains alpha52: truthful refresh status, delivery-aware route suppression, terminal 429 handling, exact identity, and sidebar actions
+# no production refresh mechanism, request replay, nav-stack mutation, project-header work, or percentage work is added
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -38,12 +38,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace.zip
+          name: ChatGPTEnhancer-0.1.0-alpha54-task-creation-trace
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha54-task-creation-trace.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha54-task-creation-trace-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
