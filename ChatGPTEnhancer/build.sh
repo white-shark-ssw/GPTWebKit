@@ -28,6 +28,6 @@ codesign -f -s - "$BUILD/ChatGPTEnhancer.dylib"
 cp "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/package/"
 cp "$ROOT/Support/ChatGPTEnhancer.plist" "$BUILD/package/ChatGPTEnhancer.plist"
 cp "$ROOT/README.md" "$BUILD/package/README.txt"
-(cd "$BUILD/package" && /usr/bin/zip -9 -r "../ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace.zip" .)
+(cd "$BUILD/package" && /usr/bin/zip -9 -r "../ChatGPTEnhancer-0.1.0-alpha54-task-creation-trace.zip" .)
 file "$BUILD/ChatGPTEnhancer.dylib"
-ls -lh "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/ChatGPTEnhancer-0.1.0-alpha53-refresh-path-trace.zip"
+ls -lh "$BUILD/ChatGPTEnhancer.dylib" "$BUILD/ChatGPTEnhancer-0.1.0-alpha54-task-creation-trace.zip"
