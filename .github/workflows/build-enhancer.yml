@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha55 passively traces public UINavigationController stack mutations during the existing user-started identity trace
+# alpha56 snapshots public UINavigationController instance identity/attachment around the existing same-current refresh handoff
 # production Sync/Reload behavior remains alpha52+: truthful refresh status, delivery-aware route suppression, terminal 429 handling, exact identity, and sidebar actions
 # no production navigation mutation, request replay, project-header work, or percentage work is added
 
@@ -8,6 +8,7 @@ on:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -37,12 +38,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha55-navigation-mutation-trace
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha55-navigation-mutation-trace.zip
+          name: ChatGPTEnhancer-0.1.0-alpha56-navigation-instance-trace
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha56-navigation-instance-trace.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha55-navigation-mutation-trace-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha56-navigation-instance-trace-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
