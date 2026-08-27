@@ -9,8 +9,8 @@
 | `ChatGPTEnhancer/Sources/UI` | Active / Shared surface | `CEEnhancerUI` | Owns host-app UI integration. Feature modules should not create independent UIKit hook ownership. |
 | `ChatGPTEnhancer/Sources/Export` | Active | `CEMarkdownExporter` | Complete-conversation Markdown export path. |
 | `ChatGPTEnhancer/Sources/Features` | Active | Feature-specific modules | Exact-ID Sync/Reload/Rename behavior; alpha52+ retains request+UI completion semantics and delivery-aware route suppression. |
-| `ChatGPTEnhancer/Sources/Diagnostics` | Active / Experimental | diagnostics/probe modules | Alpha55 passively observes public `UINavigationController` `setViewControllers` / push / pop family mutations only while the user-started trace is active, logging real before→after stack changes and sanitized callers. CI/artifact passed; runtime pending. It does not mutate navigation or prove a production refresh mechanism. |
-| `.github/workflows/build-enhancer.yml` | Active | Enhancer CI | Current enhancer CI/artifact path on `feat/chatgpt-enhancer-v0.1`. |
+| `ChatGPTEnhancer/Sources/Diagnostics` | Active / Experimental | diagnostics/probe modules | Alpha55 runtime observed stable genuine `pop 3→2 / push 2→3` public navigation mutations versus custom-route `setViewControllers 0→1`; exact init/prepare/detail alone still did not visibly refresh. Alpha56 adds stable per-process navigation-instance tokens and foreground attachment/key/active snapshots around the same-current route. Alpha56 CI/artifact passed; runtime pending. Diagnostics do not mutate navigation or prove a production refresh mechanism. |
+| `.github/workflows/build-enhancer.yml` | Active | Enhancer CI | Current enhancer CI/artifact path on `feat/chatgpt-enhancer-v0.1`; feature-branch trigger is temporary per isolated candidate build and removed after CI. |
 | `GPTWebKit/` native app source | Legacy candidate | legacy branches | Native/utility line retained in repository; not current enhancer baseline. |
 | `.github/workflows/build-ipa.yml` | Legacy active-on-branches | legacy IPA CI | Builds older native/WebView app artifacts. |
 
