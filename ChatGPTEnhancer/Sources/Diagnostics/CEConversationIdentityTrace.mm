@@ -143,15 +143,21 @@ static NSArray<NSString *> *CETraceConversationIDsFromURL(NSURL *url) {
     return out.array;
 }
 
-static BOOL CETraceIsRefreshSemanticRequest(NSURLRequest *request, NSArray<NSString *> *urlIDs, NSArray<NSString *> *bodyIDs) {
-    NSString *path = request.URL.path.lowercaseString ?: @""; NSString *method = request.HTTPMethod.uppercaseString ?: @"GET";
-    if ([method isEqualToString:@"POST"] && [path isEqualToString:@"/backend-api/conversation/init"] && bodyIDs.count == 1) return YES;
-    if ([method isEqualToString:@"POST"] && ([path isEqualToString:@"/backend-api/f/conversation/prepare"] || [path isEqualToString:@"/backend-api/conversation/prepare"]) && bodyIDs.count == 1) return YES;
-    if ([method isEqualToString:@"GET"] && urlIDs.count == 1 && ([path hasPrefix:@"/backend-api/conversation/"] || [path hasPrefix:@"/backend-api/f/conversation/"])) return YES;
-    return NO;
+static BOOL CETraceIsExactConversationDetailPath(NSString *path, NSString *conversationID) {
+    if (!path.length || !conversationID.length) return NO;
+    NSString *cid = conversationID.lowercaseString;
+    return [path isEqualToString:[NSString stringWithFormat:@"/backend-api/conversation/%@", cid]] || [path isEqualToString:[NSString stringWithFormat:@"/backend-api/f/conversation/%@", cid]];
 }
 
-static NSString *CETraceCompactStack(void) {
+static NSString *CETraceRefreshStage(NSURLRequest *request, NSArray<NSString *> *urlIDs, NSArray<NSString *> *bodyIDs) {
+    NSString *path = request.URL.path.lowercaseString ?: @""; NSString *method = request.HTTPMethod.uppercaseString ?: @"GET";
+    if ([method isEqualToString:@"POST"] && [path isEqualToString:@"/backend-api/conversation/init"]) return bodyIDs.count == 1 ? @"exact-init" : (bodyIDs.count == 0 ? @"staging-init" : nil);
+    if ([method isEqualToString:@"POST"] && ([path isEqualToString:@"/backend-api/f/conversation/prepare"] || [path isEqualToString:@"/backend-api/conversation/prepare"])) return bodyIDs.count == 1 ? @"exact-prepare" : (bodyIDs.count == 0 ? @"staging-prepare" : nil);
+    if ([method isEqualToString:@"GET"] && urlIDs.count == 1 && CETraceIsExactConversationDetailPath(path, urlIDs.firstObject)) return @"detail";
+    return nil;
+}
+
+static NSString *CETraceCompactStack(NSUInteger limit) {
     NSMutableArray<NSString *> *frames = [NSMutableArray array];
     for (NSString *raw in NSThread.callStackSymbols ?: @[]) {
         if ([raw containsString:@"ChatGPTEnhancer"] || [raw containsString:@"CEConversationIdentityTrace"] || [raw containsString:@"CENetworkObserver"]) continue;
@@ -161,19 +167,46 @@ static NSString *CETraceCompactStack(void) {
         dispatch_once(&once, ^{ addressRE = [NSRegularExpression regularExpressionWithPattern:@"0x[0-9a-fA-F]+" options:0 error:nil]; });
         frame = [addressRE stringByReplacingMatchesInString:frame options:0 range:NSMakeRange(0, frame.length) withTemplate:@"0x…"];
         if (frame.length > 220) frame = [[frame substringToIndex:220] stringByAppendingString:@"…"];
-        [frames addObject:frame]; if (frames.count >= 8) break;
+        [frames addObject:frame]; if (frames.count >= limit) break;
     }
     return frames.count ? [frames componentsJoinedByString:@" || "] : @"<none>";
 }
 
+static UINavigationController *CETraceNavigationController(UIViewController *top) {
+    if ([top isKindOfClass:UINavigationController.class]) return (UINavigationController *)top;
+    return top.navigationController;
+}
+
+static NSString *CETraceNavigationStack(UINavigationController *nav) {
+    if (!nav) return @"<none>";
+    NSMutableArray<NSString *> *classes = [NSMutableArray array];
+    for (UIViewController *controller in nav.viewControllers ?: @[]) {
+        [classes addObject:NSStringFromClass(controller.class) ?: @"<unknown>"];
+        if (classes.count >= 8) break;
+    }
+    return classes.count ? [classes componentsJoinedByString:@">"] : @"<empty>";
+}
+
 static void CETraceRefreshPathContext(NSURLRequest *request, NSArray<NSString *> *urlIDs, NSArray<NSString *> *bodyIDs) {
-    if (!CETraceIsRefreshSemanticRequest(request, urlIDs, bodyIDs)) return;
-    UIViewController *top = CETopViewController(); UINavigationController *nav = top.navigationController; UIWindow *key = CEKeyWindow(); UIViewController *root = key.rootViewController;
+    NSString *stage = CETraceRefreshStage(request, urlIDs, bodyIDs); if (!stage.length) return;
+    UIViewController *top = CETopViewController(); UINavigationController *nav = CETraceNavigationController(top); UIWindow *key = CEKeyWindow(); UIViewController *root = key.rootViewController;
     NSString *targetID = bodyIDs.firstObject ?: urlIDs.firstObject ?: @"<none>";
-    CETraceAppend(@"REFRESH-PATH", [NSString stringWithFormat:@"method=%@ path=%@ target=%@ keyWindow=%@ rootVC=%@ topVC=%@ presentedVC=%@ nav=%@ navCount=%lu navVisible=%@ stack=%@",
-        request.HTTPMethod ?: @"GET", request.URL.path ?: @"/", targetID,
+    CETraceAppend(@"REFRESH-PATH", [NSString stringWithFormat:@"stage=%@ method=%@ path=%@ target=%@ keyWindow=%@ rootVC=%@ topVC=%@ presentedVC=%@ nav=%@ navCount=%lu navStack=%@ navVisible=%@ stack=%@",
+        stage, request.HTTPMethod ?: @"GET", request.URL.path ?: @"/", targetID,
         key ? NSStringFromClass(key.class) : @"<none>", root ? NSStringFromClass(root.class) : @"<none>", top ? NSStringFromClass(top.class) : @"<none>", top.presentedViewController ? NSStringFromClass(top.presentedViewController.class) : @"<none>",
-        nav ? NSStringFromClass(nav.class) : @"<none>", (unsigned long)nav.viewControllers.count, nav.visibleViewController ? NSStringFromClass(nav.visibleViewController.class) : @"<none>", CETraceCompactStack()]);
+        nav ? NSStringFromClass(nav.class) : @"<none>", (unsigned long)nav.viewControllers.count, CETraceNavigationStack(nav), nav.visibleViewController ? NSStringFromClass(nav.visibleViewController.class) : @"<none>", CETraceCompactStack(8)]);
+}
+
+void CEConversationIdentityTraceLogTaskCreation(NSURLRequest *request, NSString *source) {
+    if (!CEConversationIdentityTraceIsRecording() || !request.URL || !source.length) return;
+    NSArray<NSString *> *urlIDs = CETraceConversationIDsFromURL(request.URL); NSArray<NSString *> *bodyIDs = CETraceConversationIDsFromBody(request.HTTPBody);
+    NSString *stage = CETraceRefreshStage(request, urlIDs, bodyIDs); if (!stage.length) return;
+    UIViewController *top = CETopViewController(); UINavigationController *nav = CETraceNavigationController(top); UIWindow *key = CEKeyWindow(); UIViewController *root = key.rootViewController;
+    NSString *targetID = bodyIDs.firstObject ?: urlIDs.firstObject ?: @"<none>";
+    CETraceAppend(@"REFRESH-CREATE", [NSString stringWithFormat:@"source=%@ stage=%@ method=%@ path=%@ target=%@ keyWindow=%@ rootVC=%@ topVC=%@ presentedVC=%@ nav=%@ navCount=%lu navStack=%@ navVisible=%@ caller=%@",
+        source, stage, request.HTTPMethod ?: @"GET", request.URL.path ?: @"/", targetID,
+        key ? NSStringFromClass(key.class) : @"<none>", root ? NSStringFromClass(root.class) : @"<none>", top ? NSStringFromClass(top.class) : @"<none>", top.presentedViewController ? NSStringFromClass(top.presentedViewController.class) : @"<none>",
+        nav ? NSStringFromClass(nav.class) : @"<none>", (unsigned long)nav.viewControllers.count, CETraceNavigationStack(nav), nav.visibleViewController ? NSStringFromClass(nav.visibleViewController.class) : @"<none>", CETraceCompactStack(12)]);
 }
 
 void CEConversationIdentityTraceLogRequest(NSURLRequest *request) {
