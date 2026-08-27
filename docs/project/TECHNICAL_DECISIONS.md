@@ -67,7 +67,7 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Status**: Confirmed
 - **Date**: 2026-08-26
 - **Decision**: A same-ID official request proves custom-route/request delivery only. Visible Reload success requires both exact same-ID request evidence and current message-page refresh/rebuild evidence. A blank screen itself is not required.
-- **Evidence**: Alpha47 request-only false success; alpha48 UI-proof false-negative on one visible refresh; later candidates retain the two-layer completion contract.
+- **Evidence**: Alpha47 request-only false success; alpha48 and alpha56 exposed UI-proof false negatives; later candidates retain the two-layer completion contract.
 - **Rejected**: request-only success, artificial blanking, unrelated alternate-ID/navigation fallbacks.
 
 ## TD-011 — Sidebar conversation management is row-scoped, not active-context-scoped
@@ -81,7 +81,7 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Status**: Confirmed design/source contract; runtime 429 acceptance pending
 - **Date**: 2026-08-27
 - **Decision**: `同步最新消息` uses the frozen exact ID and one guarded enhancer GET. HTTP 429 terminates the request; no burst-style automatic 429 retry. GET success is server-state evidence only. If server generation is active, do not force page refresh. If finished and current ID still matches, a host refresh may be requested, but visible success still follows TD-010.
-- **Evidence**: User repeatedly observed plugin `1/3` after 429; source proved one tap could create up to four requests. Alpha51 removed 429 retries and added exact-ID Sync guards. Alpha51–55 captured traces did not contain 429, so terminal-429 behavior is not yet device exercised by trace evidence.
+- **Evidence**: User repeatedly observed plugin `1/3` after 429; source proved one tap could create up to four requests. Alpha51 removed 429 retries and added exact-ID Sync guards. Captured traces after alpha51 did not contain 429, so terminal-429 behavior is not yet device exercised by trace evidence.
 - **Rejected**: treating `1/3` as OpenAI quota, guessed cooldown/quota thresholds, broad Catalog throttling without attribution evidence, GET-success-as-page-success.
 
 ## TD-013 — Proven request delivery suppresses repeated same-route refresh attempts
@@ -90,22 +90,30 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Date**: 2026-08-27
 - **Scope**: exact-current Sync → host refresh / manual Reload delivery
 - **Decision**: `openURL(...)=YES` alone is not enough, but once an exact same-ID conversation request is actually observed after a refresh route, route delivery is proven. If the visible UI does not rebuild, continue the existing UI-proof observation window and report failure truthfully; **do not automatically send additional exact-route variants solely because UI did not change**. Alternate exact-current route delivery is allowed only when the previous route produced no same-ID request evidence at all. Operation wording must say `正在请求客户端刷新当前会话…`, not imply that a visible reload has begun.
-- **Evidence**: Alpha51 trace showed three route attempts each produced only another same-ID detail GET without visible rebuild. Alpha53–55 traces exercised the alpha52 suppression logic and stopped after one exact-route delivery was proven without a visible rebuild.
+- **Evidence**: Alpha51 trace showed repeated same-ID route requests with no visible benefit. Alpha53–56 retained one-delivery suppression and did not emit second/third route attempts after exact delivery proof.
 - **Rejected / do-not-repeat**: Do not use repeated same-ID route requests as a substitute for discovering a genuine host refresh mechanism. Do not claim request/route acceptance as UI reload.
 
 ## TD-014 — Genuine host conversation navigation changes navigation state before exact init/prepare/detail; network traffic is evidence, not a replay recipe
 
-- **Status**: Confirmed runtime correlation; production refresh entry point still unverified
+- **Status**: Confirmed runtime correlation
 - **Date**: 2026-08-27
 - **Scope**: ChatGPT iOS visible conversation navigation/rebuild versus same-current custom-route refresh
-- **Decision**: Treat exact `conversation/init → conversation/prepare → conversation detail` traffic as evidence that the official client has already entered a conversation-navigation state. Do **not** infer that manually originating those requests would cause the host SwiftUI/UI state to transition or rebuild. Public navigation count/composition, mutation selector/caller and instance attachment are evidence of host state, not authorization to recreate or mutate that state.
-- **Evidence — alpha52/53**: Genuine exact A→B→A navigation emitted exact init followed by prepare/detail within ~125 ms and showed public `SwiftUI.UIKitNavigationController navCount=3`; failed same-current custom-route Sync/Reload emitted detail only and `navCount=1` in those runs.
-- **Evidence — alpha54**: Trace `1995A79E-71DF-4EBC-BB1E-A61D48871FD2` captured ID-less init/prepare staging at public navigation depth 2 followed by exact target init/prepare/detail at depth 3. Same-current custom-route detail appeared at depth 1. Alpha54 also emitted zero `REFRESH-CREATE` records at the selected Objective-C NSURLSession task-creation selectors, rejecting that upstream-caller hypothesis.
-- **Evidence — alpha55**: Trace `F042014D-8407-4910-A5DA-2A9399C26425` directly observed genuine navigation repeatedly using `popViewControllerAnimated:` `3→2` followed by `pushViewController:animated:` `2→3`, with stable caller signatures. The target push preceded exact target init by about 128–135 ms. Same-current Sync instead used a distinct `setViewControllers: 0→1` path and then, in this run, emitted exact init/prepare/detail at navigation depth 1 without a visible UI rebuild. This proves exact init/prepare/detail is not sufficient for visible refresh and further separates the custom route from genuine host navigation.
-- **Open question after alpha55**: The custom-route `0→1` mutation could belong to a newly created/off-path navigation-controller instance or to an active host instance being replaced/reinitialized. Alpha55 did not record instance identity/attachment, so this remains `Unknown / Unverified`; do not infer ownership from `beforeCount=0` alone.
-- **Alpha56 diagnostic successor**: `0.1.0-alpha56-navigation-instance-trace` assigns stable per-process non-pointer tokens to observed public navigation-controller instances and snapshots bounded stack/attachment/key/active/parent/presentation metadata around the same-current refresh handoff. This is diagnostic observation only. Accepted build passed Actions `33052999411`; runtime/manual is pending.
-- **Rejected / do-not-repeat**: Do not replay init/prepare requests, force a three-controller stack, hard-code observed Swift controller classes, use UIKit pop/push/setViewControllers as a fallback before instance ownership is proven, reintroduce History/sidebar navigation, alternate IDs, guessed `/resume`, extra route variants, timers or watchdogs.
-- **Validation level**: alpha52/53/54/55 real-device traces; alpha56 **Code written → CI passed → Artifact produced; runtime pending**. Production refresh remains unverified.
+- **Decision**: Treat exact `conversation/init → conversation/prepare → conversation detail` traffic as evidence that the official client has entered a conversation-navigation state. Do **not** infer that manually originating those requests would cause SwiftUI/UI navigation or rebuild. Public navigation structure/mutation/instance evidence describes host state; it is not authorization to recreate or mutate that state.
+- **Evidence — alpha52/53/54**: Genuine navigation correlated with deeper public navigation state and init→prepare→detail; selected Objective-C NSURLSession task-creation hooks did not expose the upstream owner.
+- **Evidence — alpha55**: Genuine navigation repeatedly used `pop 3→2` then `push 2→3`; same-current route used distinct `setViewControllers: 0→1`, proving a different host path.
+- **Evidence — alpha56**: Trace `62313B1B-56B2-4F4C-A1B3-A658FDE8067D` proved the same-current route replaced active attached key-window nav token `nav-1` count 3 with a different active attached token `nav-2` count 1, followed by exact same-ID init/prepare/detail. User visibly observed a page refresh. This resolves the prior instance-ownership question: the route changes the active host navigation surface.
+- **Rejected / do-not-repeat**: Do not replay init/prepare requests, force a three-controller stack, hard-code observed Swift controller classes, call UIKit pop/push/setViewControllers as a refresh fallback, reintroduce History/sidebar navigation, alternate IDs, guessed `/resume`, extra route variants, timers or watchdogs.
+
+## TD-015 — Active attached navigation-controller replacement is valid UI rebuild evidence, not identity or mutation authority
+
+- **Status**: Confirmed from alpha56 runtime evidence; alpha57 runtime acceptance pending
+- **Date**: 2026-08-27
+- **Scope**: `CEConversationUIReloadEvidence` completion proof
+- **Decision**: When a Reload/Sync attempt begins with one active attached `UINavigationController` object and verification later resolves a different active attached `UINavigationController` object, that object replacement may count as **ephemeral UI rebuild evidence**. Visible success still requires the existing exact same-ID request proof; nav replacement alone is insufficient.
+- **Evidence**: Alpha56 started on active attached `nav-1` count 3, route handling created a distinct `setViewControllers: 0→1`, exact same-ID init/prepare/detail followed, and verification resolved active attached `nav-2` count 1. The user explicitly saw one page refresh while the old scroll/anchor detector remained `baselineUI=unproven` and false-negatived.
+- **Implementation boundary**: Alpha57 stores only ephemeral in-memory object identity in the reload snapshot. It does not persist pointers, does not write `CEConversationContext`, does not become a second state owner, and does not invoke navigation mutation APIs. Existing scroll-view replacement / anchor-turnover proof remains valid independently.
+- **Rejected**: Treating nav presence as message-content proof; treating nav replacement as conversation identity; reporting success without same-ID request evidence; using the observed host replacement as authorization to call `setViewControllers`, push, or pop.
+- **Validation**: Alpha57 **Code written → CI passed → Artifact produced; Runtime/manual pending**.
 
 ## Rule
 
