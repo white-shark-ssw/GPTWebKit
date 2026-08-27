@@ -18,26 +18,28 @@ _Last updated: 2026-08-27._
 - Artifacts: package id `9634299997`, digest `sha256:560a89c13222875effba1e15e19d7afada4228ce0b111e2269fc2ecab3957834`; dylib id `9634300301`, Actions archive digest `sha256:506f9db6c6df491a167b51fe0541bf5c7a6bec753efc5b949bdc6e159e494f2e`.
 - Extracted dylib: arm64 Mach-O, 594752 bytes, sha256 `cad6d1e1fdcc74b4c1cc25d2d3abed53f8af79b818d04e619073f01544224237`.
 - Tested source → cleanup head changes only run-id bookkeeping and temporary recognition-branch CI trigger removal; tested product source is unchanged.
-- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
+- Status: **Code written → CI passed → Artifact produced → Runtime/manual/real-device partially tested.**
 
-## Current diagnostic behavior
+## Alpha54 runtime evidence — 2026-08-27
 
-- Production Sync/Reload behavior remains the alpha52+ behavior: exact current ID, truthful refresh-request wording, request+UI completion proof, suppression of additional exact-route delivery once one same-ID request is proven, and terminal HTTP 429 handling.
-- Alpha54 adds diagnostic-only `REFRESH-CREATE` records at the existing NSURLSession task-creation hooks for non-enhancer/internal tasks.
-- Structural stages are limited to exact `conversation/init`, ID-less `conversation/init` staging, exact `conversation/prepare`, ID-less prepare staging, and exact conversation-detail GET.
-- Records include task-creation hook source, target ID if present, key/root/top/presented controller classes, navigation-controller stack count/visible controller, bounded controller-stack class composition and sanitized caller symbols.
-- Existing downstream `REFRESH-PATH` now also carries stage + bounded navigation-stack composition, including ID-less init/prepare staging.
-- No auth/cookie/account/raw body/message content is persisted. No new traffic is originated by the diagnostic.
-- No production refresh mechanism, init/prepare replay, navigation-stack mutation, UIKit pop/push, History/sidebar navigation, alternate ID, `/resume`, timer/watchdog/retry family, Catalog throttling, project-header change or percentage change was added.
+Trace `conversation-identity-1995A79E-71DF-4EBC-BB1E-A61D48871FD2.log`, app `1.2026.202`:
 
-## Authoritative alpha53 runtime finding retained
+- The trace starts on A exact ID `6a8d8d0b-1b2c-83ec-89f4-fa5eb65138d7`.
+- Before first exact navigation, the host emitted one ID-less `conversation/init` and two ID-less prepares while public `SwiftUI.UIKitNavigationController` had `navCount=2` with two homogeneous `NavigationStackHostingController<AnyView>` entries.
+- Exact navigation to B `6a8da245-c538-83ec-9303-da2952a46a1f` then emitted exact init; exact prepare followed about 118 ms later and exact detail about 123 ms later. Exact B snapshots had `navCount=3` with three homogeneous stack entries.
+- Returning to A emitted an additional ID-less prepare while `navCount=3`, then exact A init followed by exact prepare/detail about 123–126 ms later; exact A snapshots remained `navCount=3`.
+- Same-A `同步最新消息` targeted the correct exact A ID. Its custom route opened once and produced only one same-ID detail GET with `navCount=1`, no exact init/prepare and no UI rebuild. Delivery-aware suppression stopped further route attempts and the operation reported failure truthfully.
+- **Zero `REFRESH-CREATE` records were emitted** despite 14 refresh-relevant `REFRESH-PATH` records. The official semantic init/prepare/detail requests therefore did not traverse the specific swizzled Objective-C NSURLSession task-creation selectors instrumented by alpha54. The exact higher-level Foundation/Swift API is still Unknown / Unverified.
+- All 14 downstream `REFRESH-PATH` call-stack signatures were identical. Alpha54 did not identify a production refresh entry point; its task-creation-selector hypothesis is runtime-rejected.
+- No HTTP 429 occurred in this trace; terminal 429 handling remains runtime-unexercised by trace evidence.
 
-Trace `conversation-identity-E076722C-E0F0-4044-8B99-41F727B1B62B.log`, app `1.2026.202`:
+## Current conclusions
 
-- Genuine exact A→B and B→A navigation emitted exact init then exact prepare/detail within ~125 ms and showed public navigation `navCount=3`.
-- Same-A Sync/custom-route handoff produced one detail GET only, no exact init/prepare, no UI rebuild, and `navCount=1`.
-- Delivery-aware suppression prevented second/third route attempts after the first same-ID request was proven.
-- All 11 alpha53 downstream call-stack signatures were identical, so the old capture point is not upstream host-entry evidence.
+- Exact-current identity remains correct and one-delivery suppression remains device-confirmed.
+- Genuine navigation now has stronger structural evidence: ID-less staging can occur at navigation depth 2 before exact target init/prepare/detail at depth 3. The network sequence follows a host navigation-state change and remains evidence, not a replay recipe.
+- The same-current custom URL route reaches/collapses to a one-controller navigation state and emits detail only; it is not equivalent to genuine navigation.
+- Do not keep expanding diagnostics at the same Objective-C NSURLSession task-creation selectors; this runtime produced no `REFRESH-CREATE` there.
+- If continuing, the next diagnostic should observe public `UINavigationController` stack mutation entry points without changing them, recording before/after bounded stack composition and sanitized caller evidence during the user-started trace. This does not authorize stack restoration, push/pop fallback or private-class hard-coding.
 
 ## Existing architecture / contracts
 
@@ -57,9 +59,9 @@ Trace `conversation-identity-E076722C-E0F0-4044-8B99-41F727B1B62B.log`, app `1.2
 
 ## Next evidence
 
-- Install alpha54 and capture one trace: A visible → normal A→B→A → one `同步最新消息` attempt on A → final status → export.
-- Compare `REFRESH-CREATE` hook/caller signatures, navigation-stack composition, and ID-less init/prepare staging between genuine navigation and same-current custom-route refresh.
-- Do not implement a production host refresh mechanism unless the trace identifies an evidence-backed host entry path.
+- If continuing the refresh investigation, instrument only diagnostic observation of public `UINavigationController` stack mutations during the existing user-started trace; keep production Sync/Reload unchanged.
+- Then run one A → B → A → `同步最新消息` trace and compare genuine stack transitions with the custom-route collapse.
+- Do not implement production navigation mutation, request replay, History/sidebar navigation, alternate IDs, `/resume`, retries/watchdogs/timers or additional route variants without new evidence.
 
 ## Evidence rule
 
