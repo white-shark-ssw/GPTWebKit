@@ -17,39 +17,28 @@ _Last updated: 2026-08-30._
 - CI passed: Actions `33274357066`, job `99158361042`.
 - Artifacts: package id `9721043070`, Actions digest `sha256:a08284ace0c5ae8bd381ec5515d4ffc5cfda39b02a3186a4806aa29a4283ff03`; dylib artifact id `9721043178`, Actions digest `sha256:297f910d780a19e3f0212cb1c6fb9cb006144847c281f2e0ee406bf0f9c82338`.
 - Extracted dylib: Mach-O 64-bit arm64, 634272 bytes, sha256 `1b227794c9133f022a26bc3a59aa60091984a06b7a31545f0fc840ce10ef0e95`.
-- Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
+- Status: **Code written → CI passed → Artifact produced → Runtime/manual partially tested.**
 - Compare build source → cleanup head changes only `.github/latest-enhancer-run-id` and removal of the temporary recognition-branch CI trigger; product source is unchanged.
 
-## Alpha59 runtime result — trace 897A6818-776A-44FC-84BA-21E0501A6A9A
+## Alpha60 runtime result — trace FE491226-23C8-4F76-8D4E-230A1840D930
 
-The controlled App `1.2026.202` test materially refines the Reload model:
+The App `1.2026.202` test closes two diagnostic dead ends while preserving the existing Sync/Reload failure evidence:
 
-- Normal official entry again emitted exact `conversation/init → f/conversation/prepare → conversation/<id>` on the same `__NSURLSessionLocal` session. Init preceded prepare by ~83 ms; detail followed prepare ~2 ms later.
-- Alpha59's runtime-owner mapper emitted `hostClasses=0 hostMethods=0 semanticClasses=0`. This output is inconclusive because ownership was filtered by raw image-path string equality; equivalent `/var/...` and `/private/var/...` paths can fail that test.
-- Same-current Reload opened the custom route and then emitted exact **detail first**, followed ~355 ms later by exact **prepare**, with **no exact init**.
-- That `detail → prepare` sequence still produced no UI disappear/rebuild; all verification polls stayed on the same attached `nav-1`, and Reload correctly failed with `requestObserved=YES`, `uiRebuildObserved=NO`.
-- Therefore the old simplified statement “failed Reload is detail-only” is superseded. The durable distinction is that successful official entry starts with exact init and rapidly runs `init → prepare → detail`; a failed same-current route can emit `detail → prepare` without init and still leave UI unchanged.
-- **Prepare delivery is not Reload completion evidence.** Manually replaying prepare remains unjustified.
-- No `NAV-MUTATION` appeared in this run; older UINavigationController mutation traces are not a universal recipe for current modern SwiftUI side-menu state transitions.
-
-## Alpha60 diagnostic purpose
-
-Alpha60 corrects alpha59's image-ownership blind spot without changing production behavior:
-
-- canonicalizes main executable/class-image/App-bundle paths before ownership comparison;
-- independently proves main-image Objective-C ownership with method IMP `dladdr(...).dli_fbase` rather than relying on path text;
-- directly resolves the known App `1.2026.202` `ChatGPT + offset` addresses through `dladdr`, recording only image basename, bounded symbol name and symbol-start delta;
-- emits a bounded inventory of conversation/chat/thread/message/history/route/sidebar/navigation-related runtime classes from images inside the ChatGPT App bundle;
-- invokes/swizzles none of those discovered methods and originates no new host requests.
-
-If alpha60 still reports no main-image ObjC IMPs and no direct symbol names after those two independent checks, that will be stronger evidence the relevant owner is pure Swift/non-ObjC rather than a reason to guess selectors.
+- Official finished-conversation entry again emitted exact `conversation/init → f/conversation/prepare → conversation/<id>` on `session-1`; this run observed init → prepare in ~196 ms and prepare → detail in ~4 ms.
+- Alpha60 enumerated 4991 runtime classes inside the ChatGPT app bundle and surfaced conversation-related Swift types such as `Conversations.DefaultConversationSummaryHandoffService`, `DefaultConversationBranchingService`, `ConversationsInterface.ConversationCoordinatorError.PendingCompletionTurn`, and `ConversationFinalStream` state/storage/recovery types.
+- Those relevant Swift classes exposed no Objective-C selectors in the bounded runtime inventory. Independent IMP-base mapping found `mainIMPClasses=0` / `mainIMPMethods=0`; every old reference returned `no-main-objc-method`. Current evidence therefore rejects further private Objective-C selector guessing for this state-transition owner.
+- Reconstructing old textual `ChatGPT + offset` frames as `_dyld_get_image_header(0) + offset` is also rejected. One frame textually recorded as `ChatGPT + 48186293` resolved by that arithmetic into `LiveKitWebRTC`; the remaining references were unresolved. Sanitized textual `+ offset` is not a reliable executable-address recipe in this injected runtime.
+- An exact prepare occurred while the context menu controller was active, 114 ms before Reload action capture. It cannot be attributed to Reload and further demonstrates that prepare traffic is not a visible-refresh signal by itself.
+- Reload then opened the exact route and emitted a same-ID detail GET ~34 ms later, with no exact init and no Reload-attributable prepare before completion. The same attached `nav-1` remained throughout all verification polls and Reload correctly failed `requestObserved=YES / uiRebuildObserved=NO`.
+- Combined with alpha59, failed route shapes may be detail-only or detail→prepare, but the stable missing boundary is still the official host transition that precedes exact init.
 
 ## Current Sync/Reload interpretation
 
 - `同步最新消息` still performs an enhancer-owned exact-ID GET and then hands off to current manual Reload when server state is finished.
 - Successful server fetch remains retrieval evidence only; it does not prove visible synchronization.
-- Same-current route delivery, detail delivery and prepare delivery are all insufficient without host state/UI change.
-- Do not replay init/prepare/detail merely because official entry emits them. The missing boundary is still the host-owned state transition / response consumer.
+- Same-current route delivery, detail delivery and prepare delivery are insufficient without host state/UI change.
+- Do not replay init/prepare/detail merely because official entry emits them. The missing boundary remains the host-owned state transition / response consumer.
+- Do not infer an Objective-C refresh owner from semantic Swift class names, and do not rebuild actual addresses from sanitized textual `ChatGPT + offset` values.
 
 ## Existing architecture / contracts
 
@@ -69,7 +58,7 @@ If alpha60 still reports no main-image ObjC IMPs and no direct symbol names afte
 
 ## Next evidence
 
-Use the exact alpha60 artifact on ChatGPT App `1.2026.202`: start `会话识别记录` from Home or another conversation, enter one already-finished target through normal official UI, wait until rendered, press Reload exactly once, wait for the final result, then export the trace. Compare `RUNTIME-OWNER-DLADDR`, `RUNTIME-OWNER`, `RUNTIME-OWNER-REF`, `RUNTIME-OWNER-CLASS`, official `init → prepare → detail`, and failed Reload ordering.
+If continuing recognition diagnosis, capture actual `NSThread.callStackReturnAddresses` at the event site and resolve each bounded frame with `dladdr` **before** sanitization. Persist only image name, symbol name, frame order and symbol-relative delta; raw addresses stay memory-only. Compare actual resolved official `init/prepare/detail` frames against the failed Reload detail path. If symbols remain stripped, use resolved image/module identity plus Swift runtime metadata for the next narrow diagnostic rather than returning to Objective-C selector guesses or textual `+ offset` arithmetic.
 
 ## Evidence rule
 
