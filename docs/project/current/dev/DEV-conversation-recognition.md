@@ -12,8 +12,9 @@
 ## Resume identity / conflict guard — 2026-08-30
 
 - Baseline `feat/chatgpt-enhancer-v0.1` verified unchanged at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
-- Working branch `feat/conversation-recognition`; Draft PR #2 remains open → `feat/chatgpt-enhancer-v0.1`.
+- Working branch `feat/conversation-recognition`; Draft PR #2 remains open / mergeable → `feat/chatgpt-enhancer-v0.1`.
 - Before alpha59 edits, PR #2 head was verified as `c0fa017e6bda0a4d91701e687abae3c8d51d3304`, matching the alpha58 checkpoint.
+- Alpha59 build/test source is `76f83fcf6a53bebd4c8067b2bde44a4edb4a0dfc`; CI bookkeeping commit `21d7e92443052cec1afc8aaa1576b7d773e56138` was verified to modify only `.github/latest-enhancer-run-id`; post-CI cleanup/current PR head is `e86b8670fb8de4888e76fdc41f84f4e226275136`.
 - Parallel `DEV-conversation-usage` remains on `feat/conversation-usage`, candidate alpha43, PR #3 stacked on `feat/conversation-recognition`. Its changed source is percentage-specific plus shared candidate/build identity files (`CECore.mm`, `build.sh`, workflow/bootstrap). This recognition task does not modify the percentage-owned UI/model files or its checkpoint. Advancing the recognition branch is an expected stacked-base change; the percentage branch must be reconciled in its own task before its next final validation.
 - No product module is Frozen. Base remains `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
 
@@ -22,9 +23,14 @@
 - Candidate ID: `ENH-0.1.0-alpha59-runtime-owner-map`.
 - Product version: `0.1.0-alpha59-runtime-owner-map`.
 - Branch: `feat/conversation-recognition`; Draft PR #2.
-- Current code head before CI bookkeeping: `76f83fcf6a53bebd4c8067b2bde44a4edb4a0dfc`.
-- Actions run `33273831978`, job `99156971862` — **in progress** at checkpoint update.
-- Validation: **Code written. CI / Artifact pending. Runtime/manual pending.** Nothing Stable/Frozen.
+- Build/test source: `76f83fcf6a53bebd4c8067b2bde44a4edb4a0dfc`.
+- Actions run `33273831978`; job `99156971862` — **passed**.
+- CI bookkeeping commit: `21d7e92443052cec1afc8aaa1576b7d773e56138` — only `.github/latest-enhancer-run-id` changed.
+- Post-CI cleanup/current PR head: `e86b8670fb8de4888e76fdc41f84f4e226275136`.
+- Package artifact: id `9720892970`, Actions digest `sha256:41838f67c629f3cf50e3d18260b304c65b57cec3dcddd1ad6df232256d471709`.
+- Dylib artifact: id `9720893086`, Actions archive digest `sha256:3907409a25eaaa40c8dfe954bc7dc53aa4cad802ad4fe4a801d7dca7fb5d4044`.
+- Extracted dylib: Mach-O 64-bit arm64, 633984 bytes, sha256 `a84a06d9ec29f2e9bdb84d7e35438939f9303d94bf01e969264ef26c0e9aa801`.
+- Validation: **Code written → CI passed → Artifact produced. Runtime/manual pending.** Nothing Stable/Frozen.
 
 ### Alpha59 evidence-backed scope
 
@@ -80,4 +86,4 @@ App `1.2026.202`, enhancer `0.1.0-alpha58-reentry-network-trace`.
 
 ## Next exact action
 
-Finish alpha59 CI and artifact identity. On device, use the same ChatGPT App version `1.2026.202`, start `会话识别记录` from Home or another conversation, enter one already-finished target via the normal official UI, wait for it to render, then press Reload once and export the trace. Analyze `RUNTIME-OWNER`, `RUNTIME-OWNER-REF`, `RUNTIME-OWNER-CLASS`, the official `NAV-MUTATION`/`REFRESH-PATH` frames and the failed Reload path together. Only a close, semantically plausible owner supported by the runtime sequence may justify a later narrow invocation hook; otherwise continue diagnosis without private-method calls.
+Runtime-test the exact alpha59 artifact on ChatGPT App `1.2026.202`: start `会话识别记录` from Home or a different conversation, enter one already-finished target via normal official UI/sidebar, wait until fully rendered, press Reload exactly once and wait for its final status, then finish/export the trace. Analyze `RUNTIME-OWNER`, `RUNTIME-OWNER-REF`, `RUNTIME-OWNER-CLASS` together with official `NAV-MUTATION` / `REFRESH-PATH` and failed Reload evidence. If the reference frames map closely to a semantically plausible Objective-C owner, design only a later narrow observation/invocation proof; if they do not, treat that as evidence that the important frames are likely pure Swift/non-Objective-C and do not guess private selectors.
