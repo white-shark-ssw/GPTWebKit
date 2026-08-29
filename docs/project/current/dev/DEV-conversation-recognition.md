@@ -13,10 +13,34 @@
 
 - Baseline `feat/chatgpt-enhancer-v0.1` verified unchanged at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
 - Working branch `feat/conversation-recognition`; Draft PR #2 remains open → `feat/chatgpt-enhancer-v0.1`.
-- Parallel `DEV-conversation-usage` remains isolated on `feat/conversation-usage`, candidate alpha43. This task must not modify percentage-owned source/checkpoint.
-- No product module is Frozen. Base did not materially advance. Branch / PR / base identities matched repository truth before alpha58 work started.
+- Before alpha59 edits, PR #2 head was verified as `c0fa017e6bda0a4d91701e687abae3c8d51d3304`, matching the alpha58 checkpoint.
+- Parallel `DEV-conversation-usage` remains on `feat/conversation-usage`, candidate alpha43, PR #3 stacked on `feat/conversation-recognition`. Its changed source is percentage-specific plus shared candidate/build identity files (`CECore.mm`, `build.sh`, workflow/bootstrap). This recognition task does not modify the percentage-owned UI/model files or its checkpoint. Advancing the recognition branch is an expected stacked-base change; the percentage branch must be reconciled in its own task before its next final validation.
+- No product module is Frozen. Base remains `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
 
-## Current candidate — alpha58
+## Current candidate — alpha59
+
+- Candidate ID: `ENH-0.1.0-alpha59-runtime-owner-map`.
+- Product version: `0.1.0-alpha59-runtime-owner-map`.
+- Branch: `feat/conversation-recognition`; Draft PR #2.
+- Current code head before CI bookkeeping: `76f83fcf6a53bebd4c8067b2bde44a4edb4a0dfc`.
+- Actions run `33273831978`, job `99156971862` — **in progress** at checkpoint update.
+- Validation: **Code written. CI / Artifact pending. Runtime/manual pending.** Nothing Stable/Frozen.
+
+### Alpha59 evidence-backed scope
+
+Alpha58 already proved that official finished-conversation entry and failed same-current Reload share the same low-level `__NSURLSessionLocal` transport but differ in host state semantics, and that existing public completion/delegate hooks do not reveal the successful detail-response consumer. Alpha59 therefore does **not** add another network replay or unknown private hook.
+
+A new diagnostic module `CEHostRuntimeOwnerTrace` is started only from the existing `CEBootstrap` owner. While the user-started identity trace is active and `CEConversationContext` changes to an exact target, it:
+
+1. enumerates Objective-C runtime classes owned by the ChatGPT main executable without invoking their methods;
+2. for App `1.2026.202`, maps the exact `ChatGPT + offset` frames already observed in alpha58 (`76920605`, `48186293`, `76937441`, `82300348`, `82123672`, `1884732`, `12860372`) to the nearest main-image Objective-C method IMP offsets;
+3. records signed delta and a `near64k` marker so a merely distant nearest symbol cannot be mistaken for proof;
+4. emits a bounded inventory of main-image class names containing `conversation/chat/thread/message/history/route/sidebar/navigation` and up to 24 related selectors per class;
+5. if the installed ChatGPT version is not exactly `1.2026.202`, marks the alpha58 offset map non-comparable and does not apply those numeric references.
+
+This diagnostic persists no raw pointer addresses, request/response bodies, message contents, Authorization, Cookie, account IDs or request templates. It does not invoke discovered selectors, swizzle unknown private methods, originate requests, mutate navigation, or change Sync/Reload behavior.
+
+## Superseded candidate — alpha58
 
 - Candidate ID: `ENH-0.1.0-alpha58-reentry-network-trace`.
 - Product version: `0.1.0-alpha58-reentry-network-trace`.
@@ -35,19 +59,12 @@ App `1.2026.202`, enhancer `0.1.0-alpha58-reentry-network-trace`.
 
 1. A normal official entry into a finished target conversation emitted the exact sequence `POST /backend-api/conversation/init` → `POST /backend-api/f/conversation/prepare` → `GET /backend-api/conversation/<exact-id>`.
 2. The exact init body contained only `conversation_id` and `timezone_offset_min`. The exact prepare body exposed the expected structural keys including `action`, `client_prepare_dispatch`, `client_prepare_source`, `conversation_id`, `model`, `parent_message_id`, buffering/encoding fields, timezone fields, and related flags; no raw values are persisted by the trace.
-3. All three official requests were observed at `NSURLSessionTask resume` on the same public transport owner: opaque `session-1`, class `__NSURLSessionLocal`; the detail request was `task-12`, class `__NSCFLocalDataTask`.
-4. The two tested Reload attempts did **not** reproduce the official sequence. Each route produced only one exact detail GET (`task-16`, then `task-17`) on the same `session-1`, with no exact init/prepare preceding it.
+3. All three official requests were observed at `NSURLSessionTask resume` on the same public transport owner: opaque `session-1`, class `__NSURLSessionLocal`.
+4. The two tested Reload attempts did **not** reproduce the official sequence. Each route produced only one exact detail GET on the same `session-1`, with no exact init/prepare preceding it.
 5. Both Reload attempts proved same-ID detail request delivery but produced no UI rebuild across the full verification window; each correctly ended with `requestObserved=YES`, `uiRebuildObserved=NO`.
 6. Alpha58 did not capture a `NET-REENTRY-RESP` / completion-handler / session-delegate response-consumption record for the official detail request, despite seeing its resume path. Therefore the actual successful response consumer remains below/aside from the currently hooked Objective-C completion/delegate surfaces or otherwise unobserved.
 7. This trace rejects the simplified hypothesis “re-send the detail GET and the current page will refresh.” A raw detail GET is demonstrably insufficient in this runtime. It also shows that reproducing request URLs alone is not enough evidence to replay init/prepare: the missing piece is still the official host state/response consumer.
 8. Current Sync still performs enhancer-owned GET + existing Reload handoff. In this trace the subsequent Reload again only delivered detail and did not rebuild UI, so Sync remains structurally incapable of proving visible refresh.
-
-## Current interpretation
-
-- The useful part of the user's packet-capture idea is confirmed: normal official entry provides a reproducible request sequence that differs from current Reload.
-- The stronger version of the idea — “record one request and resend it” — is rejected by this trace. Official entry is a state transition plus `init → prepare → detail`, and the host's response-consumption owner is still not captured.
-- Same low-level `NSURLSession` ownership does not imply same UI semantics. Official entry and failed Reload both use `session-1`; only the official path was entered through the host's real navigation/state transition.
-- Do not promote `init/prepare/detail` into a replay recipe yet.
 
 ## Architecture retained / rejected routes
 
@@ -57,9 +74,10 @@ App `1.2026.202`, enhancer `0.1.0-alpha58-reentry-network-trace`.
 - Server GET/init/prepare/detail delivery alone is not visible Sync/Reload completion.
 - Do not manually replay init/prepare/detail yet. First prove which official host path consumes the successful response and updates UI.
 - Do not call UIKit push/pop/setViewControllers, force stack shape, use History/sidebar navigation, alternate IDs, speculative `/resume`, extra route retries, watchdogs or timers.
+- Do not invoke alpha59-discovered private selectors merely because they are near a stack offset. Near-symbol evidence is candidate-owner evidence only; invocation requires a separate runtime proof.
 - Diagnostic persistence remains sanitized: no Authorization, Cookie, account IDs, raw request templates, full headers/bodies or message contents.
 - Project-header work remains paused; percentage work remains untouched.
 
 ## Next exact action
 
-Create the next diagnostic candidate only to identify the missing official response/state consumer. Narrow scope: instrument the official detail task/session completion boundary and relevant public Foundation task lifecycle/response surfaces without originating requests or mutating navigation. Compare one normal official entry against one Reload. Do not implement production request replay until that trace proves a host-owned consumer/state-update entry point.
+Finish alpha59 CI and artifact identity. On device, use the same ChatGPT App version `1.2026.202`, start `会话识别记录` from Home or another conversation, enter one already-finished target via the normal official UI, wait for it to render, then press Reload once and export the trace. Analyze `RUNTIME-OWNER`, `RUNTIME-OWNER-REF`, `RUNTIME-OWNER-CLASS`, the official `NAV-MUTATION`/`REFRESH-PATH` frames and the failed Reload path together. Only a close, semantically plausible owner supported by the runtime sequence may justify a later narrow invocation hook; otherwise continue diagnosis without private-method calls.
