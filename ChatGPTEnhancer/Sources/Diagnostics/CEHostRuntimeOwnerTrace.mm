@@ -4,6 +4,8 @@
 #import <objc/runtime.h>
 #import <mach-o/dyld.h>
 #import <dlfcn.h>
+#include <stdlib.h>
+#include <string.h>
 
 static NSObject *CEHostRuntimeOwnerTraceLock(void) {
     static NSObject *lock; static dispatch_once_t once;
