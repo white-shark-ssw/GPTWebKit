@@ -115,6 +115,15 @@ This file records durable, evidence-backed technical decisions and rejected rout
 - **Rejected**: Treating nav presence as message-content proof; treating nav replacement as conversation identity; reporting success without same-ID request evidence; using the observed host replacement as authorization to call `setViewControllers`, push, or pop.
 - **Validation**: Alpha57 **Code written → CI passed → Artifact produced; Runtime/manual pending**.
 
+## TD-016 — Do not infer a callable ObjC owner or reconstruct addresses from sanitized textual Swift backtraces
+
+- **Status**: Confirmed from alpha60 runtime evidence
+- **Date**: 2026-08-30
+- **Scope**: conversation recognition / official host transition diagnostics
+- **Decision**: Semantic Swift runtime class names are discovery evidence only; they do not imply an Objective-C selector surface. Do not guess/invoke private selectors from classes such as `Conversations.*` or `ConversationFinalStream.*` when runtime method enumeration exposes no ObjC IMPs. Likewise, a persisted textual frame such as `ChatGPT + N` must not be converted back into an address using `_dyld_get_image_header(0) + N`.
+- **Evidence**: Alpha60 trace `FE491226-23C8-4F76-8D4E-230A1840D930` enumerated 4991 app-bundle classes and relevant conversation Swift types but reported `mainIMPClasses=0`, `mainIMPMethods=0`, and `no-main-objc-method` for all historical references. Reconstructing textually recorded `ChatGPT + 48186293` from main base resolved into unrelated `LiveKitWebRTC`; other references were unresolved.
+- **Next diagnostic boundary**: Actual return addresses may be used transiently in memory at the event site only to call `dladdr`; persistence is limited to sanitized image name, symbol name, frame order and symbol-relative delta. Raw addresses remain memory-only. If symbols are stripped, continue with resolved image/module identity and Swift runtime metadata rather than ObjC selector guessing or textual offset arithmetic.
+
 ## Rule
 
 Do not write speculation here as fact. A historical plan is not proof of implementation.
