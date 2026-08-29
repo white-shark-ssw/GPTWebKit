@@ -2,10 +2,11 @@
 #import <objc/runtime.h>
 
 NSString * const CEBundleIdentifier = @"com.openai.chat";
-NSString * const CEVersion = @"0.1.0-alpha39-reload-stability";
+NSString * const CEVersion = @"0.1.0-alpha60-runtime-image-map";
 NSString * const CEConversationContextDidChangeNotification = @"ChatGPTEnhancer.ConversationContextDidChange";
 NSString * const CENetworkTemplateDidChangeNotification = @"ChatGPTEnhancer.NetworkTemplateDidChange";
 NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidChange";
+NSInteger const CESyntheticConversationTitleMarkerTag = 0x43454844;
 
 @implementation CEConversationContext {
     NSString *_conversationID;
@@ -20,9 +21,12 @@ NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidCh
 
 - (void)setConversationID:(NSString *)conversationID title:(NSString *)title {
     if (!conversationID.length) return;
-    BOOL changed = ![_conversationID isEqualToString:conversationID] || (title.length && ![_title isEqualToString:title]);
+    BOOL idChanged = ![_conversationID isEqualToString:conversationID];
+    BOOL titleChanged = title.length && ![_title isEqualToString:title];
+    BOOL changed = idChanged || titleChanged;
     _conversationID = [conversationID copy];
-    if (title.length) _title = [title copy];
+    if (idChanged) _title = title.length ? [title copy] : nil;
+    else if (title.length) _title = [title copy];
     _updatedAt = [NSDate date];
     if (changed) [[NSNotificationCenter defaultCenter] postNotificationName:CEConversationContextDidChangeNotification object:self];
 }
@@ -42,14 +46,19 @@ NSString * const CECatalogDidChangeNotification = @"ChatGPTEnhancer.CatalogDidCh
 
 BOOL CETargetApp(void) { return [[[NSBundle mainBundle] bundleIdentifier] isEqualToString:CEBundleIdentifier]; }
 
-UIWindow *CEKeyWindow(void) {
+NSArray<UIWindow *> *CEForegroundWindows(void) {
+    NSMutableArray<UIWindow *> *windows = [NSMutableArray array];
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
         if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState != UISceneActivationStateForegroundActive) continue;
-        UIWindowScene *windowScene = (UIWindowScene *)scene;
-        for (UIWindow *window in windowScene.windows) if (window.isKeyWindow) return window;
-        for (UIWindow *window in windowScene.windows) if (!window.hidden && window.alpha > 0.01) return window;
+        for (UIWindow *window in ((UIWindowScene *)scene).windows) if (!window.hidden && window.alpha > 0.01) [windows addObject:window];
     }
-    return UIApplication.sharedApplication.windows.firstObject;
+    if (!windows.count) for (UIWindow *window in UIApplication.sharedApplication.windows) if (!window.hidden && window.alpha > 0.01) [windows addObject:window];
+    return windows;
+}
+
+UIWindow *CEKeyWindow(void) {
+    for (UIWindow *window in CEForegroundWindows()) if (window.isKeyWindow) return window;
+    return CEForegroundWindows().firstObject ?: UIApplication.sharedApplication.windows.firstObject;
 }
 
 static UIViewController *CETopFrom(UIViewController *vc) {
@@ -133,8 +142,11 @@ NSString *CEExtractConversationIDFromString(NSString *value) {
 
 static void CECollectStringsRecursive(UIView *view, NSUInteger depth, NSUInteger maxDepth, NSMutableOrderedSet<NSString *> *out) {
     if (!view || depth > maxDepth) return;
-    NSArray *values = @[view.accessibilityIdentifier ?: @"", view.accessibilityLabel ?: @"", view.accessibilityValue ?: @"", [view isKindOfClass:UILabel.class] ? (((UILabel *)view).text ?: @"") : @"", [view isKindOfClass:UIButton.class] ? ([((UIButton *)view) titleForState:UIControlStateNormal] ?: @"") : @""];
-    for (NSString *value in values) { NSString *trim = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (trim.length && trim.length < 240) [out addObject:trim]; }
+    BOOL syntheticConversationTitle = [view isKindOfClass:UILabel.class] && [view viewWithTag:CESyntheticConversationTitleMarkerTag] != nil;
+    if (!syntheticConversationTitle) {
+        NSArray *values = @[view.accessibilityIdentifier ?: @"", view.accessibilityLabel ?: @"", view.accessibilityValue ?: @"", [view isKindOfClass:UILabel.class] ? (((UILabel *)view).text ?: @"") : @"", [view isKindOfClass:UIButton.class] ? ([((UIButton *)view) titleForState:UIControlStateNormal] ?: @"") : @""];
+        for (NSString *value in values) { NSString *trim = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (trim.length && trim.length < 240) [out addObject:trim]; }
+    }
     for (UIView *child in view.subviews) CECollectStringsRecursive(child, depth + 1, maxDepth, out);
 }
 

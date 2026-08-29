@@ -1,8 +1,6 @@
 name: Build ChatGPTEnhancer
-# alpha39 keeps reload on the exact current conversation only and retries the app's own custom-route delivery when the first same-route event is deduplicated
-# reload retries never use History rows, sidebar automation, UIKit pop/push, or another conversation id
-# alpha38 floating-button/context-percentage stability and alpha33 lifecycle stability protections remain enabled
-# route/history/sidebar automation remains disabled
+# alpha60 is diagnostic-only: repair runtime image ownership mapping, resolve known ChatGPT offsets with dladdr, and inventory bounded app-bundle conversation-related runtime classes/selectors
+# production Sync/Reload behavior remains unchanged; no private selector invocation, request replay, navigation mutation, percentage work, or sensitive payload persistence is added
 
 on:
   workflow_dispatch:
@@ -38,12 +36,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha39-reload-stability
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha39-reload-stability.zip
+          name: ChatGPTEnhancer-0.1.0-alpha60-runtime-image-map
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha60-runtime-image-map.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha39-reload-stability-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha60-runtime-image-map-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error

@@ -6,20 +6,22 @@
 #import "../UI/CEEnhancerUI.h"
 #import "../Diagnostics/CERecoveryDiagnostics.h"
 #import "../Diagnostics/CEDiagnostics.h"
+#import "../Diagnostics/CEConversationIdentityTrace.h"
+#import "../Diagnostics/CEHostRuntimeOwnerTrace.h"
 
 static void CEShowLoadedToastWhenReady(NSUInteger attempt) {
-    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha39-reload-stability 已加载"); return; }
+    if (CEKeyWindow()) { CEShowMessage(@"ChatGPTEnhancer alpha60-runtime-image-map 已加载"); return; }
     if (attempt >= 12) return;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.35 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(attempt + 1); });
 }
 
 static void CEStartEnhancer(void) {
     if (!CETargetApp()) return;
-    CERecoveryDiagnosticMark(@"PLUGIN START alpha39-reload-stability");
+    CERecoveryDiagnosticMark(@"PLUGIN START alpha60-runtime-image-map");
     @try {
-        [[CENetworkObserver shared] start]; CEInstallActiveConversationDiagnostics(); [[CECatalog shared] start]; [[CEEnhancerUI shared] start];
+        CEConversationIdentityTraceStart(); CEHostRuntimeOwnerTraceStart(); [[CENetworkObserver shared] start]; CEInstallActiveConversationDiagnostics(); [[CECatalog shared] start]; [[CEEnhancerUI shared] start];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ CEShowLoadedToastWhenReady(0); });
-        NSLog(@"[ChatGPTEnhancer] alpha39-reload-stability started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
+        NSLog(@"[ChatGPTEnhancer] alpha60-runtime-image-map started for %@ %@", NSBundle.mainBundle.bundleIdentifier, [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown");
     } @catch (NSException *exception) { NSLog(@"[ChatGPTEnhancer] startup exception: %@", exception); }
 }
 
