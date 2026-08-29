@@ -1,6 +1,6 @@
 # Project State
 
-_Last updated: 2026-08-27._
+_Last updated: 2026-08-30._
 
 ## Current accepted baseline
 
@@ -10,36 +10,53 @@ _Last updated: 2026-08-27._
 
 ## Current development candidate
 
-### ChatGPTEnhancer `0.1.0-alpha57-navigation-rebuild-proof`
+### ChatGPTEnhancer `0.1.0-alpha58-reentry-network-trace`
 
 - Work ID `DEV-conversation-recognition`; branch `feat/conversation-recognition`; Draft PR #2 → `feat/chatgpt-enhancer-v0.1`.
-- Build/test source `fe48c56350720127786670d9fe37e28280905055`; CI bookkeeping `ef75624e24e60842afabde93f4151a39453f1c9f`; post-CI cleanup head `ad4a4718c498a9926ed553797ac9fb3e45df48c4`.
-- CI passed: Actions `33083945220`, job `98558346397`.
-- Artifacts: package id `9651296956`, digest `sha256:c71bfab996a1f01a0634701b95bafb12111863dcc97e3bb4469728e567630cae`; dylib id `9651298129`, Actions archive digest `sha256:ccf2275eded12bd180741ef82d3685b1be21a8da33c8cf01c8b9cea823755fe3`.
-- Extracted dylib: Mach-O 64-bit arm64, 614096 bytes, sha256 `2d7de7f8b424d62ba970bf8913da5b0f64ed11d60108d06db5a3b2a9b62a8a3d`.
-- Tested source → cleanup head changes only run-id bookkeeping and temporary recognition-branch CI trigger removal; tested product source is unchanged.
+- Build/test source `c9f9c328386e63fd409421d74d7f18c091144ad2`; CI bookkeeping `00b1aa85cb8d02d9b4e9be300a3f3c5bfa2296a2`; post-CI cleanup head `c0fa017e6bda0a4d91701e687abae3c8d51d3304`.
+- CI passed: Actions `33272953771`, job `99154630406`.
+- Artifacts: package id `9720640754`, Actions digest `sha256:80dcb905eb95486208a9e0a3457050f15401c0d6ed2a2b85e0ca79f8434ac369`; dylib artifact id `9720641009`, Actions digest `sha256:99deeeb00bc1cdf2779fcc349ab604ae1ddff7a957ea1d5d911adea77dd6de7a`.
+- Extracted dylib: Mach-O 64-bit arm64, 615248 bytes, sha256 `df6c3f0b7e41b3386769f9df35d10dcb57bee4fee7e8c22c5190192dfd80a061`.
 - Status: **Code written → CI passed → Artifact produced. Runtime/manual pending.**
 
-## Runtime evidence driving alpha57
+## Runtime evidence driving alpha58
 
-Alpha56 trace `62313B1B-56B2-4F4C-A1B3-A658FDE8067D`, app `1.2026.202`:
+The user reports after extended real-device use that the existing Sync and Reload are very likely to fail. This supersedes alpha57's route-proof correction as the next production direction.
 
-- User visibly observed a page refresh after `同步最新消息`, while alpha56 incorrectly ended with `已请求客户端刷新，但页面未发生刷新。`.
-- Reload began with active attached key-window navigation controller `nav-1`, count 3.
-- The same-current route emitted a distinct `setViewControllers: 0→1`, then exact same-ID init/prepare/detail.
-- Verification resolved a **different** active attached key-window navigation controller `nav-2`, count 1. This proves the host replaced the active navigation-controller surface.
-- Exact same-ID request delivery was present and repeat-route suppression worked.
-- The old scroll/anchor-only UI detector had `baselineUI=unproven`, causing the false negative.
+Current source explains why this is plausible:
+
+- Sync performs an enhancer-owned exact-ID GET, analyzes the returned conversation, then hands off to the same manual Reload implementation.
+- Manual Reload opens the exact same conversation through a custom `com.openai.chat://chatgpt.com/c/<id>` route and observes request/UI evidence; it does not call a proven official host refresh/state-consumption owner.
+- Therefore a successful enhancer GET can prove server data exists while still failing to update the host UI.
+
+The user proposed tracing the official request/response path used when the App opens an already-finished conversation and basing the next implementation on that real path. Alpha58 implements only the evidence collection needed to test that hypothesis.
+
+## Alpha58 scope
+
+While the existing user-started `会话识别记录` is active, `CENetworkObserver` now adds sanitized correlation for relevant `conversation/init`, `conversation/prepare`, and exact detail traffic:
+
+- request stage, exact conversation ID, request top-level JSON key names only;
+- per-process opaque NSURLSession/task tokens and bounded public class/state/source information;
+- response status, size and MIME type;
+- successful detail-response structural summary (`current_node`, mapping count, latest message ID/role/status/end_turn, timestamps/content type) without message contents;
+- public completion-handler versus session-delegate completion capture markers where observable.
+
+No production Sync/Reload behavior changes in alpha58. No raw request body/header/template, Authorization, Cookie, account ID or message text is persisted.
 
 ## Current Sync/Reload behavior
 
 - `CEConversationContext` remains the sole active conversation identity authority.
-- `同步最新消息` uses the frozen exact ID and one guarded enhancer GET. HTTP 429 remains terminal for that request; no burst retry.
+- `同步最新消息` still uses the frozen exact ID and one guarded enhancer GET. HTTP 429 remains terminal for that request; no burst retry.
+- If the fetched server conversation is still generating, Sync does not force page refresh.
+- If the server result is finished, current Sync still calls the existing exact-current manual Reload path; alpha58 does not claim this path is reliable.
 - Server GET/init/prepare/detail or custom-route acceptance alone is not visible synchronization.
-- Visible success still requires exact same-ID request evidence plus UI rebuild evidence.
-- Alpha57 adds one evidence-backed UI path: if the currently active attached `UINavigationController` object is replaced between baseline and verification, that replacement counts as an ephemeral UI rebuild signal.
-- Existing scroll-view replacement / anchor-turnover proof remains supported.
-- Navigation object identity is in-memory UI evidence only; it is not persisted, is not conversation identity, and does not authorize enhancer-originated push/pop/setViewControllers.
+- Do not implement raw request replay until runtime evidence proves which official host path consumes the response and updates UI.
+
+## Prior alpha56/57 evidence retained
+
+- Alpha56 trace `62313B1B-56B2-4F4C-A1B3-A658FDE8067D` showed one visible refresh with active attached nav replacement `nav-1 → nav-2` and exact same-ID init/prepare/detail.
+- Alpha57 corrected the UI rebuild detector to accept active attached navigation-controller replacement as ephemeral UI proof when exact request delivery is also present.
+- Alpha57 reached **Code written → CI passed → Artifact produced** but later broad user runtime testing rejected route-based Sync/Reload as sufficiently reliable.
 
 ## Existing architecture / contracts
 
@@ -49,19 +66,25 @@ Alpha56 trace `62313B1B-56B2-4F4C-A1B3-A658FDE8067D`, app `1.2026.202`:
 4. `CEAPIClient` — sole enhancer-originated ChatGPT request owner; HTTP 429 is terminal for the current enhancer request.
 5. `CECatalog` — conversation catalog/title state.
 6. `CEEnhancerUI` — current exact-ID menu integration and row-scoped sidebar Rename/Export.
-7. `CEConversationUIReloadEvidence` — ephemeral UI refresh/rebuild proof; alpha57 includes active attached navigation-controller replacement in addition to scroll/anchor evidence.
-8. `CEConversationIdentityTrace` / navigation diagnostics — optional sanitized runtime evidence, never identity authority.
+7. `CEConversationUIReloadEvidence` — ephemeral UI refresh/rebuild proof only; it is not identity or refresh authority.
+8. `CEConversationIdentityTrace` / navigation/network diagnostics — optional sanitized runtime evidence, never identity authority.
 
 ## Parallel task
 
-- `DEV-conversation-usage` remains Active on `feat/conversation-usage` at `ddd5829b563a9191ad2687378123d9e53fbb232d`, candidate alpha43.
-- Alpha57 does not modify percentage-owned source/checkpoint.
+- `DEV-conversation-usage` remains Active on `feat/conversation-usage`, candidate alpha43.
+- Alpha58 does not modify percentage-owned source/checkpoint.
 
 ## Next evidence
 
-- Install alpha57 and press `同步最新消息` on the same current conversation.
-- If the page visibly refreshes, the final status should now be `✓ 当前会话页面已刷新` rather than the alpha56 false negative.
-- Do not mark Stable/Frozen until this exact artifact is runtime tested.
+Install alpha58 and record one controlled comparison:
+
+1. Start `会话识别记录` before opening the target.
+2. Use the official ChatGPT UI/sidebar to enter an already-finished conversation and wait until the latest answer is fully visible.
+3. Press `同步最新消息` once and wait for its final status.
+4. Press `重载` once and wait for its final status.
+5. Finish/export the trace.
+
+Compare official-entry `NET-REENTRY-*` transport/response structure against Sync/Reload before changing production refresh behavior.
 
 ## Evidence rule
 
