@@ -78,43 +78,86 @@ UIViewController *CETopViewController(void) { return CETopFrom(CEKeyWindow().roo
 - (void)drawTextInRect:(CGRect)rect { [super drawTextInRect:UIEdgeInsetsInsetRect(rect, UIEdgeInsetsMake(9, 14, 9, 14))]; }
 @end
 
-void CEShowMessage(NSString *message) {
+@interface CEMessagePresenter : NSObject
+@property (nonatomic, strong) CEMessageLabel *label;
+@property (nonatomic, weak) UIWindow *window;
+@property (nonatomic) NSUInteger generation;
+@property (nonatomic, strong) NSArray<NSLayoutConstraint *> *messageConstraints;
++ (instancetype)shared;
+- (void)showMessage:(NSString *)message;
+@end
+
+@implementation CEMessagePresenter
++ (instancetype)shared { static CEMessagePresenter *v; static dispatch_once_t once; dispatch_once(&once, ^{ v = [CEMessagePresenter new]; }); return v; }
+- (CEMessageLabel *)label {
+    if (_label) return _label;
+    _label = [CEMessageLabel new]; _label.textColor = UIColor.whiteColor; _label.backgroundColor = [UIColor colorWithWhite:0 alpha:0.84];
+    _label.font = [UIFont systemFontOfSize:14 weight:UIFontWeightMedium]; _label.textAlignment = NSTextAlignmentCenter; _label.numberOfLines = 3;
+    _label.layer.cornerRadius = 12; _label.layer.masksToBounds = YES; _label.translatesAutoresizingMaskIntoConstraints = NO; return _label;
+}
+- (void)showMessage:(NSString *)message {
+    if (!message.length) return;
+    UIWindow *window = CEKeyWindow(); if (!window) return;
+    NSUInteger generation = ++self.generation; CEMessageLabel *label = self.label; label.text = message;
+    if (label.superview != window) { [label removeFromSuperview]; [window addSubview:label]; self.window = window; }
+    if (self.messageConstraints.count) [NSLayoutConstraint deactivateConstraints:self.messageConstraints];
+    CGFloat upward = -MIN(MAX(CGRectGetHeight(window.bounds) * 0.08, 40.0), 75.0);
+    self.messageConstraints = @[[label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor], [label.centerYAnchor constraintEqualToAnchor:window.centerYAnchor constant:upward], [label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.84], [label.heightAnchor constraintGreaterThanOrEqualToConstant:40]];
+    [NSLayoutConstraint activateConstraints:self.messageConstraints]; [window bringSubviewToFront:label]; [label.layer removeAllAnimations]; label.alpha = 1.0;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.65 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        if (generation != self.generation) return;
+        [UIView animateWithDuration:0.22 animations:^{ label.alpha = 0; } completion:^(__unused BOOL finished) { if (generation == self.generation) [label removeFromSuperview]; }];
+    });
+}
+@end
+
+void CEShowMessage(NSString *message) { if (!message.length) return; dispatch_async(dispatch_get_main_queue(), ^{ [[CEMessagePresenter shared] showMessage:message]; }); }
+
+void CEShowAlert(NSString *title, NSString *message) {
     dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *window = CEKeyWindow(); if (!window) return;
-        for (UIView *view in [window.subviews copy]) if ([view isKindOfClass:CEMessageLabel.class]) [view removeFromSuperview];
-        CEMessageLabel *label = [CEMessageLabel new]; label.text = message ?: @""; label.font = [UIFont systemFontOfSize:14 weight:UIFontWeightSemibold]; label.textColor = UIColor.whiteColor; label.backgroundColor = [UIColor colorWithWhite:0.12 alpha:0.94]; label.layer.cornerRadius = 12; label.layer.masksToBounds = YES; label.textAlignment = NSTextAlignmentCenter; label.numberOfLines = 0; label.translatesAutoresizingMaskIntoConstraints = NO; [window addSubview:label];
-        [NSLayoutConstraint activateConstraints:@[[label.centerXAnchor constraintEqualToAnchor:window.centerXAnchor], [label.bottomAnchor constraintEqualToAnchor:window.safeAreaLayoutGuide.bottomAnchor constant:-86], [label.widthAnchor constraintLessThanOrEqualToAnchor:window.widthAnchor multiplier:0.88]]];
-        [UIView animateWithDuration:0.18 animations:^{ label.alpha = 1.0; }];
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ [UIView animateWithDuration:0.18 animations:^{ label.alpha = 0.0; } completion:^(__unused BOOL finished) { [label removeFromSuperview]; }]; });
+        UIViewController *vc = CETopViewController(); if (!vc) return;
+        UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
+        [alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:nil]]; [vc presentViewController:alert animated:YES completion:nil];
     });
 }
 
 NSString *CESanitizeFilename(NSString *name) {
     NSString *value = [name stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (!value.length) value = @"ChatGPT Conversation";
-    NSCharacterSet *invalid = [NSCharacterSet characterSetWithCharactersInString:@"/:\\?%*|\"<>\n\r\t"];
-    value = [[value componentsSeparatedByCharactersInSet:invalid] componentsJoinedByString:@"_"];
+    NSCharacterSet *bad = [NSCharacterSet characterSetWithCharactersInString:@"/:\\?%*|\"<>\n\r\t"]; value = [[value componentsSeparatedByCharactersInSet:bad] componentsJoinedByString:@"_"];
     while ([value containsString:@"__"]) value = [value stringByReplacingOccurrencesOfString:@"__" withString:@"_"];
-    if (value.length > 120) value = [value substringToIndex:120];
-    return value.length ? value : @"ChatGPT Conversation";
+    if (value.length > 120) value = [value substringToIndex:120]; return [value stringByTrimmingCharactersInSet:[NSCharacterSet characterSetWithCharactersInString:@" ._"]];
 }
 
-NSString *CEExtractConversationIDFromString(NSString *text) {
-    if (!text.length) return nil;
-    static NSRegularExpression *re; static dispatch_once_t once;
-    dispatch_once(&once, ^{ re = [NSRegularExpression regularExpressionWithPattern:@"(?i)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})" options:0 error:nil]; });
-    NSTextCheckingResult *match = [re firstMatchInString:text options:0 range:NSMakeRange(0, text.length)]; return match.numberOfRanges > 1 ? [text substringWithRange:[match rangeAtIndex:1]] : nil;
+NSString *CEExtractConversationIDFromString(NSString *value) {
+    if (!value.length) return nil;
+    static NSRegularExpression *uuidRE; static NSRegularExpression *pathRE; static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        uuidRE = [NSRegularExpression regularExpressionWithPattern:@"(?i)([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})" options:0 error:nil];
+        pathRE = [NSRegularExpression regularExpressionWithPattern:@"(?i)/(?:c|conversation)/([^/?#]{16,})" options:0 error:nil];
+    });
+    NSRange all = NSMakeRange(0, value.length); NSTextCheckingResult *m = [uuidRE firstMatchInString:value options:0 range:all];
+    if (m.numberOfRanges > 1) return [value substringWithRange:[m rangeAtIndex:1]];
+    m = [pathRE firstMatchInString:value options:0 range:all]; if (m.numberOfRanges > 1) return [value substringWithRange:[m rangeAtIndex:1]]; return nil;
 }
 
-void CESwizzleInstanceMethod(Class cls, SEL original, SEL replacement) { Method a = class_getInstanceMethod(cls, original), b = class_getInstanceMethod(cls, replacement); if (a && b) method_exchangeImplementations(a, b); }
-void CESwizzleClassMethod(Class cls, SEL original, SEL replacement) { Method a = class_getClassMethod(cls, original), b = class_getClassMethod(cls, replacement); if (a && b) method_exchangeImplementations(a, b); }
-
-NSArray<NSString *> *CECollectVisibleStrings(UIView *view, NSUInteger depth) {
-    if (!view || depth > 18) return @[];
-    NSMutableArray<NSString *> *out = [NSMutableArray array];
-    if ([view isKindOfClass:UILabel.class] && ((UILabel *)view).text.length) [out addObject:((UILabel *)view).text];
-    if ([view isKindOfClass:UITextView.class] && ((UITextView *)view).text.length) [out addObject:((UITextView *)view).text];
-    if ([view isKindOfClass:UITextField.class] && ((UITextField *)view).text.length) [out addObject:((UITextField *)view).text];
-    if ([view isKindOfClass:UIButton.class] && [((UIButton *)view) titleForState:UIControlStateNormal].length) [out addObject:[((UIButton *)view) titleForState:UIControlStateNormal]];
-    for (UIView *child in view.subviews) [out addObjectsFromArray:CECollectVisibleStrings(child, depth + 1)];
-    return out;
+static void CECollectStringsRecursive(UIView *view, NSUInteger depth, NSUInteger maxDepth, NSMutableOrderedSet<NSString *> *out) {
+    if (!view || depth > maxDepth) return;
+    BOOL syntheticConversationTitle = [view isKindOfClass:UILabel.class] && [view viewWithTag:CESyntheticConversationTitleMarkerTag] != nil;
+    if (!syntheticConversationTitle) {
+        NSArray *values = @[view.accessibilityIdentifier ?: @"", view.accessibilityLabel ?: @"", view.accessibilityValue ?: @"", [view isKindOfClass:UILabel.class] ? (((UILabel *)view).text ?: @"") : @"", [view isKindOfClass:UIButton.class] ? ([((UIButton *)view) titleForState:UIControlStateNormal] ?: @"") : @""];
+        for (NSString *value in values) { NSString *trim = [value stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet]; if (trim.length && trim.length < 240) [out addObject:trim]; }
+    }
+    for (UIView *child in view.subviews) CECollectStringsRecursive(child, depth + 1, maxDepth, out);
 }
+
+NSArray<NSString *> *CECollectVisibleStrings(UIView *view, NSUInteger maxDepth) {
+    NSMutableOrderedSet<NSString *> *set = [NSMutableOrderedSet orderedSet]; UIView *cursor = view;
+    for (NSUInteger up = 0; cursor && up < 5; up++, cursor = cursor.superview) CECollectStringsRecursive(cursor, 0, MIN(maxDepth, 5), set); return set.array;
+}
+
+BOOL CESwizzleInstanceMethod(Class cls, SEL originalSelector, SEL swizzledSelector) {
+    Method original = class_getInstanceMethod(cls, originalSelector), swizzled = class_getInstanceMethod(cls, swizzledSelector); if (!original || !swizzled) return NO;
+    BOOL added = class_addMethod(cls, originalSelector, method_getImplementation(swizzled), method_getTypeEncoding(swizzled));
+    if (added) class_replaceMethod(cls, swizzledSelector, method_getImplementation(original), method_getTypeEncoding(original)); else method_exchangeImplementations(original, swizzled); return YES;
+}
+BOOL CESwizzleClassMethod(Class cls, SEL originalSelector, SEL swizzledSelector) { return CESwizzleInstanceMethod(object_getClass(cls), originalSelector, swizzledSelector); }
