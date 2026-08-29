@@ -12,10 +12,22 @@
 ## Resume identity / conflict guard — 2026-08-30
 
 - Baseline `feat/chatgpt-enhancer-v0.1` verified unchanged at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
-- Working branch `feat/conversation-recognition` verified at `ad4a4718c498a9926ed553797ac9fb3e45df48c4`; Draft PR #2 remains open → `feat/chatgpt-enhancer-v0.1`.
+- Working branch `feat/conversation-recognition`; Draft PR #2 remains open → `feat/chatgpt-enhancer-v0.1`.
 - Parallel `DEV-conversation-usage` remains isolated on `feat/conversation-usage`, candidate alpha43. This task must not modify percentage-owned source/checkpoint.
-- No product module is Frozen. Base did not materially advance. Branch / PR / head identities match repository truth.
-- New reserved diagnostic candidate: `ENH-0.1.0-alpha58-reentry-network-trace` / `0.1.0-alpha58-reentry-network-trace`. It is unique versus recognition alpha42–57 and parallel alpha43.
+- No product module is Frozen. Base did not materially advance. Branch / PR / base identities matched repository truth before alpha58 work started.
+
+## Current candidate — alpha58
+
+- Candidate ID: `ENH-0.1.0-alpha58-reentry-network-trace`.
+- Product version: `0.1.0-alpha58-reentry-network-trace`.
+- Build/test source: `c9f9c328386e63fd409421d74d7f18c091144ad2`.
+- Actions: `33272953771`; job `99154630406` — **passed**.
+- CI bookkeeping commit: `00b1aa85cb8d02d9b4e9be300a3f3c5bfa2296a2`.
+- Post-CI cleanup head: `c0fa017e6bda0a4d91701e687abae3c8d51d3304`.
+- Package artifact: `9720640754`, Actions digest `sha256:80dcb905eb95486208a9e0a3457050f15401c0d6ed2a2b85e0ca79f8434ac369`.
+- Dylib artifact: `9720641009`, Actions digest `sha256:99deeeb00bc1cdf2779fcc349ab604ae1ddff7a957ea1d5d911adea77dd6de7a`.
+- Extracted dylib: Mach-O 64-bit arm64, 615248 bytes, sha256 `df6c3f0b7e41b3386769f9df35d10dcb57bee4fee7e8c22c5190192dfd80a061`.
+- Validation: **Code written → CI passed → Artifact produced → Runtime/manual pending.** Nothing Stable/Frozen.
 
 ## Latest authoritative user runtime evidence — 2026-08-30
 
@@ -37,31 +49,29 @@ Current source confirms the existing implementation has a structural gap:
 - `CEManualConversationReload.mm` does not invoke a proven official refresh owner. It opens `com.openai.chat://chatgpt.com/c/<exact-id>` and then observes whether same-ID network traffic and a UI rebuild happen.
 - `CEPullLatestConversationResult` performs an enhancer-owned GET `/backend-api/conversation/<exact-id>`, parses server state, and if the response is finished it calls the same `CEManualConversationReload` route path.
 - The enhancer-owned GET response is consumed by enhancer code / catalog analysis; there is no evidence that those bytes enter the official ChatGPT host view-model/reducer/UI response-consumption path.
-- Existing network trace records method/path/IDs/status and navigation correlation, but does not yet provide enough structural evidence about the successful completed-conversation response and its capture/consumer path to justify production replay.
+- Existing pre-alpha58 trace recorded method/path/IDs/status and navigation correlation, but not enough successful completed-conversation response/capture structure to justify production replay.
 
-Therefore the next change is diagnostic only: improve the user-started trace around official completed-conversation re-entry, not add another speculative refresh route or request replay.
+Therefore alpha58 changes diagnostics only. It does not add another speculative refresh route or request replay.
 
-## Planned alpha58 diagnostic scope
+## Alpha58 diagnostic scope implemented
 
-Candidate: `0.1.0-alpha58-reentry-network-trace`.
-
-Only while the existing user-started `会话识别记录` is active, capture sanitized evidence for relevant `conversation/init`, `conversation/prepare`, and exact conversation-detail traffic:
+Only while the existing user-started `会话识别记录` is active, alpha58 records sanitized evidence for relevant `conversation/init`, `conversation/prepare`, and exact conversation-detail traffic:
 
 - request stage, method/path and exact conversation ID already permitted by existing trace rules;
 - request JSON **top-level key names only**, never raw body/content;
-- public NSURLSession/task observation source and bounded class/token correlation where available, without persisting pointer addresses;
+- per-process opaque NSURLSession/task tokens plus bounded public class/state/source information where available, without persisting pointer addresses;
 - response status / byte count / MIME type;
 - for a successful exact conversation-detail response: structural JSON summary only — conversation ID, top-level keys, `current_node`, mapping count, latest message ID/role/status/end_turn, update/create/finish timestamps and content type; **no message text/content**;
 - capture-path marker showing whether the response was observed through a public completion-handler wrapper or session-delegate completion when provable.
 
-No production Sync/Reload semantics change in alpha58. No replay, `/resume`, route retry, timer/watchdog, forced navigation mutation, History/sidebar navigation or percentage work is added.
+No production Sync/Reload semantics changed. No replay, `/resume`, route retry, timer/watchdog, forced navigation mutation, History/sidebar navigation or percentage work was added.
 
 ## Prior alpha56/57 evidence retained
 
 - Alpha56 trace `62313B1B-56B2-4F4C-A1B3-A658FDE8067D` proved one same-current custom route could replace active attached nav `nav-1` with `nav-2`; exact same-ID init/prepare/detail followed and the user saw one visible refresh.
 - Alpha57 changed UI rebuild proof so nav-controller replacement could count as ephemeral UI evidence when exact request delivery was also observed.
-- Alpha57 build/test source `fe48c56350720127786670d9fe37e28280905055`; Actions `33083945220`, job `98558346397`; post-CI cleanup/current head `ad4a4718c498a9926ed553797ac9fb3e45df48c4`.
-- Alpha57 reached **Code written → CI passed → Artifact produced; Runtime/manual was Pending**. The new 2026-08-30 user result rejects treating that route-based direction as reliable production behavior.
+- Alpha57 build/test source `fe48c56350720127786670d9fe37e28280905055`; Actions `33083945220`, job `98558346397`; post-CI cleanup head `ad4a4718c498a9926ed553797ac9fb3e45df48c4`.
+- Alpha57 reached **Code written → CI passed → Artifact produced**. The new 2026-08-30 user result rejects treating that route-based direction as reliable production behavior.
 
 ## Architecture retained / rejected routes
 
@@ -71,14 +81,23 @@ No production Sync/Reload semantics change in alpha58. No replay, `/resume`, rou
 - Server GET/init/prepare/detail delivery alone is not visible Sync/Reload completion.
 - Do not manually replay init/prepare/detail yet. First prove which official host path consumes the successful response and updates UI.
 - Do not call UIKit push/pop/setViewControllers, force stack shape, use History/sidebar navigation, alternate IDs, speculative `/resume`, extra route retries, watchdogs or timers.
-- Diagnostic persistence must remain sanitized: no Authorization, Cookie, account IDs, raw request templates, full headers/bodies or message contents.
+- Diagnostic persistence remains sanitized: no Authorization, Cookie, account IDs, raw request templates, full headers/bodies or message contents.
 - Project-header work remains paused; percentage work remains untouched.
 
-## Validation state
+## Exact runtime procedure for alpha58
 
-- Alpha57: **Code written → CI passed → Artifact produced → latest broad runtime reliability rejected by user.** Not Stable/Frozen.
-- Alpha58: **Candidate identity reserved; code not yet written at this checkpoint update.**
+Use one already-finished conversation as the target and do not change targets during the recording:
+
+1. Install/inject the alpha58 dylib artifact.
+2. Start from Home or a different conversation.
+3. Begin `会话识别记录` **before** opening the target conversation.
+4. Enter the finished target conversation using ChatGPT's normal official UI/sidebar and wait until the latest answer is fully visible.
+5. Press `同步最新消息` exactly once and wait for its final visible status.
+6. Press `重载` exactly once and wait for its final visible status.
+7. Finish/export `会话识别记录` and return that trace.
+
+Do not press Sync/Reload repeatedly. The purpose is to compare one proven official entry with one Sync and one Reload in the same trace.
 
 ## Next exact action
 
-Implement the bounded alpha58 network/re-entry diagnostics on `feat/conversation-recognition`, synchronize candidate identity, build it in isolated CI, then have the user record one sequence: start trace → use official UI to enter an already-finished target conversation and wait for it to fully render → press `同步最新消息` once → press `重载` once → finish/export the trace. Compare the successful official entry path against the two enhancer actions before any production request-replay implementation.
+Analyze the returned alpha58 trace. Compare the official-entry `NET-REENTRY-TRANSPORT` / `NET-REENTRY-RESP` sequence and response-capture provenance against Sync/Reload. Only if evidence identifies a host-owned refresh/response-consumption path should the next production candidate invoke/reuse that path. If alpha58 shows only raw network equivalence but different consumption ownership, do **not** implement raw CEAPIClient replay as UI refresh.
