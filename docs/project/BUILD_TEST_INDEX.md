@@ -48,7 +48,7 @@ This file is the durable index for testable identities and evidence.
 
 ## Uniqueness rule
 
-Different Active tasks must not reuse the same build number, exact version/build tuple, artifact name, release tag or candidate ID. Once allocated, an Active candidate identity is reserved until explicitly completed/released and documented.
+Different Active tasks must not reuse the same build number, exact version/build tuple, artifact name, release tag or candidate ID. Once allocated, treat the task's candidate identity as reserved until explicitly completed/released and documented.
 
 ## Evidence labels
 
