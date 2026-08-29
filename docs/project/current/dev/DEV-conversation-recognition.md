@@ -6,84 +6,68 @@
 
 - **Work ID**: `DEV-conversation-recognition`
 - **Routing aliases / keywords**: `优化会话识别 / 会话识别 / 当前会话识别 / 会话切换识别 / 同步最新消息 / 重载 / conversation recognition / sync / reload`
-- **Task**: 精确识别 ChatGPT iOS 当前会话，并确保 Sync / Reload / Export / Rename 不串会话；当前重点重新调查官方客户端“进入一个已完成会话 → 请求服务端 → 消费响应 → 刷新当前 UI”的真实链路，再基于该证据重做 Sync / Reload。
-- **Acceptance invariant**: 当前会话动作必须使用真实 exact conversation ID。HTTP 429 不得被插件短间隔自动重试放大。插件自行 GET 成功不等于页面同步；same-ID request delivery 不等于页面 Reload；网络请求只有在官方 host 的真实响应消费/UI 更新链被证明后，才能作为 Sync/Reload 实现依据。
+- **Task**: 精确识别 ChatGPT iOS 当前会话，并确保 Sync / Reload / Export / Rename 不串会话；当前重点仍是证明官方“进入已完成会话 → host state transition → 请求/消费响应 → 刷新 UI”的真实 owner，再基于证据重做 Sync / Reload。
+- **Acceptance invariant**: 当前会话动作必须使用真实 exact conversation ID。HTTP 429 不得被插件短间隔自动重试放大。插件自行 GET 成功不等于页面同步；same-ID 请求、prepare、detail 送达都不等于页面 Reload；只有官方 host 的真实状态/响应消费/UI 更新链被证明后才能作为生产实现依据。
 
 ## Resume identity / conflict guard — 2026-08-30
 
-- Baseline `feat/chatgpt-enhancer-v0.1` verified unchanged at `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
+- Base `feat/chatgpt-enhancer-v0.1` remains `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
 - Working branch `feat/conversation-recognition`; Draft PR #2 remains open / mergeable → `feat/chatgpt-enhancer-v0.1`.
-- Before alpha59 edits, PR #2 head was verified as `c0fa017e6bda0a4d91701e687abae3c8d51d3304`, matching the alpha58 checkpoint.
-- Alpha59 build/test source is `76f83fcf6a53bebd4c8067b2bde44a4edb4a0dfc`; CI bookkeeping commit `21d7e92443052cec1afc8aaa1576b7d773e56138` was verified to modify only `.github/latest-enhancer-run-id`; post-CI cleanup/current PR head is `e86b8670fb8de4888e76fdc41f84f4e226275136`.
-- Parallel `DEV-conversation-usage` remains on `feat/conversation-usage`, candidate alpha43, PR #3 stacked on `feat/conversation-recognition`. Its changed source is percentage-specific plus shared candidate/build identity files (`CECore.mm`, `build.sh`, workflow/bootstrap). This recognition task does not modify the percentage-owned UI/model files or its checkpoint. Advancing the recognition branch is an expected stacked-base change; the percentage branch must be reconciled in its own task before its next final validation.
-- No product module is Frozen. Base remains `c9602a0ccf3060f053f13b121b5c0c5bdf14aaf8`.
+- Alpha60 build/test source `8d371801c764b4a8da95e44e74c0a99fa3a0b126`; CI bookkeeping `192ad870a1fb8417d0616ff941966ad4049ab7f5` changed only `.github/latest-enhancer-run-id`; post-CI cleanup/current PR head `c0431e83d29299d8da22d2e8089e392a0936511d`.
+- Compare `8d371801... → c0431e83...` changes only `.github/latest-enhancer-run-id` plus removal of the temporary recognition-branch CI trigger; tested product source is unchanged.
+- Parallel `DEV-conversation-usage` remains isolated on `feat/conversation-usage`, candidate alpha43, PR #3 stacked on `feat/conversation-recognition`. Recognition work does not modify its percentage-owned UI/model files or checkpoint. Because the stacked base keeps advancing, usage must reconcile in its own task before its next final validation.
+- No product module is Frozen.
 
-## Current candidate — alpha59
+## Current candidate — alpha60
 
-- Candidate ID: `ENH-0.1.0-alpha59-runtime-owner-map`.
-- Product version: `0.1.0-alpha59-runtime-owner-map`.
-- Branch: `feat/conversation-recognition`; Draft PR #2.
-- Build/test source: `76f83fcf6a53bebd4c8067b2bde44a4edb4a0dfc`.
-- Actions run `33273831978`; job `99156971862` — **passed**.
-- CI bookkeeping commit: `21d7e92443052cec1afc8aaa1576b7d773e56138` — only `.github/latest-enhancer-run-id` changed.
-- Post-CI cleanup/current PR head: `e86b8670fb8de4888e76fdc41f84f4e226275136`.
-- Package artifact: id `9720892970`, Actions digest `sha256:41838f67c629f3cf50e3d18260b304c65b57cec3dcddd1ad6df232256d471709`.
-- Dylib artifact: id `9720893086`, Actions archive digest `sha256:3907409a25eaaa40c8dfe954bc7dc53aa4cad802ad4fe4a801d7dca7fb5d4044`.
-- Extracted dylib: Mach-O 64-bit arm64, 633984 bytes, sha256 `a84a06d9ec29f2e9bdb84d7e35438939f9303d94bf01e969264ef26c0e9aa801`.
+- Candidate ID: `ENH-0.1.0-alpha60-runtime-image-map`.
+- Product version: `0.1.0-alpha60-runtime-image-map`.
+- Build/test source: `8d371801c764b4a8da95e44e74c0a99fa3a0b126`.
+- Actions run `33274357066`; job `99158361042` — **passed**.
+- CI bookkeeping: `192ad870a1fb8417d0616ff941966ad4049ab7f5`.
+- Post-CI cleanup/current PR head: `c0431e83d29299d8da22d2e8089e392a0936511d`.
+- Package artifact: id `9721043070`, Actions digest `sha256:a08284ace0c5ae8bd381ec5515d4ffc5cfda39b02a3186a4806aa29a4283ff03`.
+- Dylib artifact: id `9721043178`, Actions archive digest `sha256:297f910d780a19e3f0212cb1c6fb9cb006144847c281f2e0ee406bf0f9c82338`.
+- Extracted dylib: Mach-O 64-bit arm64, 634272 bytes, sha256 `1b227794c9133f022a26bc3a59aa60091984a06b7a31545f0fc840ce10ef0e95`.
 - Validation: **Code written → CI passed → Artifact produced. Runtime/manual pending.** Nothing Stable/Frozen.
 
-### Alpha59 evidence-backed scope
+### Alpha60 diagnostic scope
 
-Alpha58 already proved that official finished-conversation entry and failed same-current Reload share the same low-level `__NSURLSessionLocal` transport but differ in host state semantics, and that existing public completion/delegate hooks do not reveal the successful detail-response consumer. Alpha59 therefore does **not** add another network replay or unknown private hook.
+Alpha59 exposed a blind spot: its runtime-owner mapper filtered classes by exact raw `class_getImageName(cls) == _dyld_get_image_name(0)` string equality. Trace `897A6818-776A-44FC-84BA-21E0501A6A9A` returned `hostClasses=0`, but that alone cannot prove “no main-image ObjC classes” because iOS path aliases such as `/var/...` versus `/private/var/...` can make equivalent image paths compare unequal.
 
-A new diagnostic module `CEHostRuntimeOwnerTrace` is started only from the existing `CEBootstrap` owner. While the user-started identity trace is active and `CEConversationContext` changes to an exact target, it:
+Alpha60 changes diagnostics only:
 
-1. enumerates Objective-C runtime classes owned by the ChatGPT main executable without invoking their methods;
-2. for App `1.2026.202`, maps the exact `ChatGPT + offset` frames already observed in alpha58 (`76920605`, `48186293`, `76937441`, `82300348`, `82123672`, `1884732`, `12860372`) to the nearest main-image Objective-C method IMP offsets;
-3. records signed delta and a `near64k` marker so a merely distant nearest symbol cannot be mistaken for proof;
-4. emits a bounded inventory of main-image class names containing `conversation/chat/thread/message/history/route/sidebar/navigation` and up to 24 related selectors per class;
-5. if the installed ChatGPT version is not exactly `1.2026.202`, marks the alpha58 offset map non-comparable and does not apply those numeric references.
+1. canonicalize main executable, class-image and app-bundle paths before ownership comparison;
+2. independently verify main-image ownership through each method IMP's `dladdr(...).dli_fbase == mainBase`, so raw path mismatch cannot hide a true main-image method;
+3. run direct `dladdr` resolution on the already-observed App `1.2026.202` `ChatGPT + offset` references and record image/symbol/symbol-start delta without persisting raw pointer addresses;
+4. enumerate only bounded conversation/chat/thread/message/history/route/sidebar/navigation-related runtime classes located inside the ChatGPT App bundle and record the owning image basename;
+5. invoke or swizzle none of the discovered methods; production Sync/Reload remains unchanged.
 
-This diagnostic persists no raw pointer addresses, request/response bodies, message contents, Authorization, Cookie, account IDs or request templates. It does not invoke discovered selectors, swizzle unknown private methods, originate requests, mutate navigation, or change Sync/Reload behavior.
+No Authorization, Cookie, account IDs, raw request/response bodies, request templates, message contents or raw pointer addresses are persisted.
 
-## Superseded candidate — alpha58
+## Authoritative alpha59 runtime evidence — trace 897A6818-776A-44FC-84BA-21E0501A6A9A
 
-- Candidate ID: `ENH-0.1.0-alpha58-reentry-network-trace`.
-- Product version: `0.1.0-alpha58-reentry-network-trace`.
-- Build/test source: `c9f9c328386e63fd409421d74d7f18c091144ad2`.
-- Actions: `33272953771`; job `99154630406` — **passed**.
-- CI bookkeeping commit: `00b1aa85cb8d02d9b4e9be300a3f3c5bfa2296a2`.
-- Post-CI cleanup head: `c0fa017e6bda0a4d91701e687abae3c8d51d3304`.
-- Package artifact: `9720640754`, Actions digest `sha256:80dcb905eb95486208a9e0a3457050f15401c0d6ed2a2b85e0ca79f8434ac369`.
-- Dylib artifact: `9720641009`, Actions digest `sha256:99deeeb00bc1cdf2779fcc349ab604ae1ddff7a957ea1d5d911adea77dd6de7a`.
-- Extracted dylib: Mach-O 64-bit arm64, 615248 bytes, sha256 `df6c3f0b7e41b3386769f9df35d10dcb57bee4fee7e8c22c5190192dfd80a061`.
-- Validation: **Code written → CI passed → Artifact produced → Runtime/manual partially tested.** Nothing Stable/Frozen.
+App `1.2026.202`, enhancer `0.1.0-alpha59-runtime-owner-map`.
 
-## Authoritative alpha58 runtime evidence — trace E74DA953-6BB5-4A92-87DF-474142BD37C7
-
-App `1.2026.202`, enhancer `0.1.0-alpha58-reentry-network-trace`.
-
-1. A normal official entry into a finished target conversation emitted the exact sequence `POST /backend-api/conversation/init` → `POST /backend-api/f/conversation/prepare` → `GET /backend-api/conversation/<exact-id>`.
-2. The exact init body contained only `conversation_id` and `timezone_offset_min`. The exact prepare body exposed the expected structural keys including `action`, `client_prepare_dispatch`, `client_prepare_source`, `conversation_id`, `model`, `parent_message_id`, buffering/encoding fields, timezone fields, and related flags; no raw values are persisted by the trace.
-3. All three official requests were observed at `NSURLSessionTask resume` on the same public transport owner: opaque `session-1`, class `__NSURLSessionLocal`.
-4. The two tested Reload attempts did **not** reproduce the official sequence. Each route produced only one exact detail GET on the same `session-1`, with no exact init/prepare preceding it.
-5. Both Reload attempts proved same-ID detail request delivery but produced no UI rebuild across the full verification window; each correctly ended with `requestObserved=YES`, `uiRebuildObserved=NO`.
-6. Alpha58 did not capture a `NET-REENTRY-RESP` / completion-handler / session-delegate response-consumption record for the official detail request, despite seeing its resume path. Therefore the actual successful response consumer remains below/aside from the currently hooked Objective-C completion/delegate surfaces or otherwise unobserved.
-7. This trace rejects the simplified hypothesis “re-send the detail GET and the current page will refresh.” A raw detail GET is demonstrably insufficient in this runtime. It also shows that reproducing request URLs alone is not enough evidence to replay init/prepare: the missing piece is still the official host state/response consumer.
-8. Current Sync still performs enhancer-owned GET + existing Reload handoff. In this trace the subsequent Reload again only delivered detail and did not rebuild UI, so Sync remains structurally incapable of proving visible refresh.
+1. Official entry into finished conversation `6a9343e3-5650-83ee-8d4e-cd0e1e21a361` again emitted exact `init → prepare → detail` on the same `session-1`: init at `1788036103011`, prepare +83 ms, detail +2 ms after prepare.
+2. Alpha59's runtime mapper then emitted `RUNTIME-OWNER ... hostClasses=0 hostMethods=0 semanticClasses=0`. This is **inconclusive diagnostic output**, not proof that the relevant ChatGPT path has no ObjC runtime representation, because the mapper used raw image-path equality.
+3. Reload began from exact current ID and the same attached `SwiftUI.UIKitNavigationController` `nav-1`, count 1. The custom route opened successfully.
+4. Reload emitted exact detail GET first (`task-5`) about 58 ms after `open-route`, then an exact prepare (`task-6`) about 355 ms after that detail. **No exact init appeared.**
+5. Despite detail + exact prepare delivery, the active nav instance stayed `nav-1`, no UI disappear/rebuild was observed across all 14 verification polls, and Reload correctly finished failure: `requestObserved=YES`, `uiRebuildObserved=NO`.
+6. This supersedes the overly simple alpha58 statement that failed Reload always produces “detail only”. The durable distinction is stronger: the official successful path begins with exact init and quickly runs `init → prepare → detail`; a failed same-current route may produce `detail → prepare` without init and still not refresh the UI.
+7. Therefore **prepare presence is not Reload completion evidence**, and manually replaying `prepare` remains unjustified. The missing official state transition / init owner is still the important boundary to identify.
+8. No `NAV-MUTATION` occurred in this run; the modern side-menu/SwiftUI host can change/open a conversation without the older public UINavigationController mutation pattern being visible. Old nav traces remain historical evidence, not a universal transition recipe.
 
 ## Architecture retained / rejected routes
 
-- `CEConversationContext` remains sole active identity authority; only validated exact `conversation/init` body ID may promote foreground identity.
-- `CENetworkObserver` remains sole passive official-network observation owner.
-- `CEAPIClient` remains sole enhancer-originated ChatGPT request owner.
+- `CEConversationContext` remains the sole active identity authority; only validated exact `POST /backend-api/conversation/init` body ID may promote foreground identity.
+- `CENetworkObserver` remains sole passive official-network observation owner; `CEAPIClient` remains sole enhancer-originated ChatGPT request owner.
 - Server GET/init/prepare/detail delivery alone is not visible Sync/Reload completion.
-- Do not manually replay init/prepare/detail yet. First prove which official host path consumes the successful response and updates UI.
-- Do not call UIKit push/pop/setViewControllers, force stack shape, use History/sidebar navigation, alternate IDs, speculative `/resume`, extra route retries, watchdogs or timers.
-- Do not invoke alpha59-discovered private selectors merely because they are near a stack offset. Near-symbol evidence is candidate-owner evidence only; invocation requires a separate runtime proof.
-- Diagnostic persistence remains sanitized: no Authorization, Cookie, account IDs, raw request templates, full headers/bodies or message contents.
+- Do not manually replay init/prepare/detail; do not infer success from prepare being emitted.
+- Do not call UIKit push/pop/setViewControllers, force stack shape, use History/sidebar automation, alternate IDs, speculative `/resume`, retries, timers or watchdogs.
+- Do not invoke a private selector merely because runtime mapping places it near a stack offset. Symbol proximity is candidate-owner evidence only.
 - Project-header work remains paused; percentage work remains untouched.
 
 ## Next exact action
 
-Runtime-test the exact alpha59 artifact on ChatGPT App `1.2026.202`: start `会话识别记录` from Home or a different conversation, enter one already-finished target via normal official UI/sidebar, wait until fully rendered, press Reload exactly once and wait for its final status, then finish/export the trace. Analyze `RUNTIME-OWNER`, `RUNTIME-OWNER-REF`, `RUNTIME-OWNER-CLASS` together with official `NAV-MUTATION` / `REFRESH-PATH` and failed Reload evidence. If the reference frames map closely to a semantically plausible Objective-C owner, design only a later narrow observation/invocation proof; if they do not, treat that as evidence that the important frames are likely pure Swift/non-Objective-C and do not guess private selectors.
+Runtime-test the exact alpha60 artifact on the same ChatGPT App `1.2026.202`: start `会话识别记录` from Home or another conversation, enter one already-finished target normally, wait until rendered, press Reload exactly once, wait for final status, then export the trace. Analyze `RUNTIME-OWNER-DLADDR`, `RUNTIME-OWNER`, `RUNTIME-OWNER-REF`, and `RUNTIME-OWNER-CLASS` together with official `init → prepare → detail` and failed Reload ordering. If direct symbols/main-IMP mapping remains empty after canonicalization and IMP-base verification, treat that as stronger evidence the key owner is pure Swift/non-ObjC and move the next diagnostic to Swift/runtime metadata rather than guessing selectors.
