@@ -1,13 +1,13 @@
 name: Build ChatGPTEnhancer
-# alpha57 treats replacement of the active attached UINavigationController as ephemeral UI rebuild proof when exact same-ID request delivery is also observed
-# production Sync/Reload keeps exact identity, delivery-aware route suppression, terminal 429 handling, and existing scroll/anchor rebuild proof
-# no production navigation mutation, request replay, project-header work, or percentage work is added
+# alpha58 is diagnostic-only: capture sanitized official completed-conversation re-entry request/response structure and public transport/capture provenance
+# production Sync/Reload behavior remains unchanged; no request replay, route retry, navigation mutation, percentage work, or raw message/auth persistence is added
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -37,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha57-navigation-rebuild-proof
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha57-navigation-rebuild-proof.zip
+          name: ChatGPTEnhancer-0.1.0-alpha58-reentry-network-trace
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha58-reentry-network-trace.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha57-navigation-rebuild-proof-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha58-reentry-network-trace-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
