@@ -13,7 +13,7 @@ This file contains evidence-backed rules specific to this repository/product.
 
 - Do not hard-code private ChatGPT Swift class names while a public UIKit/Foundation runtime alternative exists.
 - Sensitive Authorization/cookie/account/request-template material copied from the host app remains memory-only and must not be persisted.
-- User-started diagnostic persistence may store only minimum sanitized identity-correlation evidence: conversation ID/title and structural menu/request/UI metadata are allowed. Refresh-path investigation may additionally store bounded view-controller/navigation class names, observation-source labels, stage labels such as exact/ID-less init/prepare, before/after public navigation-stack composition, and sanitized bounded call-stack symbols. Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents remain prohibited.
+- User-started diagnostic persistence may store only minimum sanitized identity-correlation evidence: conversation ID/title and structural menu/request/UI metadata are allowed. Refresh-path investigation may additionally store bounded view-controller/navigation class names, observation-source labels, stage labels such as exact/ID-less init/prepare, before/after public navigation-stack composition, sanitized bounded call-stack symbols, bounded runtime class/selector/image-basename evidence, and symbol-relative offsets/deltas that do not persist raw pointer addresses. Authorization, Cookie, account IDs, raw request templates, full headers, raw request/response bodies and message contents remain prohibited.
 - Enhancer compile target is arm64 iOS 17.0 and current build links Foundation, UIKit, QuartzCore and CoreGraphics.
 - Compatibility changes for undocumented ChatGPT runtime/backend behavior require current source/runtime evidence, not guessed API structure.
 
@@ -30,12 +30,13 @@ This file contains evidence-backed rules specific to this repository/product.
 - Title-only matching is not sufficient authority for current/destructive actions; sidebar title is permitted only to enumerate candidates and cannot silently resolve duplicates.
 - Official Share-create body `conversation_id` is proven action-scoped ground truth, but `/share/create` is side-effectful and must never be invoked silently just to discover identity.
 - **Server Sync GET success is not visible synchronization.** It proves server-state retrieval only.
-- **Reload/request delivery is not Reload completion.** `openURL(...)=YES` or a same-ID conversation detail request proves delivery only; UI refresh/rebuild must also be proven before success is reported.
+- **Reload/request delivery is not Reload completion.** `openURL(...)=YES`, a same-ID detail request, or a same-ID prepare request proves delivery only; UI refresh/rebuild must also be proven before success is reported.
+- **Prepare presence is not host refresh ownership.** Alpha59 real-device evidence on App `1.2026.202` showed a failed same-current Reload can emit exact `detail → prepare` with no exact init and no UI rebuild. Do not treat prepare as completion evidence and do not manually originate/replay prepare merely to make the observed request sequence look more official.
 - **Once exact same-ID request delivery is proven, do not automatically repeat the same refresh route merely because the UI did not rebuild.** Continue observing the existing proof window and fail truthfully if the page remains unchanged. Alternate same-ID delivery is permitted only when prior route delivery produced no same-ID request evidence.
-- **Genuine host navigation traffic is evidence of a host state transition, not a replay recipe.** Alpha52–54 runtime evidence shows genuine navigation reaches exact `conversation/init → prepare → detail` only after/while the public navigation structure is in the genuine-navigation state. Do not manually replay init/prepare requests and assume the host UI will rebuild; the actual host-side navigation/refresh owner must be evidenced first.
-- **Navigation-stack count/composition is diagnostic evidence only.** Alpha54 observed ID-less staging at public navigation depth 2, exact target navigation at depth 3, and failed same-current custom-route detail at depth 1. This does not authorize force-restoring a stack, UIKit push/pop, or hard-coding observed Swift controller classes.
-- **The selected Objective-C NSURLSession task-creation selectors are runtime-rejected as the upstream semantic-request path for app `1.2026.202`.** Alpha54 emitted zero `REFRESH-CREATE` records while 14 refresh-relevant downstream observations were captured. Do not keep adding diagnostics to those same selectors expecting to discover the host navigation caller. The exact higher-level Foundation/Swift API remains Unknown / Unverified.
-- **Downstream call-stack equality is not host-entry evidence.** Alpha53/54 common observer signatures were identical across genuine and failed paths; do not infer the host navigation owner from them.
+- **Genuine host navigation traffic is evidence of a host state transition, not a replay recipe.** Runtime evidence shows genuine finished-chat entry can start with exact `conversation/init → prepare → detail`; failed same-current routes can differ in order/content and still produce network delivery without UI update. Do not manually replay init/prepare/detail and assume the host UI will rebuild; the actual host-side state/response-consumption owner must be evidenced first.
+- **Navigation-stack count/composition is diagnostic evidence only.** Older traces observed genuine-navigation and route-specific public navigation differences, while alpha59 observed no `NAV-MUTATION` at all during a successful official entry on the modern SwiftUI side-menu host. Do not force-restoring a stack, UIKit push/pop, or hard-code observed Swift controller classes as a universal transition mechanism.
+- **The selected Objective-C NSURLSession task-creation selectors are runtime-rejected as the upstream semantic-request path for app `1.2026.202`.** Alpha54 emitted zero `REFRESH-CREATE` records while refresh-relevant downstream observations were captured. Do not keep adding diagnostics to those same selectors expecting to discover the host navigation caller. The exact higher-level Foundation/Swift API remains Unknown / Unverified.
+- **Downstream call-stack equality is not host-entry evidence.** Common downstream observer signatures can be identical across genuine and failed paths; do not infer the host navigation owner from equality alone.
 - **Reload UI refresh/rebuild is not interrupted-generation recovery.** A rebuilt page that remains `正在思考` is not proof that the old stream resumed or terminated correctly.
 - HTTP 429 is terminal for the current enhancer request; do not amplify server throttling with short automatic 429 retries. Numeric `Retry-After` may be surfaced when present; do not invent quota thresholds or cooldowns.
 - Enhancer-generated project conversation titles are presentation only and must never become identity evidence.
@@ -56,7 +57,7 @@ No product module is currently marked Frozen, but these confirmed contracts must
 - Generic/background official traffic does not determine foreground identity.
 - Arbitrary UUID syntax is not conversation identity evidence.
 - Sync GET success is not page synchronization.
-- Request delivery is not page reload completion.
+- Request, detail, or prepare delivery is not page reload completion.
 - Repeated same-route delivery after request delivery is already proven is prohibited without new runtime evidence.
 - Genuine navigation init/prepare/detail traffic must not be treated as authorization to replay those requests from the enhancer.
 - A `navCount` or navigation-stack composition difference alone cannot justify navigation-stack mutation or UIKit push/pop.
@@ -76,16 +77,17 @@ No product module is currently marked Frozen, but these confirmed contracts must
 - Do not silently choose first/newest among duplicate sidebar-title candidates.
 - Do not add Sync/Reload to sidebar long-press menus.
 - Do not restore arbitrary UUID/title/source candidate guessing as current-chat action authority.
-- Do not persist Authorization, cookies, account IDs, raw host request templates, full headers, raw bodies or message contents.
+- Do not persist Authorization, cookies, account IDs, raw host request templates, full headers, raw bodies, message contents or raw pointer addresses.
 - Do not introduce a second active-conversation authority, request client, catalog authority or feature-local UI hook framework without an explicit architectural decision.
 - Do not treat visible title, Rename prefill, Share title or arbitrary menu/config UUID as proof of current conversation ID.
 - Do not silently invoke `/backend-api/share/create` for identity.
 - Do not add speculative `/resume`, generation retry loop, watchdog or forced terminal-status override because a page is stuck at `正在思考`; first capture the host's real request/error/status sequence.
-- Do not treat the diagnostic A→B→A navigation sequence as authorization to implement History/sidebar navigation as production Reload. It is evidence collection only.
-- Do not manually originate/replay `conversation/init` or `conversation/prepare` merely because genuine navigation emits those requests; network consequences are not the host UI state owner.
+- Do not treat diagnostic navigation sequences as authorization to implement History/sidebar navigation as production Reload.
+- Do not manually originate/replay `conversation/init` or `conversation/prepare` merely because genuine navigation emits those requests, or because failed Reload later emits prepare; network consequences are not the host UI state owner.
 - Do not force navigation-stack restoration from `navCount` or stack composition alone.
 - Do not keep extending the alpha54 `REFRESH-CREATE` instrumentation at the same Objective-C NSURLSession task-creation selectors after the zero-hit runtime result.
 - Diagnostic observation of public `UINavigationController` stack mutation entry points is allowed when user-started, bounded and non-mutating; observing those methods does not authorize calling them as a refresh implementation.
+- Runtime symbol/class proximity is diagnostic evidence only. Do not invoke or swizzle a private selector solely because `dladdr`/IMP-offset mapping places it near an observed `ChatGPT + offset` frame.
 - Do not treat legacy `GPTWebKit` WebView/native behavior as current enhancer architecture by default.
 
 ## Rule maintenance
