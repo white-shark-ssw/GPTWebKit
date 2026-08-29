@@ -1,12 +1,13 @@
 name: Build ChatGPTEnhancer
-# alpha58 is diagnostic-only: capture sanitized official completed-conversation re-entry request/response structure and public transport/capture provenance
-# production Sync/Reload behavior remains unchanged; no request replay, route retry, navigation mutation, percentage work, or raw message/auth persistence is added
+# alpha59 is diagnostic-only: map alpha58 ChatGPT stack offsets to nearby host Objective-C runtime methods and enumerate bounded conversation-related runtime classes/selectors
+# production Sync/Reload behavior remains unchanged; no private selector invocation, request replay, navigation mutation, percentage work, or sensitive payload persistence is added
 
 on:
   workflow_dispatch:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -36,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha58-reentry-network-trace
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha58-reentry-network-trace.zip
+          name: ChatGPTEnhancer-0.1.0-alpha59-runtime-owner-map
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha59-runtime-owner-map.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha58-reentry-network-trace-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha59-runtime-owner-map-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
