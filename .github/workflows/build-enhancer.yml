@@ -1,5 +1,5 @@
 name: Build ChatGPTEnhancer
-# alpha59 is diagnostic-only: map alpha58 ChatGPT stack offsets to nearby host Objective-C runtime methods and enumerate bounded conversation-related runtime classes/selectors
+# alpha60 is diagnostic-only: repair runtime image ownership mapping, resolve known ChatGPT offsets with dladdr, and inventory bounded app-bundle conversation-related runtime classes/selectors
 # production Sync/Reload behavior remains unchanged; no private selector invocation, request replay, navigation mutation, percentage work, or sensitive payload persistence is added
 
 on:
@@ -7,6 +7,7 @@ on:
   push:
     branches:
       - feat/chatgpt-enhancer-v0.1
+      - feat/conversation-recognition
     paths:
       - 'ChatGPTEnhancer/**'
       - '.github/workflows/build-enhancer.yml'
@@ -36,12 +37,12 @@ jobs:
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha59-runtime-owner-map
-          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha59-runtime-owner-map.zip
+          name: ChatGPTEnhancer-0.1.0-alpha60-runtime-image-map
+          path: ChatGPTEnhancer/build/ChatGPTEnhancer-0.1.0-alpha60-runtime-image-map.zip
           if-no-files-found: error
       - name: Upload dylib
         uses: actions/upload-artifact@v4
         with:
-          name: ChatGPTEnhancer-0.1.0-alpha59-runtime-owner-map-dylib
+          name: ChatGPTEnhancer-0.1.0-alpha60-runtime-image-map-dylib
           path: ChatGPTEnhancer/build/ChatGPTEnhancer.dylib
           if-no-files-found: error
